@@ -1,7 +1,7 @@
 use crate::{
-    CalculationContext, CalendarDuration, ClockTime, Date, Diagnostic, DiagnosticKind, Lexeme,
-    LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Span, Unit, UtcOffset,
-    lex_with_number_format,
+    CalculationContext, CalendarDuration, ClockTime, Currency, Date, Diagnostic, DiagnosticKind,
+    Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Span, Unit,
+    UtcOffset, lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +69,7 @@ pub enum ConversionTarget {
         denominator: Unit,
     },
     UtcOffset(UtcOffset),
+    Currency(Currency),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +85,11 @@ pub enum Expression {
     Unit {
         value: Number,
         unit: Unit,
+        span: Span,
+    },
+    Money {
+        amount: Number,
+        currency: Currency,
         span: Span,
     },
     Date {
@@ -155,6 +161,7 @@ impl Expression {
             Self::Number { span, .. }
             | Self::Boolean { span, .. }
             | Self::Unit { span, .. }
+            | Self::Money { span, .. }
             | Self::Date { span, .. }
             | Self::Clock { span, .. }
             | Self::OffsetDateTime { span, .. }
@@ -188,6 +195,7 @@ pub fn parse_with_context(
         tokens,
         position: 0,
         number_format: context.number_format,
+        default_currency: context.monetary.default_currency,
     };
 
     let expression = parser.parse_expression(0)?;
@@ -202,6 +210,7 @@ struct Parser<'a> {
     tokens: Vec<Lexeme>,
     position: usize,
     number_format: NumberFormat,
+    default_currency: Currency,
 }
 
 impl Parser<'_> {
@@ -284,18 +293,7 @@ impl Parser<'_> {
                     return self.parse_clock_time();
                 }
                 self.position += 1;
-                let source = &self.source[token.span.start..token.span.end];
-                let normalized = self.number_format.normalize(source).ok_or_else(|| {
-                    Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
-                })?;
-                let value = Number::parse_decimal(&normalized).map_err(|error| match error {
-                    NumberParseError::Invalid => {
-                        Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
-                    }
-                    NumberParseError::TooLarge => {
-                        Diagnostic::new(DiagnosticKind::NumberTooLarge, token.span)
-                    }
-                })?;
+                let value = self.parse_number_value(token)?;
                 let (value, span) = if let Some((factor, scalar)) = self.scalar() {
                     self.position += 1;
                     (
@@ -305,7 +303,14 @@ impl Parser<'_> {
                 } else {
                     (value, token.span)
                 };
-                if let Some((months_per_unit, calendar_token)) = self.calendar_unit() {
+                if let Some((currency, currency_token)) = self.currency_at(0) {
+                    self.position += 1;
+                    Ok(Expression::Money {
+                        amount: value,
+                        currency,
+                        span: span.join(currency_token.span),
+                    })
+                } else if let Some((months_per_unit, calendar_token)) = self.calendar_unit() {
                     let count = value.exact_i64().ok_or_else(|| {
                         Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)
                     })?;
@@ -328,6 +333,8 @@ impl Parser<'_> {
                     Ok(Expression::Number { value, span })
                 }
             }
+            LexemeKind::CurrencySymbol => self.parse_prefixed_money(),
+            LexemeKind::Word if self.currency_at(0).is_some() => self.parse_prefixed_money(),
             LexemeKind::Word if self.month_at(0).is_some() => self.parse_named_date(true),
             LexemeKind::Word if self.temporal_keyword().is_some() => {
                 let keyword = self.temporal_keyword().expect("guard checked the keyword");
@@ -417,6 +424,74 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn parse_number_value(&self, token: Lexeme) -> Result<Number, Diagnostic> {
+        let source = &self.source[token.span.start..token.span.end];
+        let normalized = self.number_format.normalize(source).ok_or_else(|| {
+            Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
+        })?;
+        Number::parse_decimal(&normalized).map_err(|error| match error {
+            NumberParseError::Invalid => {
+                Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
+            }
+            NumberParseError::TooLarge => {
+                Diagnostic::new(DiagnosticKind::NumberTooLarge, token.span)
+            }
+        })
+    }
+
+    fn parse_prefixed_money(&mut self) -> Result<Expression, Diagnostic> {
+        let (currency, currency_token) = self
+            .currency_at(0)
+            .expect("money prefix is a recognized currency");
+        self.position += 1;
+        let Some(number_token) = self.current() else {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                "expected an amount after the currency",
+            ));
+        };
+        if number_token.kind != LexemeKind::Number {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedToken,
+                number_token.span,
+                "expected an amount after the currency",
+            ));
+        }
+        let mut amount = self.parse_number_value(number_token)?;
+        self.position += 1;
+        let mut span = currency_token.span.join(number_token.span);
+        if let Some((factor, scalar)) = self.scalar() {
+            amount = amount.multiply(Number::from_i64(factor));
+            span = span.join(scalar.span);
+            self.position += 1;
+        }
+        Ok(Expression::Money {
+            amount,
+            currency,
+            span,
+        })
+    }
+
+    fn currency_at(&self, offset: usize) -> Option<(Currency, Lexeme)> {
+        let token = *self.tokens.get(self.position + offset)?;
+        let source = &self.source[token.span.start..token.span.end];
+        let currency = match token.kind {
+            LexemeKind::CurrencySymbol => match source {
+                "$" => self.default_currency,
+                "€" => Currency::Eur,
+                "£" => Currency::Gbp,
+                "¥" => Currency::Jpy,
+                "₹" => Currency::Inr,
+                "₩" => Currency::Krw,
+                _ => return None,
+            },
+            LexemeKind::Word => Currency::from_code(source)?,
+            _ => return None,
+        };
+        Some((currency, token))
     }
 
     fn starts_iso_datetime(&self) -> bool {
@@ -699,7 +774,10 @@ impl Parser<'_> {
 
         let mut consumed = 2;
         let mut target_span = target_token.span;
-        let target = if let Some((offset, offset_tokens, span)) = self.utc_offset_at(1) {
+        let target = if let Some((currency, token)) = self.currency_at(1) {
+            target_span = token.span;
+            ConversionTarget::Currency(currency)
+        } else if let Some((offset, offset_tokens, span)) = self.utc_offset_at(1) {
             consumed = 1 + offset_tokens;
             target_span = span;
             ConversionTarget::UtcOffset(offset)

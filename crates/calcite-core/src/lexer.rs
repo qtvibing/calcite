@@ -4,6 +4,7 @@ use crate::{Diagnostic, DiagnosticKind, NumberFormat, Span};
 pub enum LexemeKind {
     Number,
     Word,
+    CurrencySymbol,
     Whitespace,
     Plus,
     Minus,
@@ -102,6 +103,7 @@ pub fn lex_with_number_format(
                 ':' => LexemeKind::Colon,
                 ',' => LexemeKind::Comma,
                 '%' => LexemeKind::Percent,
+                '$' | '€' | '£' | '¥' | '₹' | '₩' => LexemeKind::CurrencySymbol,
                 '=' if source[index..].starts_with('=') => {
                     index += 1;
                     LexemeKind::EqualEqual

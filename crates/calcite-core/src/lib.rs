@@ -5,6 +5,7 @@ mod evaluator;
 mod formatter;
 mod fraction;
 mod lexer;
+mod money;
 mod number;
 mod parser;
 mod percentage;
@@ -22,6 +23,7 @@ pub use evaluator::{Value, evaluate, evaluate_with_context};
 pub use formatter::{format, format_with_context};
 pub use fraction::Fraction;
 pub use lexer::{Lexeme, LexemeKind, lex, lex_with_number_format};
+pub use money::{Currency, ExchangeRates, InvalidExchangeRate, MonetaryContext, Money};
 pub use number::{Number, NumberParseError};
 pub use parser::{
     BinaryOperator, ConversionTarget, Expression, TemporalKeyword, UnaryOperator, parse,

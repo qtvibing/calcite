@@ -77,6 +77,18 @@ fn evaluates_natural_calendar_arithmetic() {
 }
 
 #[test]
+fn evaluates_typed_money_without_hiding_currency() {
+    let output = calcite()
+        .args(["$100", "+", "10%"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "110 USD\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn converts_offset_date_times() {
     let output = calcite()
         .args(["2025-03-08T14:30:00+02:00", "in", "UTC"])

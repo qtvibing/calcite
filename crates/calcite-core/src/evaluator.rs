@@ -4,7 +4,7 @@ use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, ConversionTarget, Date,
-    Diagnostic, DiagnosticKind, Expression, Fraction, Number, NumericError, OffsetDateTime,
+    Diagnostic, DiagnosticKind, Expression, Fraction, Money, Number, NumericError, OffsetDateTime,
     Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue, parse_with_context,
 };
 
@@ -15,6 +15,7 @@ pub enum Value {
     Percentage(Percentage),
     Fraction(Fraction),
     Unit(UnitValue),
+    Money(Money),
     Rate(Rate),
     Date(Date),
     Clock(ClockTime),
@@ -48,6 +49,13 @@ impl Value {
     pub const fn as_unit(&self) -> Option<&UnitValue> {
         match self {
             Self::Unit(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub const fn as_money(&self) -> Option<&Money> {
+        match self {
+            Self::Money(money) => Some(money),
             _ => None,
         }
     }
@@ -104,6 +112,7 @@ impl fmt::Display for Value {
             Self::Unit(value) => {
                 write!(formatter, "{} {}", value.magnitude(), value.display_unit())
             }
+            Self::Money(money) => money.fmt(formatter),
             Self::Rate(rate) => rate.fmt(formatter),
             Self::Date(date) => date.fmt(formatter),
             Self::Clock(time) => time.fmt(formatter),
@@ -137,6 +146,9 @@ pub(crate) fn evaluate_expression(
         Expression::Unit { value, unit, .. } => {
             Ok(Value::Unit(UnitValue::new(value.clone(), *unit)))
         }
+        Expression::Money {
+            amount, currency, ..
+        } => Ok(Value::Money(Money::new(amount.clone(), *currency))),
         Expression::Date { value, .. } => Ok(Value::Date(*value)),
         Expression::Clock { value, .. } => Ok(Value::Clock(*value)),
         Expression::OffsetDateTime { value, .. } => Ok(Value::OffsetDateTime(*value)),
@@ -195,6 +207,8 @@ pub(crate) fn evaluate_expression(
                 }
                 (UnaryOperator::Positive, Value::Unit(value)) => Ok(Value::Unit(value)),
                 (UnaryOperator::Negative, Value::Unit(value)) => Ok(Value::Unit(value.negated())),
+                (UnaryOperator::Positive, Value::Money(money)) => Ok(Value::Money(money)),
+                (UnaryOperator::Negative, Value::Money(money)) => Ok(Value::Money(money.negated())),
                 (UnaryOperator::Positive, Value::Rate(rate)) => Ok(Value::Rate(rate)),
                 (UnaryOperator::Negative, Value::Rate(rate)) => Ok(Value::Rate(rate.negated())),
                 (UnaryOperator::Positive, Value::CalendarDuration(duration)) => {
@@ -214,6 +228,7 @@ pub(crate) fn evaluate_expression(
                     | Value::Percentage(_)
                     | Value::Fraction(_)
                     | Value::Unit(_)
+                    | Value::Money(_)
                     | Value::Rate(_)
                     | Value::Date(_)
                     | Value::Clock(_)
@@ -244,6 +259,7 @@ pub(crate) fn evaluate_expression(
             evaluate_expression(expression, context, variables)?,
             *target,
             *target_span,
+            context,
         ),
         Expression::Conditional {
             condition,
@@ -336,6 +352,19 @@ fn evaluate_binary(
         }
         (Value::Percentage(left), Value::Unit(right)) => {
             percentage_unit_pair(operator, left, right, span)
+        }
+        (Value::Money(left), Value::Money(right)) => money_pair(operator, left, right, span),
+        (Value::Money(left), Value::Number(right)) => {
+            money_number_pair(operator, left, right, span)
+        }
+        (Value::Number(left), Value::Money(right)) => {
+            number_money_pair(operator, left, right, span)
+        }
+        (Value::Money(left), Value::Percentage(right)) => {
+            money_percentage_pair(operator, left, right, span)
+        }
+        (Value::Percentage(left), Value::Money(right)) => {
+            percentage_money_pair(operator, left, right, span)
         }
         (Value::Rate(left), Value::Rate(right)) => rate_pair(operator, left, right, span),
         (Value::Rate(left), Value::Number(right)) => rate_number_pair(operator, left, right, span),
@@ -539,6 +568,134 @@ fn percentage_number_pair(
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
         BinaryOperator::At | BinaryOperator::And | BinaryOperator::Or => Err(unsupported(span)),
+    }
+}
+
+fn money_pair(
+    operator: BinaryOperator,
+    left: Money,
+    right: Money,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if left.currency() != right.currency() {
+        return Err(Diagnostic::new(DiagnosticKind::CurrencyMismatch, span));
+    }
+    let currency = left.currency();
+    match operator {
+        BinaryOperator::Add => Ok(Value::Money(Money::new(
+            left.amount().clone().add(right.amount().clone()),
+            currency,
+        ))),
+        BinaryOperator::Subtract => Ok(Value::Money(Money::new(
+            left.amount().clone().subtract(right.amount().clone()),
+            currency,
+        ))),
+        BinaryOperator::Divide => left
+            .amount()
+            .clone()
+            .divide(right.amount().clone())
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => {
+            compare_numbers(operator, left.amount(), right.amount(), span)
+        }
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn money_number_pair(
+    operator: BinaryOperator,
+    money: Money,
+    number: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let currency = money.currency();
+    match operator {
+        BinaryOperator::Add => Ok(Value::Money(Money::new(
+            money.amount().clone().add(number),
+            currency,
+        ))),
+        BinaryOperator::Subtract => Ok(Value::Money(Money::new(
+            money.amount().clone().subtract(number),
+            currency,
+        ))),
+        BinaryOperator::Multiply => Ok(Value::Money(Money::new(
+            money.amount().clone().multiply(number),
+            currency,
+        ))),
+        BinaryOperator::Divide => money
+            .amount()
+            .clone()
+            .divide(number)
+            .map(|amount| Value::Money(Money::new(amount, currency)))
+            .map_err(|error| numeric_diagnostic(error, span)),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn number_money_pair(
+    operator: BinaryOperator,
+    number: Number,
+    money: Money,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => money_number_pair(operator, money, number, span),
+        BinaryOperator::Subtract => {
+            let currency = money.currency();
+            Ok(Value::Money(Money::new(
+                number.subtract(money.amount().clone()),
+                currency,
+            )))
+        }
+        BinaryOperator::Multiply => money_number_pair(operator, money, number, span),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn money_percentage_pair(
+    operator: BinaryOperator,
+    money: Money,
+    percentage: Percentage,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let ratio = percentage.into_ratio();
+    let currency = money.currency();
+    let amount = money.amount().clone();
+    match operator {
+        BinaryOperator::Add | BinaryOperator::On => Ok(Value::Money(Money::new(
+            amount.clone().add(amount.multiply(ratio)),
+            currency,
+        ))),
+        BinaryOperator::Subtract | BinaryOperator::Off => Ok(Value::Money(Money::new(
+            amount.clone().subtract(amount.multiply(ratio)),
+            currency,
+        ))),
+        BinaryOperator::Multiply => Ok(Value::Money(Money::new(amount.multiply(ratio), currency))),
+        BinaryOperator::Divide => amount
+            .divide(ratio)
+            .map(|amount| Value::Money(Money::new(amount, currency)))
+            .map_err(|error| numeric_diagnostic(error, span)),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn percentage_money_pair(
+    operator: BinaryOperator,
+    percentage: Percentage,
+    money: Money,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Multiply | BinaryOperator::Of => {
+            money_percentage_pair(BinaryOperator::Multiply, money, percentage, span)
+        }
+        _ => Err(unsupported(span)),
     }
 }
 
@@ -1013,13 +1170,19 @@ fn fraction_pair(
     }
 }
 
-fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, Diagnostic> {
+fn convert(
+    value: Value,
+    target: ConversionTarget,
+    span: Span,
+    context: &CalculationContext,
+) -> Result<Value, Diagnostic> {
     match target {
         ConversionTarget::Number => match value {
             Value::Number(number) => Ok(Value::Number(number)),
             Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
             Value::Unit(_)
+            | Value::Money(_)
             | Value::Rate(_)
             | Value::Date(_)
             | Value::Clock(_)
@@ -1034,6 +1197,7 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
                 fraction.into_number(),
             ))),
             Value::Unit(_)
+            | Value::Money(_)
             | Value::Rate(_)
             | Value::Date(_)
             | Value::Clock(_)
@@ -1047,6 +1211,7 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
                 Value::Unit(_)
+                | Value::Money(_)
                 | Value::Rate(_)
                 | Value::Date(_)
                 | Value::Clock(_)
@@ -1080,6 +1245,27 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
                 .converted_to(offset)
                 .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+            _ => Err(unsupported(span)),
+        },
+        ConversionTarget::Currency(target) => match value {
+            Value::Money(money) => {
+                let source = money.currency();
+                let rate = context
+                    .monetary
+                    .exchange_rates
+                    .rate(source, target)
+                    .ok_or_else(|| {
+                        Diagnostic::with_detail(
+                            DiagnosticKind::MissingExchangeRate,
+                            span,
+                            format!("{source} to {target}"),
+                        )
+                    })?;
+                Ok(Value::Money(Money::new(
+                    money.amount().clone().multiply(rate),
+                    target,
+                )))
+            }
             _ => Err(unsupported(span)),
         },
     }
