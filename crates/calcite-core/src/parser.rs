@@ -1,7 +1,7 @@
 use crate::{
     CalculationContext, CalendarDuration, ClockTime, Currency, Date, Diagnostic, DiagnosticKind,
     Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Span, Unit,
-    UtcOffset, lex_with_number_format,
+    UtcOffset, WorkdayDuration, lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +80,10 @@ pub enum Function {
     Median,
     Count,
     Product,
+    Weekday,
+    IsWorkday,
+    AddWorkdays,
+    WorkdaysBetween,
     Round,
     Floor,
     Ceiling,
@@ -146,6 +150,26 @@ impl Function {
             Some(Self::Count)
         } else if name.eq_ignore_ascii_case("product") {
             Some(Self::Product)
+        } else if name.eq_ignore_ascii_case("weekday")
+            || name.eq_ignore_ascii_case("dayofweek")
+            || name.eq_ignore_ascii_case("day_of_week")
+        {
+            Some(Self::Weekday)
+        } else if name.eq_ignore_ascii_case("isworkday") || name.eq_ignore_ascii_case("is_workday")
+        {
+            Some(Self::IsWorkday)
+        } else if name.eq_ignore_ascii_case("addworkdays")
+            || name.eq_ignore_ascii_case("add_workdays")
+            || name.eq_ignore_ascii_case("addbusinessdays")
+            || name.eq_ignore_ascii_case("add_business_days")
+        {
+            Some(Self::AddWorkdays)
+        } else if name.eq_ignore_ascii_case("workdaysbetween")
+            || name.eq_ignore_ascii_case("workdays_between")
+            || name.eq_ignore_ascii_case("businessdaysbetween")
+            || name.eq_ignore_ascii_case("business_days_between")
+        {
+            Some(Self::WorkdaysBetween)
         } else if name.eq_ignore_ascii_case("round") {
             Some(Self::Round)
         } else if name.eq_ignore_ascii_case("floor") {
@@ -227,6 +251,10 @@ pub enum Expression {
         value: CalendarDuration,
         span: Span,
     },
+    WorkdayDuration {
+        value: WorkdayDuration,
+        span: Span,
+    },
     TemporalKeyword {
         keyword: TemporalKeyword,
         span: Span,
@@ -292,6 +320,7 @@ impl Expression {
             | Self::Clock { span, .. }
             | Self::OffsetDateTime { span, .. }
             | Self::CalendarDuration { span, .. }
+            | Self::WorkdayDuration { span, .. }
             | Self::TemporalKeyword { span, .. }
             | Self::Variable { span, .. }
             | Self::Call { span, .. }
@@ -439,6 +468,15 @@ impl Parser<'_> {
                         amount: value,
                         currency,
                         span: span.join(currency_token.span),
+                    })
+                } else if let Some((consumed, workday_span)) = self.workday_unit() {
+                    let days = value.exact_i64().ok_or_else(|| {
+                        Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)
+                    })?;
+                    self.position += consumed;
+                    Ok(Expression::WorkdayDuration {
+                        value: WorkdayDuration::new(days),
+                        span: span.join(workday_span),
                     })
                 } else if let Some((months_per_unit, calendar_token)) = self.calendar_unit() {
                     let count = value.exact_i64().ok_or_else(|| {
@@ -629,6 +667,15 @@ impl Parser<'_> {
                 Function::HyperbolicTangent
             };
             Some((function, 3))
+        } else if self.word_is(0, "day")
+            && self.word_is(1, "of")
+            && self.word_is(2, "the")
+            && self.word_is(3, "week")
+            && self.word_is(4, "on")
+        {
+            Some((Function::Weekday, 5))
+        } else if self.word_is(0, "weekday") && self.word_is(1, "on") {
+            Some((Function::Weekday, 2))
         } else if self.word_is(0, "absolute") && self.word_is(1, "value") && self.word_is(2, "of") {
             Some((Function::AbsoluteValue, 3))
         } else if self.word_is(1, "of") {
@@ -996,6 +1043,27 @@ impl Parser<'_> {
         } else {
             None
         }
+    }
+
+    fn workday_unit(&self) -> Option<(usize, Span)> {
+        let first = self.current()?;
+        let word = self.word_text_at(0)?;
+        if word.eq_ignore_ascii_case("workday")
+            || word.eq_ignore_ascii_case("workdays")
+            || word.eq_ignore_ascii_case("weekday")
+            || word.eq_ignore_ascii_case("weekdays")
+            || word.eq_ignore_ascii_case("businessday")
+            || word.eq_ignore_ascii_case("businessdays")
+        {
+            return Some((1, first.span));
+        }
+        if word.eq_ignore_ascii_case("business")
+            && (self.word_is(1, "day") || self.word_is(1, "days"))
+        {
+            let second = self.tokens[self.position + 1];
+            return Some((2, first.span.join(second.span)));
+        }
+        None
     }
 
     fn calendar_unit(&self) -> Option<(i64, Lexeme)> {

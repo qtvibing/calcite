@@ -10,6 +10,14 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn workday_values_flow_through_variables() {
+    assert_eq!(
+        outputs("start = 2025-03-07\ndeadline = start + 5 workdays\nweekday(deadline)"),
+        ["2025-03-07", "2025-03-14", "Friday"]
+    );
+}
+
+#[test]
 fn area_and_volume_values_flow_through_variables() {
     assert_eq!(
         outputs("plot = 1 square mile\nplot in acres\nbatch = 1 metric cup\nbatch in ml"),

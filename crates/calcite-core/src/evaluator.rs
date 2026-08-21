@@ -6,7 +6,7 @@ use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, ConversionTarget,
     Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
     OffsetDateTime, Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue,
-    parse_with_context,
+    Weekday, WorkdayDuration, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -22,6 +22,8 @@ pub enum Value {
     Clock(ClockTime),
     OffsetDateTime(OffsetDateTime),
     CalendarDuration(CalendarDuration),
+    WorkdayDuration(WorkdayDuration),
+    Weekday(Weekday),
     Boolean(bool),
 }
 
@@ -96,6 +98,20 @@ impl Value {
         }
     }
 
+    pub const fn as_workday_duration(&self) -> Option<WorkdayDuration> {
+        match self {
+            Self::WorkdayDuration(duration) => Some(*duration),
+            _ => None,
+        }
+    }
+
+    pub const fn as_weekday(&self) -> Option<Weekday> {
+        match self {
+            Self::Weekday(weekday) => Some(*weekday),
+            _ => None,
+        }
+    }
+
     pub const fn as_boolean(&self) -> Option<bool> {
         match self {
             Self::Boolean(value) => Some(*value),
@@ -119,6 +135,8 @@ impl fmt::Display for Value {
             Self::Clock(time) => time.fmt(formatter),
             Self::OffsetDateTime(value) => value.fmt(formatter),
             Self::CalendarDuration(duration) => duration.fmt(formatter),
+            Self::WorkdayDuration(duration) => duration.fmt(formatter),
+            Self::Weekday(weekday) => weekday.fmt(formatter),
             Self::Boolean(value) => value.fmt(formatter),
         }
     }
@@ -159,6 +177,7 @@ pub(crate) fn evaluate_expression(
         Expression::Clock { value, .. } => Ok(Value::Clock(*value)),
         Expression::OffsetDateTime { value, .. } => Ok(Value::OffsetDateTime(*value)),
         Expression::CalendarDuration { value, .. } => Ok(Value::CalendarDuration(*value)),
+        Expression::WorkdayDuration { value, .. } => Ok(Value::WorkdayDuration(*value)),
         Expression::TemporalKeyword { keyword, span } => match keyword {
             TemporalKeyword::Today => context
                 .temporal
@@ -229,10 +248,20 @@ pub(crate) fn evaluate_expression(
                 (UnaryOperator::Negative, Value::CalendarDuration(duration)) => {
                     Ok(Value::CalendarDuration(duration.negated()))
                 }
+                (UnaryOperator::Positive, Value::WorkdayDuration(duration)) => {
+                    Ok(Value::WorkdayDuration(duration))
+                }
+                (UnaryOperator::Negative, Value::WorkdayDuration(duration)) => {
+                    Ok(Value::WorkdayDuration(duration.negated()))
+                }
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                 (
                     UnaryOperator::Positive | UnaryOperator::Negative,
-                    Value::Date(_) | Value::Clock(_) | Value::OffsetDateTime(_) | Value::Boolean(_),
+                    Value::Date(_)
+                    | Value::Clock(_)
+                    | Value::OffsetDateTime(_)
+                    | Value::Weekday(_)
+                    | Value::Boolean(_),
                 )
                 | (
                     UnaryOperator::Not,
@@ -245,7 +274,9 @@ pub(crate) fn evaluate_expression(
                     | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetDateTime(_)
-                    | Value::CalendarDuration(_),
+                    | Value::CalendarDuration(_)
+                    | Value::WorkdayDuration(_)
+                    | Value::Weekday(_),
                 ) => Err(unsupported(*operator_span)),
             }
         }
@@ -467,6 +498,57 @@ fn evaluate_call(
             result
                 .map(Value::Number)
                 .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::Weekday | Function::IsWorkday => {
+            let weekday = match values.as_slice() {
+                [Value::Date(date)] => date.weekday(),
+                [Value::OffsetDateTime(value)] => value.date().weekday(),
+                _ => return Err(invalid_function_arguments(span)),
+            };
+            if function == Function::Weekday {
+                Ok(Value::Weekday(weekday))
+            } else {
+                Ok(Value::Boolean(weekday.is_workday()))
+            }
+        }
+        Function::AddWorkdays => match values.as_slice() {
+            [Value::Date(date), Value::Number(days)] => {
+                let days = days
+                    .exact_i64()
+                    .ok_or_else(|| invalid_function_arguments(span))?;
+                date.add_workdays(days)
+                    .map(Value::Date)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+            }
+            [Value::OffsetDateTime(value), Value::Number(days)] => {
+                let days = days
+                    .exact_i64()
+                    .ok_or_else(|| invalid_function_arguments(span))?;
+                value
+                    .date()
+                    .add_workdays(days)
+                    .map(|date| {
+                        Value::OffsetDateTime(OffsetDateTime::new(
+                            date,
+                            value.time(),
+                            value.offset(),
+                        ))
+                    })
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+            }
+            _ => Err(invalid_function_arguments(span)),
+        },
+        Function::WorkdaysBetween => {
+            let (start, end) = match values.as_slice() {
+                [Value::Date(start), Value::Date(end)] => (*start, *end),
+                [Value::OffsetDateTime(start), Value::OffsetDateTime(end)] => {
+                    (start.date(), end.date())
+                }
+                _ => return Err(invalid_function_arguments(span)),
+            };
+            Ok(Value::WorkdayDuration(WorkdayDuration::new(
+                start.workdays_until(end),
+            )))
         }
         Function::AbsoluteValue => {
             let [value] = values.as_slice() else {
@@ -719,13 +801,17 @@ fn absolute_value(value: Value, span: Span) -> Result<Value, Diagnostic> {
         Value::CalendarDuration(duration) if duration.total_months() < 0 => {
             Ok(Value::CalendarDuration(duration.negated()))
         }
+        Value::WorkdayDuration(duration) if duration.days() < 0 => {
+            Ok(Value::WorkdayDuration(duration.negated()))
+        }
         Value::Number(_)
         | Value::Percentage(_)
         | Value::Fraction(_)
         | Value::Unit(_)
         | Value::Money(_)
         | Value::Rate(_)
-        | Value::CalendarDuration(_) => Ok(value),
+        | Value::CalendarDuration(_)
+        | Value::WorkdayDuration(_) => Ok(value),
         _ => Err(invalid_function_arguments(span)),
     }
 }
@@ -816,6 +902,14 @@ fn evaluate_binary(
         (Value::OffsetDateTime(value), Value::CalendarDuration(duration)) => {
             datetime_calendar_pair(operator, value, duration, span)
         }
+        (Value::OffsetDateTime(value), Value::WorkdayDuration(duration)) => {
+            datetime_workday_pair(operator, value, duration, span)
+        }
+        (Value::WorkdayDuration(duration), Value::OffsetDateTime(value))
+            if operator == BinaryOperator::Add =>
+        {
+            datetime_workday_pair(operator, value, duration, span)
+        }
         (Value::CalendarDuration(duration), Value::OffsetDateTime(value))
             if operator == BinaryOperator::Add =>
         {
@@ -824,6 +918,14 @@ fn evaluate_binary(
         (Value::Date(left), Value::Date(right)) => date_pair(operator, left, right, span),
         (Value::Date(date), Value::CalendarDuration(duration)) => {
             date_calendar_pair(operator, date, duration, span)
+        }
+        (Value::Date(date), Value::WorkdayDuration(duration)) => {
+            date_workday_pair(operator, date, duration, span)
+        }
+        (Value::WorkdayDuration(duration), Value::Date(date))
+            if operator == BinaryOperator::Add =>
+        {
+            date_workday_pair(operator, date, duration, span)
         }
         (Value::CalendarDuration(duration), Value::Date(date)) => {
             calendar_date_pair(operator, duration, date, span)
@@ -845,6 +947,20 @@ fn evaluate_binary(
             if operator == BinaryOperator::Multiply =>
         {
             calendar_number_pair(operator, duration, number, span)
+        }
+        (Value::WorkdayDuration(left), Value::WorkdayDuration(right)) => {
+            workday_pair(operator, left, right, span)
+        }
+        (Value::WorkdayDuration(duration), Value::Number(number)) => {
+            workday_number_pair(operator, duration, number, span)
+        }
+        (Value::Number(number), Value::WorkdayDuration(duration))
+            if operator == BinaryOperator::Multiply =>
+        {
+            workday_number_pair(operator, duration, number, span)
+        }
+        (Value::Weekday(left), Value::Weekday(right)) => {
+            compare_ordering(operator, left.cmp(&right), span)
         }
         (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
         _ => Err(unsupported(span)),
@@ -1237,6 +1353,27 @@ fn datetime_calendar_pair(
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
 }
 
+fn datetime_workday_pair(
+    operator: BinaryOperator,
+    value: OffsetDateTime,
+    duration: WorkdayDuration,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let days = match operator {
+        BinaryOperator::Add => duration.days(),
+        BinaryOperator::Subtract => duration
+            .days()
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))?,
+        _ => return Err(unsupported(span)),
+    };
+    value
+        .date()
+        .add_workdays(days)
+        .map(|date| Value::OffsetDateTime(OffsetDateTime::new(date, value.time(), value.offset())))
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+}
+
 fn date_pair(
     operator: BinaryOperator,
     left: Date,
@@ -1273,6 +1410,25 @@ fn date_calendar_pair(
         _ => return Err(unsupported(span)),
     };
     date.add_months(months)
+        .map(Value::Date)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+}
+
+fn date_workday_pair(
+    operator: BinaryOperator,
+    date: Date,
+    duration: WorkdayDuration,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let days = match operator {
+        BinaryOperator::Add => duration.days(),
+        BinaryOperator::Subtract => duration
+            .days()
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))?,
+        _ => return Err(unsupported(span)),
+    };
+    date.add_workdays(days)
         .map(Value::Date)
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
 }
@@ -1401,6 +1557,49 @@ fn calendar_number_pair(
     duration
         .checked_multiply(factor)
         .map(Value::CalendarDuration)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))
+}
+
+fn workday_pair(
+    operator: BinaryOperator,
+    left: WorkdayDuration,
+    right: WorkdayDuration,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => left
+            .checked_add(right)
+            .map(Value::WorkdayDuration)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)),
+        BinaryOperator::Subtract => left
+            .checked_subtract(right)
+            .map(Value::WorkdayDuration)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => {
+            compare_ordering(operator, left.days().cmp(&right.days()), span)
+        }
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn workday_number_pair(
+    operator: BinaryOperator,
+    duration: WorkdayDuration,
+    number: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if operator != BinaryOperator::Multiply {
+        return Err(unsupported(span));
+    }
+    let factor = number.exact_i64().ok_or_else(|| unsupported(span))?;
+    duration
+        .checked_multiply(factor)
+        .map(Value::WorkdayDuration)
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))
 }
 
@@ -1611,6 +1810,8 @@ fn convert(
             | Value::Clock(_)
             | Value::OffsetDateTime(_)
             | Value::CalendarDuration(_)
+            | Value::WorkdayDuration(_)
+            | Value::Weekday(_)
             | Value::Boolean(_) => Err(unsupported(span)),
         },
         ConversionTarget::Percentage => match value {
@@ -1626,6 +1827,8 @@ fn convert(
             | Value::Clock(_)
             | Value::OffsetDateTime(_)
             | Value::CalendarDuration(_)
+            | Value::WorkdayDuration(_)
+            | Value::Weekday(_)
             | Value::Boolean(_) => Err(unsupported(span)),
         },
         ConversionTarget::Fraction => {
@@ -1640,6 +1843,8 @@ fn convert(
                 | Value::Clock(_)
                 | Value::OffsetDateTime(_)
                 | Value::CalendarDuration(_)
+                | Value::WorkdayDuration(_)
+                | Value::Weekday(_)
                 | Value::Boolean(_) => return Err(unsupported(span)),
             };
             Fraction::from_number(number)

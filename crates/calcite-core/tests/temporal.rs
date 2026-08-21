@@ -7,6 +7,27 @@ fn output(source: &str) -> String {
     calculate(source).unwrap().output
 }
 
+fn context_at(
+    year: i32,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    offset_hours: i32,
+) -> CalculationContext {
+    CalculationContext {
+        temporal: TemporalContext {
+            current_datetime: Some(OffsetDateTime::new(
+                Date::new(year, month, day).unwrap(),
+                ClockTime::new(hour, minute, 0).unwrap(),
+                UtcOffset::from_seconds(offset_hours * 3600).unwrap(),
+            )),
+            default_offset: UtcOffset::UTC,
+        },
+        ..CalculationContext::default()
+    }
+}
+
 #[test]
 fn iso_dates_use_exact_gregorian_arithmetic() {
     assert_eq!(output("2024-02-29 + 1 day"), "2024-03-01");
@@ -16,6 +37,53 @@ fn iso_dates_use_exact_gregorian_arithmetic() {
     assert_eq!(output("2024-02-29 + 1 year"), "2025-02-28");
     assert_eq!(output("March 8, 2025 + 1 day"), "2025-03-09");
     assert_eq!(output("8 March 2025 - 1 week"), "2025-03-01");
+}
+
+#[test]
+fn weekdays_and_workdays_use_a_fixed_monday_to_friday_calendar() {
+    assert_eq!(output("weekday(2025-03-08)"), "Saturday");
+    assert_eq!(output("weekday on March 10, 2025"), "Monday");
+    assert_eq!(output("day of the week on January 24, 1984"), "Tuesday");
+    assert_eq!(output("is_workday(2025-03-08)"), "false");
+    assert_eq!(output("is_workday(2025-03-10)"), "true");
+}
+
+#[test]
+fn workday_arithmetic_skips_weekends_without_assuming_holidays() {
+    assert_eq!(output("2025-03-07 + 1 workday"), "2025-03-10");
+    assert_eq!(output("2025-03-08 + 1 business day"), "2025-03-10");
+    assert_eq!(output("2025-03-10 - 1 weekday"), "2025-03-07");
+    assert_eq!(output("add_workdays(2025-03-07, 5)"), "2025-03-14");
+    assert_eq!(output("2 workdays * 3"), "6 workdays");
+    assert_eq!(
+        output("workdays_between(2025-03-10, 2025-03-17)"),
+        "5 workdays"
+    );
+    assert_eq!(
+        output("workdays_between(2025-03-17, 2025-03-10)"),
+        "-5 workdays"
+    );
+}
+
+#[test]
+fn workday_functions_preserve_context_and_date_time_fields() {
+    let context = context_at(2025, 3, 8, 14, 30, 2);
+    assert_eq!(
+        calculate_with_context("weekday(today)", &context)
+            .unwrap()
+            .output,
+        "Saturday"
+    );
+    assert_eq!(
+        calculate_with_context("today + 1 workday", &context)
+            .unwrap()
+            .output,
+        "2025-03-10"
+    );
+    assert_eq!(
+        output("2025-03-07T14:30:00+02:00 + 1 workday"),
+        "2025-03-10T14:30+02:00"
+    );
 }
 
 #[test]
@@ -125,6 +193,10 @@ fn invalid_and_ambiguous_temporal_input_is_not_guessed() {
     assert_eq!(
         calculate("2025-03-08T24:00Z").unwrap_err().kind(),
         DiagnosticKind::InvalidTime
+    );
+    assert_eq!(
+        calculate("1.5 workdays").unwrap_err().kind(),
+        DiagnosticKind::InvalidCalendarDuration
     );
     assert_eq!(output("2025 - 3 - 8"), "2014");
 }
