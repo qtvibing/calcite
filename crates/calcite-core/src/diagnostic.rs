@@ -12,6 +12,8 @@ pub enum DiagnosticKind {
     InvalidTime,
     InvalidCalendarDuration,
     MissingTemporalContext,
+    UnknownVariable,
+    InvalidAssignment,
     NumberTooLarge,
     DivisionByZero,
     ExponentTooLarge,
@@ -56,6 +58,11 @@ impl Diagnostic {
         self.detail.as_deref()
     }
 
+    pub(crate) fn shifted(mut self, offset: usize) -> Self {
+        self.span = self.span.shifted(offset);
+        self
+    }
+
     pub fn message(&self) -> &'static str {
         match self.kind {
             DiagnosticKind::UnexpectedCharacter => "unexpected character",
@@ -66,6 +73,8 @@ impl Diagnostic {
             DiagnosticKind::InvalidTime => "invalid time",
             DiagnosticKind::InvalidCalendarDuration => "invalid calendar duration",
             DiagnosticKind::MissingTemporalContext => "current date or time was not provided",
+            DiagnosticKind::UnknownVariable => "unknown variable",
+            DiagnosticKind::InvalidAssignment => "invalid variable assignment",
             DiagnosticKind::NumberTooLarge => "number is too large",
             DiagnosticKind::DivisionByZero => "cannot divide by zero",
             DiagnosticKind::ExponentTooLarge => "exponent is too large",

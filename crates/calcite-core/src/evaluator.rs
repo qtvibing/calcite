@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt};
+use std::{cmp::Ordering, collections::HashMap, fmt};
 
 use crate::rate::RateApplication;
 use crate::unit::UnitError;
@@ -123,12 +123,13 @@ pub fn evaluate_with_context(
     context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
     let expression = parse_with_context(source, context)?;
-    evaluate_expression(&expression, context)
+    evaluate_expression(&expression, context, &HashMap::new())
 }
 
-fn evaluate_expression(
+pub(crate) fn evaluate_expression(
     expression: &Expression,
     context: &CalculationContext,
+    variables: &HashMap<String, Value>,
 ) -> Result<Value, Diagnostic> {
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
@@ -164,13 +165,17 @@ fn evaluate_expression(
                 .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
         },
+        Expression::Variable { name, span } => variables
+            .get(name)
+            .cloned()
+            .ok_or_else(|| Diagnostic::with_detail(DiagnosticKind::UnknownVariable, *span, name)),
         Expression::Unary {
             operator,
             operator_span,
             operand,
             ..
         } => {
-            let operand = evaluate_expression(operand, context)?;
+            let operand = evaluate_expression(operand, context, variables)?;
             match (operator, operand) {
                 (UnaryOperator::Positive, Value::Number(number)) => Ok(Value::Number(number)),
                 (UnaryOperator::Positive, Value::Percentage(percentage)) => {
@@ -217,12 +222,12 @@ fn evaluate_expression(
                 ) => Err(unsupported(*operator_span)),
             }
         }
-        Expression::Group { expression, .. } => evaluate_expression(expression, context),
+        Expression::Group { expression, .. } => evaluate_expression(expression, context, variables),
         Expression::Percentage {
             expression,
             operator_span,
             ..
-        } => match evaluate_expression(expression, context)? {
+        } => match evaluate_expression(expression, context, variables)? {
             Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(
                 number
                     .divide(Number::from_i64(100))
@@ -236,7 +241,7 @@ fn evaluate_expression(
             target_span,
             ..
         } => convert(
-            evaluate_expression(expression, context)?,
+            evaluate_expression(expression, context, variables)?,
             *target,
             *target_span,
         ),
@@ -248,16 +253,17 @@ fn evaluate_expression(
             keyword_span,
             ..
         } => {
-            let Value::Boolean(mut condition) = evaluate_expression(condition, context)? else {
+            let Value::Boolean(mut condition) = evaluate_expression(condition, context, variables)?
+            else {
                 return Err(unsupported(*keyword_span));
             };
             if *inverted {
                 condition = !condition;
             }
             if condition {
-                evaluate_expression(then_branch, context)
+                evaluate_expression(then_branch, context, variables)
             } else {
-                evaluate_expression(else_branch, context)
+                evaluate_expression(else_branch, context, variables)
             }
         }
         Expression::Binary {
@@ -267,7 +273,7 @@ fn evaluate_expression(
             right,
             ..
         } => {
-            let left = evaluate_expression(left, context)?;
+            let left = evaluate_expression(left, context, variables)?;
             if matches!(operator, BinaryOperator::And | BinaryOperator::Or) {
                 let Value::Boolean(left) = left else {
                     return Err(unsupported(*operator_span));
@@ -277,13 +283,13 @@ fn evaluate_expression(
                 {
                     return Ok(Value::Boolean(left));
                 }
-                return match evaluate_expression(right, context)? {
+                return match evaluate_expression(right, context, variables)? {
                     Value::Boolean(right) => Ok(Value::Boolean(right)),
                     _ => Err(unsupported(*operator_span)),
                 };
             }
 
-            let right = evaluate_expression(right, context)?;
+            let right = evaluate_expression(right, context, variables)?;
             evaluate_binary(*operator, left, right, *operator_span, context)
         }
     }

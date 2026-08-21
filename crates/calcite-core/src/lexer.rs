@@ -13,6 +13,7 @@ pub enum LexemeKind {
     Colon,
     Comma,
     Percent,
+    Equal,
     EqualEqual,
     NotEqual,
     Greater,
@@ -69,14 +70,14 @@ pub fn lex_with_number_format(
         {
             index = scan_number(source, index, number_format);
             LexemeKind::Number
-        } else if character.is_alphabetic() {
+        } else if character.is_alphabetic() || character == '_' {
             index += character.len_utf8();
             while index < source.len() {
                 let next = source[index..]
                     .chars()
                     .next()
                     .expect("valid character boundary");
-                if !next.is_alphabetic() {
+                if !next.is_alphanumeric() && next != '_' {
                     break;
                 }
                 index += next.len_utf8();
@@ -105,6 +106,7 @@ pub fn lex_with_number_format(
                     index += 1;
                     LexemeKind::EqualEqual
                 }
+                '=' => LexemeKind::Equal,
                 '!' if source[index..].starts_with('=') => {
                     index += 1;
                     LexemeKind::NotEqual

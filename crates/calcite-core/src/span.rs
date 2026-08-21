@@ -25,4 +25,8 @@ impl Span {
     pub const fn is_empty(self) -> bool {
         self.start == self.end
     }
+
+    pub(crate) const fn shifted(self, offset: usize) -> Self {
+        Self::new(self.start + offset, self.end + offset)
+    }
 }

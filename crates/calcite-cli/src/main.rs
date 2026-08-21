@@ -4,7 +4,7 @@ use std::{
     process::ExitCode,
 };
 
-use calcite_core::{Diagnostic, calculate};
+use calcite_core::{Diagnostic, calculate_document};
 
 fn main() -> ExitCode {
     let expression = match read_expression() {
@@ -20,9 +20,11 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    match calculate(&expression) {
-        Ok(result) => {
-            println!("{}", result.output);
+    match calculate_document(&expression) {
+        Ok(document) => {
+            for line in document.lines {
+                println!("{}", line.output);
+            }
             ExitCode::SUCCESS
         }
         Err(diagnostic) => {
@@ -48,10 +50,19 @@ fn read_expression() -> io::Result<String> {
 
 fn print_diagnostic(source: &str, diagnostic: &Diagnostic) {
     eprintln!("error: {diagnostic}");
-    eprintln!("  {source}");
 
     let span = diagnostic.span();
-    let prefix_width = source[..span.start].chars().count();
-    let marker_width = source[span.start..span.end].chars().count().max(1);
+    let line_start = source[..span.start]
+        .rfind('\n')
+        .map_or(0, |position| position + 1);
+    let line_end = source[span.start..]
+        .find('\n')
+        .map_or(source.len(), |position| span.start + position);
+    let line = &source[line_start..line_end];
+    eprintln!("  {line}");
+
+    let marker_end = span.end.min(line_end);
+    let prefix_width = source[line_start..span.start].chars().count();
+    let marker_width = source[span.start..marker_end].chars().count().max(1);
     eprintln!("  {}{}", " ".repeat(prefix_width), "^".repeat(marker_width));
 }

@@ -106,6 +106,10 @@ pub enum Expression {
         keyword: TemporalKeyword,
         span: Span,
     },
+    Variable {
+        name: String,
+        span: Span,
+    },
     Unary {
         operator: UnaryOperator,
         operator_span: Span,
@@ -156,6 +160,7 @@ impl Expression {
             | Self::OffsetDateTime { span, .. }
             | Self::CalendarDuration { span, .. }
             | Self::TemporalKeyword { span, .. }
+            | Self::Variable { span, .. }
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }
@@ -380,6 +385,13 @@ impl Parser<'_> {
                     span,
                 })
             }
+            LexemeKind::Word => {
+                self.position += 1;
+                Ok(Expression::Variable {
+                    name: self.source[token.span.start..token.span.end].to_owned(),
+                    span: token.span,
+                })
+            }
             LexemeKind::LeftParenthesis => {
                 self.position += 1;
                 let expression = self.parse_expression(0)?;
@@ -409,11 +421,10 @@ impl Parser<'_> {
 
     fn starts_iso_datetime(&self) -> bool {
         self.is_iso_date()
-            && self.tokens.get(self.position + 5).is_some_and(|token| {
-                token.kind == LexemeKind::Word
-                    && token.span.start == self.tokens[self.position + 4].span.end
-                    && self.source[token.span.start..token.span.end].eq_ignore_ascii_case("t")
-            })
+            && self.source[self.tokens[self.position + 4].span.end..]
+                .chars()
+                .next()
+                .is_some_and(|character| matches!(character, 'T' | 't'))
     }
 
     fn parse_iso_offset_datetime(&mut self) -> Option<Expression> {

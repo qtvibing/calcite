@@ -41,6 +41,30 @@ fn evaluates_an_expression_from_standard_input() {
 }
 
 #[test]
+fn evaluates_multiline_variables_from_standard_input() {
+    let mut child = calcite()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("calcite should run");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"distance = 120 km\ntime = 2 h\ndistance / time\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "120 km\n2 h\n60 km/h\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_natural_calendar_arithmetic() {
     let output = calcite()
         .args(["March", "8,", "2025", "+", "1", "month"])
@@ -79,6 +103,30 @@ fn reports_spanned_diagnostics_on_standard_error() {
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
         "error: units have incompatible dimensions\n  1 km + 1 kg\n       ^\n"
+    );
+}
+
+#[test]
+fn multiline_diagnostics_only_print_the_failing_source_line() {
+    let mut child = calcite()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("calcite should run");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"subtotal = 10\ntotal = missing + subtotal\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: unknown variable: missing\n  total = missing + subtotal\n          ^^^^^^^\n"
     );
 }
 
