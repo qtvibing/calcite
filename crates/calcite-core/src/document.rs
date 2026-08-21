@@ -14,9 +14,32 @@ pub struct DocumentLine {
     pub output: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DocumentEntryKind {
+    Blank,
+    Heading {
+        text: String,
+    },
+    Comment {
+        text: String,
+    },
+    Calculation {
+        result_index: usize,
+        label: Option<String>,
+        comment: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentEntry {
+    pub span: Span,
+    pub kind: DocumentEntryKind,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DocumentCalculation {
     pub lines: Vec<DocumentLine>,
+    pub entries: Vec<DocumentEntry>,
 }
 
 pub fn calculate_document(source: &str) -> Result<DocumentCalculation, Diagnostic> {
@@ -29,15 +52,24 @@ pub fn calculate_document_with_context(
 ) -> Result<DocumentCalculation, Diagnostic> {
     let mut variables = HashMap::new();
     let mut lines = Vec::new();
+    let mut entries = Vec::new();
     let mut source_offset = 0;
 
     for raw_line in source.split_inclusive('\n') {
         let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
-        evaluate_line(line, source_offset, context, &mut variables, &mut lines)?;
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        evaluate_line(
+            line,
+            source_offset,
+            context,
+            &mut variables,
+            &mut lines,
+            &mut entries,
+        )?;
         source_offset += raw_line.len();
     }
 
-    Ok(DocumentCalculation { lines })
+    Ok(DocumentCalculation { lines, entries })
 }
 
 fn evaluate_line(
@@ -46,13 +78,59 @@ fn evaluate_line(
     context: &CalculationContext,
     variables: &mut HashMap<String, Value>,
     lines: &mut Vec<DocumentLine>,
+    entries: &mut Vec<DocumentEntry>,
 ) -> Result<(), Diagnostic> {
-    let content = line.trim();
-    if content.is_empty() {
+    let raw_content = line.trim();
+    if raw_content.is_empty() {
+        entries.push(DocumentEntry {
+            span: Span::new(source_offset, source_offset + line.len()),
+            kind: DocumentEntryKind::Blank,
+        });
         return Ok(());
     }
-    let content_offset =
-        source_offset + line.find(content).expect("trimmed content came from line");
+    let raw_content_offset = source_offset
+        + line
+            .find(raw_content)
+            .expect("trimmed content came from line");
+    let entry_span = Span::new(raw_content_offset, raw_content_offset + raw_content.len());
+
+    if let Some(heading) = raw_content.strip_prefix('#') {
+        entries.push(DocumentEntry {
+            span: entry_span,
+            kind: DocumentEntryKind::Heading {
+                text: heading.trim_start_matches('#').trim().to_owned(),
+            },
+        });
+        return Ok(());
+    }
+
+    let (content_before_comment, comment) = match raw_content.find("//") {
+        Some(position) => (
+            raw_content[..position].trim_end(),
+            Some(raw_content[position + 2..].trim().to_owned()),
+        ),
+        None => (raw_content, None),
+    };
+    if content_before_comment.is_empty() {
+        entries.push(DocumentEntry {
+            span: entry_span,
+            kind: DocumentEntryKind::Comment {
+                text: comment.unwrap_or_default(),
+            },
+        });
+        return Ok(());
+    }
+
+    let mut content = content_before_comment;
+    let mut content_offset = raw_content_offset;
+    let mut label = None;
+    if let Some(position) = label_separator(content) {
+        label = Some(content[..position].trim().to_owned());
+        let remainder = &content[position + 1..];
+        content = remainder.trim_start();
+        content_offset += position + 1 + remainder.find(content).unwrap_or(0);
+    }
+
     let tokens: Vec<_> = lex_with_number_format(content, context.number_format)
         .map_err(|error| error.shifted(content_offset))?
         .into_iter()
@@ -114,11 +192,34 @@ fn evaluate_line(
     if let Some(name) = &name {
         variables.insert(name.clone(), value.clone());
     }
+    let result_index = lines.len();
     lines.push(DocumentLine {
         name,
         span: Span::new(content_offset, content_offset + content.len()),
         value,
         output,
     });
+    entries.push(DocumentEntry {
+        span: entry_span,
+        kind: DocumentEntryKind::Calculation {
+            result_index,
+            label,
+            comment,
+        },
+    });
     Ok(())
+}
+
+fn label_separator(content: &str) -> Option<usize> {
+    content.char_indices().find_map(|(position, character)| {
+        if character != ':' {
+            return None;
+        }
+        let label = content[..position].trim();
+        let remainder = &content[position + 1..];
+        let starts_like_label = label.chars().next().is_some_and(char::is_alphabetic)
+            && label.chars().any(char::is_alphabetic);
+        let separated = remainder.chars().next().is_some_and(char::is_whitespace);
+        (starts_like_label && separated && !remainder.trim().is_empty()).then_some(position)
+    })
 }

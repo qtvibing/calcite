@@ -17,7 +17,8 @@ mod unit;
 pub use context::{CalculationContext, NumberFormat};
 pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use document::{
-    DocumentCalculation, DocumentLine, calculate_document, calculate_document_with_context,
+    DocumentCalculation, DocumentEntry, DocumentEntryKind, DocumentLine, calculate_document,
+    calculate_document_with_context,
 };
 pub use evaluator::{Value, evaluate, evaluate_with_context};
 pub use formatter::{format, format_with_context};

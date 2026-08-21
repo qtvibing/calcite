@@ -41,6 +41,27 @@ fn evaluates_an_expression_from_standard_input() {
 }
 
 #[test]
+fn omits_document_headings_and_comments_from_output() {
+    let mut child = calcite()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("calcite should run");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"# Totals\n// setup\nBase: amount = 10\namount + 5 // answer\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "10\n15\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_multiline_variables_from_standard_input() {
     let mut child = calcite()
         .stdin(Stdio::piped())

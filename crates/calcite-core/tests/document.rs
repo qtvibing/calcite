@@ -1,4 +1,4 @@
-use calcite_core::{DiagnosticKind, calculate_document};
+use calcite_core::{DiagnosticKind, DocumentEntryKind, calculate_document};
 
 fn outputs(source: &str) -> Vec<String> {
     calculate_document(source)
@@ -45,6 +45,69 @@ fn reassignment_only_affects_following_lines() {
 #[test]
 fn blank_lines_do_not_create_results() {
     assert_eq!(outputs("\n  value = 2\n\n value * 3\n"), ["2", "6"]);
+}
+
+#[test]
+fn headings_comments_and_labels_preserve_document_order() {
+    let source =
+        "# Trip costs\n\n// prices in USD\nhotel = $200 // two nights\nFood: $50 + $25\nhotel + 75";
+    let document = calculate_document(source).unwrap();
+
+    assert_eq!(
+        document
+            .lines
+            .iter()
+            .map(|line| line.output.as_str())
+            .collect::<Vec<_>>(),
+        ["200 USD", "75 USD", "275 USD"]
+    );
+    assert_eq!(document.entries.len(), 6);
+    assert!(matches!(document.entries[1].kind, DocumentEntryKind::Blank));
+    assert_eq!(
+        document.entries[0].kind,
+        DocumentEntryKind::Heading {
+            text: "Trip costs".to_owned()
+        }
+    );
+    assert_eq!(
+        document.entries[2].kind,
+        DocumentEntryKind::Comment {
+            text: "prices in USD".to_owned()
+        }
+    );
+    assert_eq!(
+        document.entries[3].kind,
+        DocumentEntryKind::Calculation {
+            result_index: 0,
+            label: None,
+            comment: Some("two nights".to_owned()),
+        }
+    );
+    assert_eq!(
+        document.entries[4].kind,
+        DocumentEntryKind::Calculation {
+            result_index: 1,
+            label: Some("Food".to_owned()),
+            comment: None,
+        }
+    );
+    for entry in &document.entries {
+        assert!(entry.span.end <= source.len());
+        assert!(!source[entry.span.start..entry.span.end].contains('\n'));
+    }
+}
+
+#[test]
+fn comments_do_not_affect_variables_or_diagnostic_spans() {
+    assert_eq!(
+        outputs("Initial value: amount = 10 // setup\namount + 5 // result"),
+        ["10", "15"]
+    );
+
+    let source = "# Heading\n// ignored\nmissing + 1 // explanation";
+    let error = calculate_document(source).unwrap_err();
+    assert_eq!(error.kind(), DiagnosticKind::UnknownVariable);
+    assert_eq!(&source[error.span().start..error.span().end], "missing");
 }
 
 #[test]
