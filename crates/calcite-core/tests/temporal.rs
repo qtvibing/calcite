@@ -1,6 +1,6 @@
 use calcite_core::{
-    CalculationContext, ClockTime, Date, DiagnosticKind, TemporalContext, calculate,
-    calculate_with_context,
+    CalculationContext, ClockTime, Date, DiagnosticKind, OffsetDateTime, TemporalContext,
+    UtcOffset, calculate, calculate_with_context,
 };
 
 fn output(source: &str) -> String {
@@ -38,12 +38,53 @@ fn clock_times_accept_24_hour_and_meridiem_forms() {
 }
 
 #[test]
+fn offset_date_times_cross_days_and_convert_the_same_instant() {
+    let value = calculate("2025-03-08T23:30:00+02:00 + 2 h").unwrap();
+    assert_eq!(value.output, "2025-03-09T01:30+02:00");
+    assert!(value.value.as_offset_datetime().is_some());
+
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in UTC"),
+        "2025-03-08T12:30Z"
+    );
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in -05:00"),
+        "2025-03-08T07:30-05:00"
+    );
+    assert_eq!(output("2025-03-08T14:30+02:00 - 2025-03-08T12:30Z"), "0 s");
+    assert_eq!(
+        output("2025-03-08T14:30+02:00 == 2025-03-08T12:30Z"),
+        "true"
+    );
+}
+
+#[test]
+fn dates_and_times_compose_using_the_context_offset() {
+    let context = CalculationContext {
+        temporal: TemporalContext {
+            current_datetime: None,
+            default_offset: UtcOffset::from_seconds(5 * 3600 + 30 * 60).unwrap(),
+        },
+        ..CalculationContext::default()
+    };
+    assert_eq!(
+        calculate_with_context("March 8, 2025 at 9:30 pm", &context)
+            .unwrap()
+            .output,
+        "2025-03-08T21:30+05:30"
+    );
+}
+
+#[test]
 fn relative_temporal_words_require_injected_context() {
     let context = CalculationContext {
         temporal: TemporalContext {
-            today: Date::new(2025, 3, 8),
-            now: ClockTime::new(14, 30, 0),
-            utc_offset_seconds: 0,
+            current_datetime: Some(OffsetDateTime::new(
+                Date::new(2025, 3, 8).unwrap(),
+                ClockTime::new(14, 30, 0).unwrap(),
+                UtcOffset::from_seconds(2 * 3600).unwrap(),
+            )),
+            default_offset: UtcOffset::UTC,
         },
         ..CalculationContext::default()
     };
@@ -58,7 +99,13 @@ fn relative_temporal_words_require_injected_context() {
         calculate_with_context("now + 90 min", &context)
             .unwrap()
             .output,
-        "16:00"
+        "2025-03-08T16:00+02:00"
+    );
+    assert_eq!(
+        calculate_with_context("tomorrow at 9:00", &context)
+            .unwrap()
+            .output,
+        "2025-03-09T09:00+02:00"
     );
 
     let missing = calculate("today").unwrap_err();
@@ -73,6 +120,10 @@ fn invalid_and_ambiguous_temporal_input_is_not_guessed() {
     );
     assert_eq!(
         calculate("24:00").unwrap_err().kind(),
+        DiagnosticKind::InvalidTime
+    );
+    assert_eq!(
+        calculate("2025-03-08T24:00Z").unwrap_err().kind(),
         DiagnosticKind::InvalidTime
     );
     assert_eq!(output("2025 - 3 - 8"), "2014");

@@ -26,7 +26,7 @@ pub use parser::{
 pub use percentage::Percentage;
 pub use rate::Rate;
 pub use span::Span;
-pub use temporal::{CalendarDuration, ClockTime, Date, TemporalContext};
+pub use temporal::{CalendarDuration, ClockTime, Date, OffsetDateTime, TemporalContext, UtcOffset};
 pub use unit::{Dimension, Unit, UnitValue};
 
 pub(crate) use number::NumericError;

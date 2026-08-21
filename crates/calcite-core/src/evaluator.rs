@@ -4,8 +4,8 @@ use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, ConversionTarget, Date,
-    Diagnostic, DiagnosticKind, Expression, Fraction, Number, NumericError, Percentage, Rate, Span,
-    TemporalKeyword, UnaryOperator, Unit, UnitValue, parse_with_context,
+    Diagnostic, DiagnosticKind, Expression, Fraction, Number, NumericError, OffsetDateTime,
+    Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -18,6 +18,7 @@ pub enum Value {
     Rate(Rate),
     Date(Date),
     Clock(ClockTime),
+    OffsetDateTime(OffsetDateTime),
     CalendarDuration(CalendarDuration),
     Boolean(bool),
 }
@@ -72,6 +73,13 @@ impl Value {
         }
     }
 
+    pub const fn as_offset_datetime(&self) -> Option<OffsetDateTime> {
+        match self {
+            Self::OffsetDateTime(value) => Some(*value),
+            _ => None,
+        }
+    }
+
     pub const fn as_calendar_duration(&self) -> Option<CalendarDuration> {
         match self {
             Self::CalendarDuration(duration) => Some(*duration),
@@ -99,6 +107,7 @@ impl fmt::Display for Value {
             Self::Rate(rate) => rate.fmt(formatter),
             Self::Date(date) => date.fmt(formatter),
             Self::Clock(time) => time.fmt(formatter),
+            Self::OffsetDateTime(value) => value.fmt(formatter),
             Self::CalendarDuration(duration) => duration.fmt(formatter),
             Self::Boolean(value) => value.fmt(formatter),
         }
@@ -129,29 +138,30 @@ fn evaluate_expression(
         }
         Expression::Date { value, .. } => Ok(Value::Date(*value)),
         Expression::Clock { value, .. } => Ok(Value::Clock(*value)),
+        Expression::OffsetDateTime { value, .. } => Ok(Value::OffsetDateTime(*value)),
         Expression::CalendarDuration { value, .. } => Ok(Value::CalendarDuration(*value)),
         Expression::TemporalKeyword { keyword, span } => match keyword {
             TemporalKeyword::Today => context
                 .temporal
-                .today
-                .map(Value::Date)
+                .current_datetime
+                .map(|value| Value::Date(value.date()))
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
             TemporalKeyword::Tomorrow => context
                 .temporal
-                .today
-                .and_then(|date| date.add_days(1))
+                .current_datetime
+                .and_then(|value| value.date().add_days(1))
                 .map(Value::Date)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
             TemporalKeyword::Yesterday => context
                 .temporal
-                .today
-                .and_then(|date| date.add_days(-1))
+                .current_datetime
+                .and_then(|value| value.date().add_days(-1))
                 .map(Value::Date)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
             TemporalKeyword::Now => context
                 .temporal
-                .now
-                .map(Value::Clock)
+                .current_datetime
+                .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
         },
         Expression::Unary {
@@ -191,7 +201,7 @@ fn evaluate_expression(
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                 (
                     UnaryOperator::Positive | UnaryOperator::Negative,
-                    Value::Date(_) | Value::Clock(_) | Value::Boolean(_),
+                    Value::Date(_) | Value::Clock(_) | Value::OffsetDateTime(_) | Value::Boolean(_),
                 )
                 | (
                     UnaryOperator::Not,
@@ -202,6 +212,7 @@ fn evaluate_expression(
                     | Value::Rate(_)
                     | Value::Date(_)
                     | Value::Clock(_)
+                    | Value::OffsetDateTime(_)
                     | Value::CalendarDuration(_),
                 ) => Err(unsupported(*operator_span)),
             }
@@ -273,7 +284,7 @@ fn evaluate_expression(
             }
 
             let right = evaluate_expression(right, context)?;
-            evaluate_binary(*operator, left, right, *operator_span)
+            evaluate_binary(*operator, left, right, *operator_span, context)
         }
     }
 }
@@ -283,6 +294,7 @@ fn evaluate_binary(
     left: Value,
     right: Value,
     span: Span,
+    context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
     match (left, right) {
         (Value::Number(left), Value::Number(right)) => number_pair(operator, left, right, span),
@@ -327,6 +339,29 @@ fn evaluate_binary(
         }
         (Value::Unit(left), Value::Rate(right)) if operator == BinaryOperator::Multiply => {
             apply_rate(right, left, span)
+        }
+        (Value::Date(date), Value::Clock(time)) if operator == BinaryOperator::At => {
+            let offset = context
+                .temporal
+                .current_datetime
+                .map_or(context.temporal.default_offset, |value| value.offset());
+            Ok(Value::OffsetDateTime(OffsetDateTime::new(
+                date, time, offset,
+            )))
+        }
+        (Value::OffsetDateTime(left), Value::OffsetDateTime(right)) => {
+            datetime_pair(operator, left, right, span)
+        }
+        (Value::OffsetDateTime(value), Value::Unit(duration)) => {
+            datetime_duration_pair(operator, value, duration, span)
+        }
+        (Value::OffsetDateTime(value), Value::CalendarDuration(duration)) => {
+            datetime_calendar_pair(operator, value, duration, span)
+        }
+        (Value::CalendarDuration(duration), Value::OffsetDateTime(value))
+            if operator == BinaryOperator::Add =>
+        {
+            datetime_calendar_pair(operator, value, duration, span)
         }
         (Value::Date(left), Value::Date(right)) => date_pair(operator, left, right, span),
         (Value::Date(date), Value::CalendarDuration(duration)) => {
@@ -385,6 +420,7 @@ fn number_pair(
         BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
+        | BinaryOperator::At
         | BinaryOperator::And
         | BinaryOperator::Or => Err(unsupported(span)),
     }
@@ -423,6 +459,7 @@ fn percentage_pair(
         BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
+        | BinaryOperator::At
         | BinaryOperator::And
         | BinaryOperator::Or => Err(unsupported(span)),
     }
@@ -458,6 +495,7 @@ fn number_percentage_pair(
         BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
+        | BinaryOperator::At
         | BinaryOperator::And
         | BinaryOperator::Or => Err(unsupported(span)),
     }
@@ -494,7 +532,7 @@ fn percentage_number_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
-        BinaryOperator::And | BinaryOperator::Or => Err(unsupported(span)),
+        BinaryOperator::At | BinaryOperator::And | BinaryOperator::Or => Err(unsupported(span)),
     }
 }
 
@@ -543,6 +581,74 @@ fn unit_pair(
         }
         _ => Err(unsupported(span)),
     }
+}
+
+fn datetime_pair(
+    operator: BinaryOperator,
+    left: OffsetDateTime,
+    right: OffsetDateTime,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let seconds = left.seconds_since(right);
+    match operator {
+        BinaryOperator::Subtract => Ok(Value::Unit(UnitValue::new(
+            Number::from_i64(seconds),
+            Unit::Second,
+        ))),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_ordering(operator, seconds.cmp(&0), span),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn datetime_duration_pair(
+    operator: BinaryOperator,
+    value: OffsetDateTime,
+    duration: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let duration = duration
+        .converted_to(Unit::Second)
+        .map_err(|error| unit_diagnostic(error, span))?;
+    let mut seconds = duration
+        .magnitude()
+        .exact_i64()
+        .ok_or_else(|| unsupported(span))?;
+    if operator == BinaryOperator::Subtract {
+        seconds = seconds
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span))?;
+    } else if operator != BinaryOperator::Add {
+        return Err(unsupported(span));
+    }
+    value
+        .add_seconds(seconds)
+        .map(Value::OffsetDateTime)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+}
+
+fn datetime_calendar_pair(
+    operator: BinaryOperator,
+    value: OffsetDateTime,
+    duration: CalendarDuration,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let months = match operator {
+        BinaryOperator::Add => duration.total_months(),
+        BinaryOperator::Subtract => duration
+            .total_months()
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))?,
+        _ => return Err(unsupported(span)),
+    };
+    value
+        .add_months(months)
+        .map(Value::OffsetDateTime)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
 }
 
 fn date_pair(
@@ -911,6 +1017,7 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             | Value::Rate(_)
             | Value::Date(_)
             | Value::Clock(_)
+            | Value::OffsetDateTime(_)
             | Value::CalendarDuration(_)
             | Value::Boolean(_) => Err(unsupported(span)),
         },
@@ -924,6 +1031,7 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             | Value::Rate(_)
             | Value::Date(_)
             | Value::Clock(_)
+            | Value::OffsetDateTime(_)
             | Value::CalendarDuration(_)
             | Value::Boolean(_) => Err(unsupported(span)),
         },
@@ -936,6 +1044,7 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
                 | Value::Rate(_)
                 | Value::Date(_)
                 | Value::Clock(_)
+                | Value::OffsetDateTime(_)
                 | Value::CalendarDuration(_)
                 | Value::Boolean(_) => return Err(unsupported(span)),
             };
@@ -958,6 +1067,13 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
                 .converted_to(numerator, denominator)
                 .map(Value::Rate)
                 .map_err(|error| unit_diagnostic(error, span)),
+            _ => Err(unsupported(span)),
+        },
+        ConversionTarget::UtcOffset(offset) => match value {
+            Value::OffsetDateTime(value) => value
+                .converted_to(offset)
+                .map(Value::OffsetDateTime)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
             _ => Err(unsupported(span)),
         },
     }

@@ -1,6 +1,7 @@
 use crate::{
     CalculationContext, CalendarDuration, ClockTime, Date, Diagnostic, DiagnosticKind, Lexeme,
-    LexemeKind, Number, NumberFormat, NumberParseError, Span, Unit, lex_with_number_format,
+    LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Span, Unit, UtcOffset,
+    lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub enum BinaryOperator {
     Of,
     On,
     Off,
+    At,
     Equal,
     NotEqual,
     Greater,
@@ -42,7 +44,7 @@ impl BinaryOperator {
             | Self::Less
             | Self::LessEqual => (5, 6),
             Self::Add | Self::Subtract => (7, 8),
-            Self::Multiply | Self::Divide | Self::Of | Self::On | Self::Off => (9, 10),
+            Self::Multiply | Self::Divide | Self::Of | Self::On | Self::Off | Self::At => (9, 10),
             Self::Power => (11, 11),
         }
     }
@@ -66,6 +68,7 @@ pub enum ConversionTarget {
         numerator: Option<Unit>,
         denominator: Unit,
     },
+    UtcOffset(UtcOffset),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,6 +92,10 @@ pub enum Expression {
     },
     Clock {
         value: ClockTime,
+        span: Span,
+    },
+    OffsetDateTime {
+        value: OffsetDateTime,
         span: Span,
     },
     CalendarDuration {
@@ -146,6 +153,7 @@ impl Expression {
             | Self::Unit { span, .. }
             | Self::Date { span, .. }
             | Self::Clock { span, .. }
+            | Self::OffsetDateTime { span, .. }
             | Self::CalendarDuration { span, .. }
             | Self::TemporalKeyword { span, .. }
             | Self::Unary { span, .. }
@@ -248,6 +256,19 @@ impl Parser<'_> {
 
         match token.kind {
             LexemeKind::Number => {
+                if let Some(expression) = self.parse_iso_offset_datetime() {
+                    return Ok(expression);
+                }
+                if self.starts_iso_datetime() {
+                    let start = token.span.start;
+                    let length = self.source[start..]
+                        .find(char::is_whitespace)
+                        .unwrap_or(self.source.len() - start);
+                    return Err(Diagnostic::new(
+                        DiagnosticKind::InvalidTime,
+                        Span::new(start, start + length),
+                    ));
+                }
                 if self.is_iso_date() {
                     return self.parse_iso_date();
                 }
@@ -384,6 +405,37 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn starts_iso_datetime(&self) -> bool {
+        self.is_iso_date()
+            && self.tokens.get(self.position + 5).is_some_and(|token| {
+                token.kind == LexemeKind::Word
+                    && token.span.start == self.tokens[self.position + 4].span.end
+                    && self.source[token.span.start..token.span.end].eq_ignore_ascii_case("t")
+            })
+    }
+
+    fn parse_iso_offset_datetime(&mut self) -> Option<Expression> {
+        let start = self.current()?.span.start;
+        let (value, length) = OffsetDateTime::parse_iso_prefix(&self.source[start..])?;
+        let end = start + length;
+        let mut position = self.position;
+        while self
+            .tokens
+            .get(position)
+            .is_some_and(|token| token.span.end <= end)
+        {
+            position += 1;
+        }
+        if position == self.position || self.tokens[position - 1].span.end != end {
+            return None;
+        }
+        self.position = position;
+        Some(Expression::OffsetDateTime {
+            value,
+            span: Span::new(start, end),
+        })
     }
 
     fn is_day_first_named_date(&self) -> bool {
@@ -636,7 +688,11 @@ impl Parser<'_> {
 
         let mut consumed = 2;
         let mut target_span = target_token.span;
-        let target = if target_token.kind == LexemeKind::Slash {
+        let target = if let Some((offset, offset_tokens, span)) = self.utc_offset_at(1) {
+            consumed = 1 + offset_tokens;
+            target_span = span;
+            ConversionTarget::UtcOffset(offset)
+        } else if target_token.kind == LexemeKind::Slash {
             let (denominator, token) = self.unit_at(2).ok_or_else(|| {
                 Diagnostic::with_detail(
                     DiagnosticKind::UnexpectedToken,
@@ -719,6 +775,37 @@ impl Parser<'_> {
             target_span,
             span,
         })
+    }
+
+    fn utc_offset_at(&self, offset: usize) -> Option<(UtcOffset, usize, Span)> {
+        let token = *self.tokens.get(self.position + offset)?;
+        if token.kind == LexemeKind::Word {
+            let word = &self.source[token.span.start..token.span.end];
+            if word.eq_ignore_ascii_case("utc") || word.eq_ignore_ascii_case("z") {
+                return Some((UtcOffset::UTC, 1, token.span));
+            }
+        }
+
+        let direction = match token.kind {
+            LexemeKind::Plus => 1,
+            LexemeKind::Minus => -1,
+            _ => return None,
+        };
+        let hours = self.token_u8(offset + 1)?;
+        if self.tokens.get(self.position + offset + 2)?.kind != LexemeKind::Colon {
+            return None;
+        }
+        let minutes = self.token_u8(offset + 3)?;
+        if hours > 23 || minutes > 59 {
+            return None;
+        }
+        let end = self.tokens[self.position + offset + 3];
+        let seconds = direction * (i32::from(hours) * 3600 + i32::from(minutes) * 60);
+        Some((
+            UtcOffset::from_seconds(seconds)?,
+            4,
+            token.span.join(end.span),
+        ))
     }
 
     fn unit(&self) -> Option<(Unit, Lexeme)> {
@@ -812,6 +899,13 @@ impl Parser<'_> {
             LexemeKind::Word if self.word_is(0, "of") => (BinaryOperator::Of, current.span, 1),
             LexemeKind::Word if self.word_is(0, "on") => (BinaryOperator::On, current.span, 1),
             LexemeKind::Word if self.word_is(0, "off") => (BinaryOperator::Off, current.span, 1),
+            LexemeKind::Word
+                if self.word_is(0, "at")
+                    && !self.word_is(1, "least")
+                    && !self.word_is(1, "most") =>
+            {
+                (BinaryOperator::At, current.span, 1)
+            }
             LexemeKind::Word if self.word_is(0, "and") => (BinaryOperator::And, current.span, 1),
             LexemeKind::Word if self.word_is(0, "or") => (BinaryOperator::Or, current.span, 1),
             LexemeKind::Word

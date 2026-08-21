@@ -53,6 +53,21 @@ fn evaluates_natural_calendar_arithmetic() {
 }
 
 #[test]
+fn converts_offset_date_times() {
+    let output = calcite()
+        .args(["2025-03-08T14:30:00+02:00", "in", "UTC"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "2025-03-08T12:30Z\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn reports_spanned_diagnostics_on_standard_error() {
     let output = calcite()
         .args(["1", "km", "+", "1", "kg"])

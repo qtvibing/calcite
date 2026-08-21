@@ -45,6 +45,14 @@ impl Date {
     pub fn days_since(self, earlier: Self) -> i64 {
         days_from_civil(self) - days_from_civil(earlier)
     }
+
+    pub(crate) fn epoch_days(self) -> i64 {
+        days_from_civil(self)
+    }
+
+    pub(crate) fn from_epoch_days(days: i64) -> Option<Self> {
+        civil_from_days(days)
+    }
 }
 
 impl fmt::Display for Date {
@@ -94,6 +102,17 @@ impl ClockTime {
     pub fn seconds_since(self, earlier: Self) -> i64 {
         i64::from(self.seconds) - i64::from(earlier.seconds)
     }
+
+    pub(crate) const fn seconds_after_midnight(self) -> u32 {
+        self.seconds
+    }
+
+    pub(crate) fn from_seconds_after_midnight(seconds: u32) -> Option<Self> {
+        if seconds >= 86_400 {
+            return None;
+        }
+        Some(Self { seconds })
+    }
 }
 
 impl fmt::Display for ClockTime {
@@ -109,6 +128,171 @@ impl fmt::Display for ClockTime {
                 self.second()
             )
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct UtcOffset {
+    seconds: i32,
+}
+
+impl UtcOffset {
+    pub const UTC: Self = Self { seconds: 0 };
+
+    pub const fn from_seconds(seconds: i32) -> Option<Self> {
+        if seconds < -86_340 || seconds > 86_340 {
+            None
+        } else {
+            Some(Self { seconds })
+        }
+    }
+
+    pub const fn from_hours_minutes(hours: i8, minutes: u8) -> Option<Self> {
+        if hours < -23 || hours > 23 || minutes > 59 {
+            return None;
+        }
+        let sign = if hours < 0 { -1 } else { 1 };
+        Self::from_seconds(hours as i32 * 3600 + sign * minutes as i32 * 60)
+    }
+
+    pub const fn seconds(self) -> i32 {
+        self.seconds
+    }
+}
+
+impl fmt::Display for UtcOffset {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.seconds == 0 {
+            return formatter.write_str("Z");
+        }
+        let sign = if self.seconds < 0 { '-' } else { '+' };
+        let absolute = self.seconds.unsigned_abs();
+        write!(
+            formatter,
+            "{sign}{:02}:{:02}",
+            absolute / 3600,
+            (absolute % 3600) / 60
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OffsetDateTime {
+    date: Date,
+    time: ClockTime,
+    offset: UtcOffset,
+}
+
+impl OffsetDateTime {
+    pub const fn new(date: Date, time: ClockTime, offset: UtcOffset) -> Self {
+        Self { date, time, offset }
+    }
+
+    pub const fn date(self) -> Date {
+        self.date
+    }
+
+    pub const fn time(self) -> ClockTime {
+        self.time
+    }
+
+    pub const fn offset(self) -> UtcOffset {
+        self.offset
+    }
+
+    pub fn add_seconds(self, seconds: i64) -> Option<Self> {
+        let local = self.local_seconds().checked_add(seconds)?;
+        Self::from_local_seconds(local, self.offset)
+    }
+
+    pub fn add_months(self, months: i64) -> Option<Self> {
+        self.date
+            .add_months(months)
+            .map(|date| Self::new(date, self.time, self.offset))
+    }
+
+    pub fn converted_to(self, offset: UtcOffset) -> Option<Self> {
+        let utc = self.utc_seconds();
+        let local = utc.checked_add(i64::from(offset.seconds))?;
+        Self::from_local_seconds(local, offset)
+    }
+
+    pub fn seconds_since(self, earlier: Self) -> i64 {
+        self.utc_seconds() - earlier.utc_seconds()
+    }
+
+    pub(crate) fn parse_iso_prefix(source: &str) -> Option<(Self, usize)> {
+        let bytes = source.as_bytes();
+        if bytes.len() < 17
+            || bytes.get(4) != Some(&b'-')
+            || bytes.get(7) != Some(&b'-')
+            || !matches!(bytes.get(10), Some(b'T' | b't'))
+            || bytes.get(13) != Some(&b':')
+        {
+            return None;
+        }
+
+        let date = Date::new(
+            parse_ascii(source, 0, 4)?,
+            parse_ascii(source, 5, 7)?,
+            parse_ascii(source, 8, 10)?,
+        )?;
+        let hour = parse_ascii(source, 11, 13)?;
+        let minute = parse_ascii(source, 14, 16)?;
+        let mut end = 16;
+        let second = if bytes.get(end) == Some(&b':') {
+            let second = parse_ascii(source, end + 1, end + 3)?;
+            end += 3;
+            second
+        } else {
+            0
+        };
+        let time = ClockTime::new(hour, minute, second)?;
+
+        let offset = match bytes.get(end) {
+            Some(b'Z' | b'z') => {
+                end += 1;
+                UtcOffset::UTC
+            }
+            Some(sign @ (b'+' | b'-'))
+                if bytes.get(end + 3) == Some(&b':') && bytes.len() >= end + 6 =>
+            {
+                let hours = i32::from(parse_ascii::<u8>(source, end + 1, end + 3)?);
+                let minutes = i32::from(parse_ascii::<u8>(source, end + 4, end + 6)?);
+                if hours > 23 || minutes > 59 {
+                    return None;
+                }
+                let direction = if *sign == b'-' { -1 } else { 1 };
+                end += 6;
+                UtcOffset::from_seconds(direction * (hours * 3600 + minutes * 60))?
+            }
+            _ => return None,
+        };
+        Some((Self::new(date, time, offset), end))
+    }
+
+    fn local_seconds(self) -> i64 {
+        self.date.epoch_days() * 86_400 + i64::from(self.time.seconds_after_midnight())
+    }
+
+    fn utc_seconds(self) -> i64 {
+        self.local_seconds() - i64::from(self.offset.seconds)
+    }
+
+    fn from_local_seconds(seconds: i64, offset: UtcOffset) -> Option<Self> {
+        let days = seconds.div_euclid(86_400);
+        let seconds = u32::try_from(seconds.rem_euclid(86_400)).ok()?;
+        Some(Self::new(
+            Date::from_epoch_days(days)?,
+            ClockTime::from_seconds_after_midnight(seconds)?,
+            offset,
+        ))
+    }
+}
+
+impl fmt::Display for OffsetDateTime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}T{}{}", self.date, self.time, self.offset)
     }
 }
 
@@ -185,11 +369,23 @@ impl fmt::Display for CalendarDuration {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TemporalContext {
-    pub today: Option<Date>,
-    pub now: Option<ClockTime>,
-    pub utc_offset_seconds: i32,
+    pub current_datetime: Option<OffsetDateTime>,
+    pub default_offset: UtcOffset,
+}
+
+impl Default for TemporalContext {
+    fn default() -> Self {
+        Self {
+            current_datetime: None,
+            default_offset: UtcOffset::UTC,
+        }
+    }
+}
+
+fn parse_ascii<T: std::str::FromStr>(source: &str, start: usize, end: usize) -> Option<T> {
+    source.get(start..end)?.parse().ok()
 }
 
 fn is_leap_year(year: i32) -> bool {
