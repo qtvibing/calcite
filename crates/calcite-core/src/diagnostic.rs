@@ -12,6 +12,7 @@ pub enum DiagnosticKind {
     DivisionByZero,
     ExponentTooLarge,
     NonRealResult,
+    UnsupportedOperation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +61,7 @@ impl Diagnostic {
             DiagnosticKind::DivisionByZero => "cannot divide by zero",
             DiagnosticKind::ExponentTooLarge => "exponent is too large",
             DiagnosticKind::NonRealResult => "result is not a real number",
+            DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
         }
     }
 }

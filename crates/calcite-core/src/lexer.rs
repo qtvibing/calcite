@@ -10,6 +10,7 @@ pub enum LexemeKind {
     Star,
     Slash,
     Caret,
+    Percent,
     LeftParenthesis,
     RightParenthesis,
 }
@@ -78,6 +79,7 @@ pub fn lex(source: &str) -> Result<Vec<Lexeme>, Diagnostic> {
                 '×' => LexemeKind::Star,
                 '/' | '÷' => LexemeKind::Slash,
                 '^' => LexemeKind::Caret,
+                '%' => LexemeKind::Percent,
                 '(' => LexemeKind::LeftParenthesis,
                 ')' => LexemeKind::RightParenthesis,
                 _ => {

@@ -4,6 +4,7 @@ mod formatter;
 mod lexer;
 mod number;
 mod parser;
+mod percentage;
 mod span;
 
 pub use diagnostic::{Diagnostic, DiagnosticKind};
@@ -12,6 +13,7 @@ pub use formatter::format;
 pub use lexer::{Lexeme, LexemeKind, lex};
 pub use number::{Number, NumberParseError};
 pub use parser::{BinaryOperator, Expression, UnaryOperator, parse};
+pub use percentage::Percentage;
 pub use span::Span;
 
 pub(crate) use number::NumericError;

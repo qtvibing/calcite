@@ -45,6 +45,10 @@ pub(crate) enum NumericError {
 }
 
 impl Number {
+    pub(crate) fn from_i64(value: i64) -> Self {
+        Self(Representation::Exact(RBig::from(value)))
+    }
+
     pub fn parse_decimal(source: &str) -> Result<Self, NumberParseError> {
         validate_decimal_size(source)?;
         RBig::from_str_decimal(source)

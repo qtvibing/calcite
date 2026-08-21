@@ -69,6 +69,35 @@ fn unicode_operator_symbols_are_accepted() {
 }
 
 #[test]
+fn percentages_retain_their_meaning() {
+    let sum = calculate("10% + 20%").unwrap();
+    assert_eq!(sum.output, "30%");
+    assert_eq!(
+        sum.value
+            .as_percentage()
+            .unwrap()
+            .ratio()
+            .exact_fraction()
+            .as_deref(),
+        Some("3/10")
+    );
+
+    assert_eq!(output("50% * 50%"), "25%");
+    assert_eq!(output("50% / 25%"), "2");
+    assert_eq!(output("30% + 0.4"), "70%");
+}
+
+#[test]
+fn percentages_can_modify_or_measure_a_base_value() {
+    assert_eq!(output("10% of 200"), "20");
+    assert_eq!(output("10% on 200"), "220");
+    assert_eq!(output("10% off 200"), "180");
+    assert_eq!(output("200 + 10%"), "220");
+    assert_eq!(output("200 - 10%"), "180");
+    assert_eq!(output("30 * 50%"), "15");
+}
+
+#[test]
 fn calculation_errors_are_structured_and_spanned() {
     let division = calculate("1 / 0").unwrap_err();
     assert_eq!(division.kind(), DiagnosticKind::DivisionByZero);

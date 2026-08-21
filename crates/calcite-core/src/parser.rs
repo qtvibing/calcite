@@ -13,6 +13,9 @@ pub enum BinaryOperator {
     Multiply,
     Divide,
     Power,
+    Of,
+    On,
+    Off,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,6 +34,11 @@ pub enum Expression {
         expression: Box<Expression>,
         span: Span,
     },
+    Percentage {
+        expression: Box<Expression>,
+        operator_span: Span,
+        span: Span,
+    },
     Binary {
         operator: BinaryOperator,
         operator_span: Span,
@@ -46,6 +54,7 @@ impl Expression {
             Self::Number { span, .. }
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
+            | Self::Percentage { span, .. }
             | Self::Binary { span, .. } => *span,
         }
     }
@@ -79,9 +88,26 @@ impl Parser<'_> {
     fn parse_expression(&mut self, minimum_binding_power: u8) -> Result<Expression, Diagnostic> {
         let mut left = self.parse_prefix()?;
 
-        while let Some((operator, operator_span, consumed, left_power, right_power)) =
-            self.binary_operator()
-        {
+        loop {
+            if let Some(percent) = self
+                .current()
+                .filter(|token| token.kind == LexemeKind::Percent)
+            {
+                self.position += 1;
+                let span = left.span().join(percent.span);
+                left = Expression::Percentage {
+                    expression: Box::new(left),
+                    operator_span: percent.span,
+                    span,
+                };
+                continue;
+            }
+
+            let Some((operator, operator_span, consumed, left_power, right_power)) =
+                self.binary_operator()
+            else {
+                break;
+            };
             if left_power < minimum_binding_power {
                 break;
             }
@@ -207,6 +233,15 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.word_is(0, "over") => {
                 (BinaryOperator::Divide, current.span, 1, 3, 4)
+            }
+            LexemeKind::Word if self.word_is(0, "of") => {
+                (BinaryOperator::Of, current.span, 1, 3, 4)
+            }
+            LexemeKind::Word if self.word_is(0, "on") => {
+                (BinaryOperator::On, current.span, 1, 3, 4)
+            }
+            LexemeKind::Word if self.word_is(0, "off") => {
+                (BinaryOperator::Off, current.span, 1, 3, 4)
             }
             LexemeKind::Word
                 if self.word_is(0, "to")

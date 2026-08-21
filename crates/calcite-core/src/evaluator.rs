@@ -1,20 +1,29 @@
 use std::fmt;
 
 use crate::{
-    BinaryOperator, Diagnostic, DiagnosticKind, Expression, Number, NumericError, UnaryOperator,
-    parse,
+    BinaryOperator, Diagnostic, DiagnosticKind, Expression, Number, NumericError, Percentage, Span,
+    UnaryOperator, parse,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Value {
     Number(Number),
+    Percentage(Percentage),
 }
 
 impl Value {
     pub const fn as_number(&self) -> Option<&Number> {
         match self {
             Self::Number(number) => Some(number),
+            _ => None,
+        }
+    }
+
+    pub const fn as_percentage(&self) -> Option<&Percentage> {
+        match self {
+            Self::Percentage(percentage) => Some(percentage),
+            _ => None,
         }
     }
 }
@@ -23,28 +32,46 @@ impl fmt::Display for Value {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(number) => number.fmt(formatter),
+            Self::Percentage(percentage) => percentage.fmt(formatter),
         }
     }
 }
 
 pub fn evaluate(source: &str) -> Result<Value, Diagnostic> {
     let expression = parse(source)?;
-    evaluate_expression(&expression).map(Value::Number)
+    evaluate_expression(&expression)
 }
 
-fn evaluate_expression(expression: &Expression) -> Result<Number, Diagnostic> {
+fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
     match expression {
-        Expression::Number { value, .. } => Ok(value.clone()),
+        Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
         Expression::Unary {
             operator, operand, ..
         } => {
             let operand = evaluate_expression(operand)?;
-            Ok(match operator {
-                UnaryOperator::Positive => operand,
-                UnaryOperator::Negative => operand.negated(),
-            })
+            match (operator, operand) {
+                (UnaryOperator::Positive, value) => Ok(value),
+                (UnaryOperator::Negative, Value::Number(number)) => {
+                    Ok(Value::Number(number.negated()))
+                }
+                (UnaryOperator::Negative, Value::Percentage(percentage)) => {
+                    Ok(Value::Percentage(percentage.negated()))
+                }
+            }
         }
         Expression::Group { expression, .. } => evaluate_expression(expression),
+        Expression::Percentage {
+            expression,
+            operator_span,
+            ..
+        } => match evaluate_expression(expression)? {
+            Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(
+                number
+                    .divide(Number::from_i64(100))
+                    .expect("one hundred is nonzero"),
+            ))),
+            _ => Err(unsupported(*operator_span)),
+        },
         Expression::Binary {
             operator,
             operator_span,
@@ -54,26 +81,143 @@ fn evaluate_expression(expression: &Expression) -> Result<Number, Diagnostic> {
         } => {
             let left = evaluate_expression(left)?;
             let right = evaluate_expression(right)?;
-            match operator {
-                BinaryOperator::Add => Ok(left.add(right)),
-                BinaryOperator::Subtract => Ok(left.subtract(right)),
-                BinaryOperator::Multiply => Ok(left.multiply(right)),
-                BinaryOperator::Divide => left
-                    .divide(right)
-                    .map_err(|error| numeric_diagnostic(error, *operator_span)),
-                BinaryOperator::Power => left
-                    .pow(right)
-                    .map_err(|error| numeric_diagnostic(error, *operator_span)),
-            }
+            evaluate_binary(*operator, left, right, *operator_span)
         }
     }
 }
 
-fn numeric_diagnostic(error: NumericError, span: crate::Span) -> Diagnostic {
+fn evaluate_binary(
+    operator: BinaryOperator,
+    left: Value,
+    right: Value,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => {
+            number_pair(operator, left, right, span).map(Value::Number)
+        }
+        (Value::Percentage(left), Value::Percentage(right)) => {
+            percentage_pair(operator, left, right, span)
+        }
+        (Value::Number(left), Value::Percentage(right)) => {
+            number_percentage_pair(operator, left, right, span)
+        }
+        (Value::Percentage(left), Value::Number(right)) => {
+            percentage_number_pair(operator, left, right, span)
+        }
+    }
+}
+
+fn number_pair(
+    operator: BinaryOperator,
+    left: Number,
+    right: Number,
+    span: Span,
+) -> Result<Number, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => Ok(left.add(right)),
+        BinaryOperator::Subtract => Ok(left.subtract(right)),
+        BinaryOperator::Multiply => Ok(left.multiply(right)),
+        BinaryOperator::Divide => left
+            .divide(right)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Power => left
+            .pow(right)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Of | BinaryOperator::On | BinaryOperator::Off => Err(unsupported(span)),
+    }
+}
+
+fn percentage_pair(
+    operator: BinaryOperator,
+    left: Percentage,
+    right: Percentage,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let left = left.into_ratio();
+    let right = right.into_ratio();
+    match operator {
+        BinaryOperator::Add => Ok(Value::Percentage(Percentage::from_ratio(left.add(right)))),
+        BinaryOperator::Subtract => Ok(Value::Percentage(Percentage::from_ratio(
+            left.subtract(right),
+        ))),
+        BinaryOperator::Multiply => Ok(Value::Percentage(Percentage::from_ratio(
+            left.multiply(right),
+        ))),
+        BinaryOperator::Divide => left
+            .divide(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Power => left
+            .pow(right)
+            .map(|number| Value::Percentage(Percentage::from_ratio(number)))
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Of | BinaryOperator::On | BinaryOperator::Off => Err(unsupported(span)),
+    }
+}
+
+fn number_percentage_pair(
+    operator: BinaryOperator,
+    number: Number,
+    percentage: Percentage,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let ratio = percentage.into_ratio();
+    match operator {
+        BinaryOperator::Add => Ok(Value::Number(number.clone().add(number.multiply(ratio)))),
+        BinaryOperator::Subtract => Ok(Value::Number(
+            number.clone().subtract(number.multiply(ratio)),
+        )),
+        BinaryOperator::Multiply => Ok(Value::Number(number.multiply(ratio))),
+        BinaryOperator::Divide => number
+            .divide(ratio)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Power => number
+            .pow(ratio)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Of | BinaryOperator::On | BinaryOperator::Off => Err(unsupported(span)),
+    }
+}
+
+fn percentage_number_pair(
+    operator: BinaryOperator,
+    percentage: Percentage,
+    number: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let ratio = percentage.into_ratio();
+    match operator {
+        BinaryOperator::Add => Ok(Value::Percentage(Percentage::from_ratio(ratio.add(number)))),
+        BinaryOperator::Subtract => Ok(Value::Percentage(Percentage::from_ratio(
+            ratio.subtract(number),
+        ))),
+        BinaryOperator::Multiply | BinaryOperator::Of => Ok(Value::Number(number.multiply(ratio))),
+        BinaryOperator::Divide => ratio
+            .divide(number)
+            .map(|ratio| Value::Percentage(Percentage::from_ratio(ratio)))
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Power => ratio
+            .pow(number)
+            .map(|ratio| Value::Percentage(Percentage::from_ratio(ratio)))
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::On => Ok(Value::Number(number.clone().add(number.multiply(ratio)))),
+        BinaryOperator::Off => Ok(Value::Number(
+            number.clone().subtract(number.multiply(ratio)),
+        )),
+    }
+}
+
+fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
     let kind = match error {
         NumericError::DivisionByZero => DiagnosticKind::DivisionByZero,
         NumericError::ExponentTooLarge => DiagnosticKind::ExponentTooLarge,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)
+}
+
+fn unsupported(span: Span) -> Diagnostic {
+    Diagnostic::new(DiagnosticKind::UnsupportedOperation, span)
 }
