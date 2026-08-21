@@ -54,6 +54,10 @@ pub enum ConversionTarget {
     Percentage,
     Fraction,
     Unit(Unit),
+    Rate {
+        numerator: Option<Unit>,
+        denominator: Unit,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -249,6 +253,15 @@ impl Parser<'_> {
                     Ok(Expression::Number { value, span })
                 }
             }
+            LexemeKind::Word if self.unit().is_some() => {
+                let (unit, token) = self.unit().expect("guard checked the unit");
+                self.position += 1;
+                Ok(Expression::Unit {
+                    value: Number::from_i64(1),
+                    unit,
+                    span: token.span,
+                })
+            }
             LexemeKind::Word if self.word_is(0, "if") || self.word_is(0, "unless") => {
                 self.parse_conditional()
             }
@@ -374,52 +387,99 @@ impl Parser<'_> {
             ));
         };
 
-        let target = match target_token.kind {
-            LexemeKind::Percent => ConversionTarget::Percentage,
-            LexemeKind::Word => {
-                let target = &self.source[target_token.span.start..target_token.span.end];
-                if let Some(unit) = Unit::from_alias(target) {
-                    ConversionTarget::Unit(unit)
-                } else if target.eq_ignore_ascii_case("number")
-                    || target.eq_ignore_ascii_case("decimal")
-                {
-                    ConversionTarget::Number
-                } else if target.eq_ignore_ascii_case("percent")
-                    || target.eq_ignore_ascii_case("percentage")
-                {
-                    ConversionTarget::Percentage
-                } else if target.eq_ignore_ascii_case("fraction") {
-                    ConversionTarget::Fraction
-                } else {
+        let mut consumed = 2;
+        let mut target_span = target_token.span;
+        let target = if target_token.kind == LexemeKind::Slash {
+            let (denominator, token) = self.unit_at(2).ok_or_else(|| {
+                Diagnostic::with_detail(
+                    DiagnosticKind::UnexpectedToken,
+                    self.tokens
+                        .get(self.position + 2)
+                        .map_or(Span::empty(self.source.len()), |token| token.span),
+                    "expected a rate denominator",
+                )
+            })?;
+            consumed = 3;
+            target_span = target_span.join(token.span);
+            ConversionTarget::Rate {
+                numerator: None,
+                denominator,
+            }
+        } else if let Some((numerator, _)) = self.unit_at(1) {
+            if self
+                .tokens
+                .get(self.position + 2)
+                .is_some_and(|token| token.kind == LexemeKind::Slash)
+                || self.word_is(2, "per")
+            {
+                let (denominator, token) = self.unit_at(3).ok_or_else(|| {
+                    Diagnostic::with_detail(
+                        DiagnosticKind::UnexpectedToken,
+                        self.tokens
+                            .get(self.position + 3)
+                            .map_or(Span::empty(self.source.len()), |token| token.span),
+                        "expected a rate denominator",
+                    )
+                })?;
+                consumed = 4;
+                target_span = target_span.join(token.span);
+                ConversionTarget::Rate {
+                    numerator: Some(numerator),
+                    denominator,
+                }
+            } else {
+                ConversionTarget::Unit(numerator)
+            }
+        } else {
+            match target_token.kind {
+                LexemeKind::Percent => ConversionTarget::Percentage,
+                LexemeKind::Word => {
+                    let target = &self.source[target_token.span.start..target_token.span.end];
+                    if target.eq_ignore_ascii_case("number")
+                        || target.eq_ignore_ascii_case("decimal")
+                    {
+                        ConversionTarget::Number
+                    } else if target.eq_ignore_ascii_case("percent")
+                        || target.eq_ignore_ascii_case("percentage")
+                    {
+                        ConversionTarget::Percentage
+                    } else if target.eq_ignore_ascii_case("fraction") {
+                        ConversionTarget::Fraction
+                    } else {
+                        return Err(Diagnostic::with_detail(
+                            DiagnosticKind::UnexpectedToken,
+                            target_token.span,
+                            "expected a unit, rate, number, percentage, or fraction",
+                        ));
+                    }
+                }
+                _ => {
                     return Err(Diagnostic::with_detail(
                         DiagnosticKind::UnexpectedToken,
                         target_token.span,
-                        "expected a unit, number, percentage, or fraction",
+                        "expected a unit, rate, number, percentage, or fraction",
                     ));
                 }
             }
-            _ => {
-                return Err(Diagnostic::with_detail(
-                    DiagnosticKind::UnexpectedToken,
-                    target_token.span,
-                    "expected a unit, number, percentage, or fraction",
-                ));
-            }
         };
 
-        self.position += 2;
-        let span = expression.span().join(target_token.span);
+        self.position += consumed;
+        let span = expression.span().join(target_span);
         Ok(Expression::Conversion {
             expression: Box::new(expression),
             target,
             operator_span: operator.span,
-            target_span: target_token.span,
+            target_span,
             span,
         })
     }
 
     fn unit(&self) -> Option<(Unit, Lexeme)> {
-        let token = self.current()?;
+        self.unit_at(0)
+    }
+
+    fn unit_at(&self, offset: usize) -> Option<(Unit, Lexeme)> {
+        let token = *self.tokens.get(self.position + offset)?;
         if token.kind != LexemeKind::Word {
             return None;
         }
@@ -499,7 +559,7 @@ impl Parser<'_> {
                 let consumed = if self.word_is(1, "by") { 2 } else { 1 };
                 (BinaryOperator::Divide, self.phrase_span(consumed), consumed)
             }
-            LexemeKind::Word if self.word_is(0, "over") => {
+            LexemeKind::Word if self.word_is(0, "over") || self.word_is(0, "per") => {
                 (BinaryOperator::Divide, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "of") => (BinaryOperator::Of, current.span, 1),

@@ -114,6 +114,20 @@ impl Unit {
         }
     }
 
+    pub(crate) fn linear_factor_to(self, target: Self) -> Result<Number, UnitError> {
+        if self.dimension() != target.dimension() {
+            return Err(UnitError::IncompatibleDimensions);
+        }
+        if self.dimension() == Dimension::Temperature {
+            return Err(UnitError::AffineArithmetic);
+        }
+        let (source_scale, _) = self.scale_and_offset();
+        let (target_scale, _) = target.scale_and_offset();
+        source_scale
+            .divide(target_scale)
+            .map_err(UnitError::Numeric)
+    }
+
     fn scale_and_offset(self) -> (Number, Number) {
         if self == Self::Fahrenheit {
             return (ratio("5", "9"), ratio("-160", "9"));

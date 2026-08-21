@@ -15,6 +15,18 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
             value.magnitude().formatted_with(decimal_separator),
             value.unit()
         ),
+        Value::Rate(rate) => match rate.numerator() {
+            Some(numerator) => format!(
+                "{} {numerator}/{}",
+                rate.magnitude().formatted_with(decimal_separator),
+                rate.denominator()
+            ),
+            None => format!(
+                "{}/{}",
+                rate.magnitude().formatted_with(decimal_separator),
+                rate.denominator()
+            ),
+        },
         Value::Boolean(value) => value.to_string(),
     }
 }

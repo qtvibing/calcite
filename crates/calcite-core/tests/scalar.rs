@@ -157,6 +157,20 @@ fn compatible_units_convert_exactly_during_arithmetic() {
 }
 
 #[test]
+fn rates_form_convert_and_apply_as_typed_values() {
+    let rate = calculate("90 km / 3 h").unwrap();
+    assert_eq!(rate.output, "30 km/h");
+    assert!(rate.value.as_rate().is_some());
+
+    assert_eq!(output("30 km per h"), "30 km/h");
+    assert_eq!(output("30 / day * 2 weeks"), "420");
+    assert_eq!(output("90 km / 3 h * 2 h"), "60 km");
+    assert_eq!(output("60 km / h in m / s"), "16.6666666667 m/s");
+    assert_eq!(output("60 km / h + 10 m / s"), "96 km/h");
+    assert_eq!(output("14 / day as / week"), "98/week");
+}
+
+#[test]
 fn affine_temperature_units_convert_without_losing_precision() {
     assert_eq!(output("32 F to C"), "0 °C");
     assert_eq!(output("0 C in F"), "32 °F");

@@ -1,9 +1,11 @@
 use std::{cmp::Ordering, fmt};
 
+use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
     BinaryOperator, CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Expression,
-    Fraction, Number, NumericError, Percentage, Span, UnaryOperator, UnitValue, parse_with_context,
+    Fraction, Number, NumericError, Percentage, Rate, Span, UnaryOperator, UnitValue,
+    parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,6 +15,7 @@ pub enum Value {
     Percentage(Percentage),
     Fraction(Fraction),
     Unit(UnitValue),
+    Rate(Rate),
     Boolean(bool),
 }
 
@@ -45,6 +48,13 @@ impl Value {
         }
     }
 
+    pub const fn as_rate(&self) -> Option<&Rate> {
+        match self {
+            Self::Rate(rate) => Some(rate),
+            _ => None,
+        }
+    }
+
     pub const fn as_boolean(&self) -> Option<bool> {
         match self {
             Self::Boolean(value) => Some(*value),
@@ -60,6 +70,7 @@ impl fmt::Display for Value {
             Self::Percentage(percentage) => percentage.fmt(formatter),
             Self::Fraction(fraction) => fraction.fmt(formatter),
             Self::Unit(value) => write!(formatter, "{} {}", value.magnitude(), value.unit()),
+            Self::Rate(rate) => rate.fmt(formatter),
             Self::Boolean(value) => value.fmt(formatter),
         }
     }
@@ -110,11 +121,17 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
                 }
                 (UnaryOperator::Positive, Value::Unit(value)) => Ok(Value::Unit(value)),
                 (UnaryOperator::Negative, Value::Unit(value)) => Ok(Value::Unit(value.negated())),
+                (UnaryOperator::Positive, Value::Rate(rate)) => Ok(Value::Rate(rate)),
+                (UnaryOperator::Negative, Value::Rate(rate)) => Ok(Value::Rate(rate.negated())),
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                 (UnaryOperator::Positive | UnaryOperator::Negative, Value::Boolean(_))
                 | (
                     UnaryOperator::Not,
-                    Value::Number(_) | Value::Percentage(_) | Value::Fraction(_) | Value::Unit(_),
+                    Value::Number(_)
+                    | Value::Percentage(_)
+                    | Value::Fraction(_)
+                    | Value::Unit(_)
+                    | Value::Rate(_),
                 ) => Err(unsupported(*operator_span)),
             }
         }
@@ -226,6 +243,15 @@ fn evaluate_binary(
         }
         (Value::Percentage(left), Value::Unit(right)) => {
             percentage_unit_pair(operator, left, right, span)
+        }
+        (Value::Rate(left), Value::Rate(right)) => rate_pair(operator, left, right, span),
+        (Value::Rate(left), Value::Number(right)) => rate_number_pair(operator, left, right, span),
+        (Value::Number(left), Value::Rate(right)) => number_rate_pair(operator, left, right, span),
+        (Value::Rate(left), Value::Unit(right)) if operator == BinaryOperator::Multiply => {
+            apply_rate(left, right, span)
+        }
+        (Value::Unit(left), Value::Rate(right)) if operator == BinaryOperator::Multiply => {
+            apply_rate(right, left, span)
         }
         (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
         _ => Err(unsupported(span)),
@@ -387,6 +413,18 @@ fn unit_pair(
             .subtract(right)
             .map(Value::Unit)
             .map_err(|error| unit_diagnostic(error, span)),
+        BinaryOperator::Divide if left.unit().dimension() != right.unit().dimension() => {
+            let magnitude = left
+                .magnitude()
+                .clone()
+                .divide(right.magnitude().clone())
+                .map_err(|error| numeric_diagnostic(error, span))?;
+            Ok(Value::Rate(Rate::new(
+                magnitude,
+                Some(left.unit()),
+                right.unit(),
+            )))
+        }
         BinaryOperator::Divide => left
             .ratio(right)
             .map(Value::Number)
@@ -404,6 +442,82 @@ fn unit_pair(
             compare_ordering(operator, ordering, span)
         }
         _ => Err(unsupported(span)),
+    }
+}
+
+fn rate_pair(
+    operator: BinaryOperator,
+    left: Rate,
+    right: Rate,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let right = right
+        .converted_to(left.numerator(), left.denominator())
+        .map_err(|error| unit_diagnostic(error, span))?;
+    match operator {
+        BinaryOperator::Add => Ok(Value::Rate(Rate::new(
+            left.magnitude().clone().add(right.magnitude().clone()),
+            left.numerator(),
+            left.denominator(),
+        ))),
+        BinaryOperator::Subtract => Ok(Value::Rate(Rate::new(
+            left.magnitude().clone().subtract(right.magnitude().clone()),
+            left.numerator(),
+            left.denominator(),
+        ))),
+        BinaryOperator::Divide => left
+            .magnitude()
+            .clone()
+            .divide(right.magnitude().clone())
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => {
+            compare_numbers(operator, left.magnitude(), right.magnitude(), span)
+        }
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn rate_number_pair(
+    operator: BinaryOperator,
+    left: Rate,
+    right: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Multiply => Ok(Value::Rate(left.scaled(right))),
+        BinaryOperator::Divide => left
+            .divided_by(right)
+            .map(Value::Rate)
+            .map_err(|error| unit_diagnostic(error, span)),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn number_rate_pair(
+    operator: BinaryOperator,
+    left: Number,
+    right: Rate,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Multiply => Ok(Value::Rate(right.scaled(left))),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn apply_rate(rate: Rate, value: UnitValue, span: Span) -> Result<Value, Diagnostic> {
+    match rate
+        .apply(value)
+        .map_err(|error| unit_diagnostic(error, span))?
+    {
+        RateApplication::Number(number) => Ok(Value::Number(number)),
+        RateApplication::Unit(value) => Ok(Value::Unit(value)),
     }
 }
 
@@ -485,6 +599,12 @@ fn number_unit_pair(
 ) -> Result<Value, Diagnostic> {
     match operator {
         BinaryOperator::Multiply => Ok(Value::Unit(right.multiply_number(left))),
+        BinaryOperator::Divide => {
+            let denominator = right.unit();
+            left.divide(right.magnitude().clone())
+                .map(|magnitude| Value::Rate(Rate::new(magnitude, None, denominator)))
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
         BinaryOperator::Add
         | BinaryOperator::Subtract
         | BinaryOperator::Equal
@@ -520,7 +640,7 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             Value::Number(number) => Ok(Value::Number(number)),
             Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
-            Value::Unit(_) | Value::Boolean(_) => Err(unsupported(span)),
+            Value::Unit(_) | Value::Rate(_) | Value::Boolean(_) => Err(unsupported(span)),
         },
         ConversionTarget::Percentage => match value {
             Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(number))),
@@ -528,14 +648,16 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
                 fraction.into_number(),
             ))),
-            Value::Unit(_) | Value::Boolean(_) => Err(unsupported(span)),
+            Value::Unit(_) | Value::Rate(_) | Value::Boolean(_) => Err(unsupported(span)),
         },
         ConversionTarget::Fraction => {
             let number = match value {
                 Value::Number(number) => number,
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
-                Value::Unit(_) | Value::Boolean(_) => return Err(unsupported(span)),
+                Value::Unit(_) | Value::Rate(_) | Value::Boolean(_) => {
+                    return Err(unsupported(span));
+                }
             };
             Fraction::from_number(number)
                 .map(Value::Fraction)
@@ -545,6 +667,16 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             Value::Unit(value) => value
                 .converted_to(target)
                 .map(Value::Unit)
+                .map_err(|error| unit_diagnostic(error, span)),
+            _ => Err(unsupported(span)),
+        },
+        ConversionTarget::Rate {
+            numerator,
+            denominator,
+        } => match value {
+            Value::Rate(rate) => rate
+                .converted_to(numerator, denominator)
+                .map(Value::Rate)
                 .map_err(|error| unit_diagnostic(error, span)),
             _ => Err(unsupported(span)),
         },

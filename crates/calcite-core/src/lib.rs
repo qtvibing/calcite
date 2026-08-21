@@ -7,6 +7,7 @@ mod lexer;
 mod number;
 mod parser;
 mod percentage;
+mod rate;
 mod span;
 mod unit;
 
@@ -21,6 +22,7 @@ pub use parser::{
     BinaryOperator, ConversionTarget, Expression, UnaryOperator, parse, parse_with_context,
 };
 pub use percentage::Percentage;
+pub use rate::Rate;
 pub use span::Span;
 pub use unit::{Dimension, Unit, UnitValue};
 
