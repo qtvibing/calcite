@@ -1,8 +1,8 @@
 use std::{cmp::Ordering, fmt};
 
 use crate::{
-    BinaryOperator, Diagnostic, DiagnosticKind, Expression, Number, NumericError, Percentage, Span,
-    UnaryOperator, parse,
+    BinaryOperator, ConversionTarget, Diagnostic, DiagnosticKind, Expression, Fraction, Number,
+    NumericError, Percentage, Span, UnaryOperator, parse,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -10,6 +10,7 @@ use crate::{
 pub enum Value {
     Number(Number),
     Percentage(Percentage),
+    Fraction(Fraction),
     Boolean(bool),
 }
 
@@ -28,6 +29,13 @@ impl Value {
         }
     }
 
+    pub const fn as_fraction(&self) -> Option<&Fraction> {
+        match self {
+            Self::Fraction(fraction) => Some(fraction),
+            _ => None,
+        }
+    }
+
     pub const fn as_boolean(&self) -> Option<bool> {
         match self {
             Self::Boolean(value) => Some(*value),
@@ -41,6 +49,7 @@ impl fmt::Display for Value {
         match self {
             Self::Number(number) => number.fmt(formatter),
             Self::Percentage(percentage) => percentage.fmt(formatter),
+            Self::Fraction(fraction) => fraction.fmt(formatter),
             Self::Boolean(value) => value.fmt(formatter),
         }
     }
@@ -73,11 +82,18 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
                 (UnaryOperator::Negative, Value::Percentage(percentage)) => {
                     Ok(Value::Percentage(percentage.negated()))
                 }
+                (UnaryOperator::Positive, Value::Fraction(fraction)) => {
+                    Ok(Value::Fraction(fraction))
+                }
+                (UnaryOperator::Negative, Value::Fraction(fraction)) => {
+                    Ok(Value::Fraction(fraction.negated()))
+                }
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                 (UnaryOperator::Positive | UnaryOperator::Negative, Value::Boolean(_))
-                | (UnaryOperator::Not, Value::Number(_) | Value::Percentage(_)) => {
-                    Err(unsupported(*operator_span))
-                }
+                | (
+                    UnaryOperator::Not,
+                    Value::Number(_) | Value::Percentage(_) | Value::Fraction(_),
+                ) => Err(unsupported(*operator_span)),
             }
         }
         Expression::Group { expression, .. } => evaluate_expression(expression),
@@ -93,6 +109,12 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
             ))),
             _ => Err(unsupported(*operator_span)),
         },
+        Expression::Conversion {
+            expression,
+            target,
+            target_span,
+            ..
+        } => convert(evaluate_expression(expression)?, *target, *target_span),
         Expression::Binary {
             operator,
             operator_span,
@@ -138,6 +160,21 @@ fn evaluate_binary(
         }
         (Value::Percentage(left), Value::Number(right)) => {
             percentage_number_pair(operator, left, right, span)
+        }
+        (Value::Fraction(left), Value::Fraction(right)) => {
+            fraction_pair(operator, left.into_number(), right.into_number(), span)
+        }
+        (Value::Fraction(left), Value::Number(right)) => {
+            fraction_pair(operator, left.into_number(), right, span)
+        }
+        (Value::Number(left), Value::Fraction(right)) => {
+            fraction_pair(operator, left, right.into_number(), span)
+        }
+        (Value::Fraction(left), Value::Percentage(right)) => {
+            number_percentage_pair(operator, left.into_number(), right, span)
+        }
+        (Value::Percentage(left), Value::Fraction(right)) => {
+            percentage_number_pair(operator, left, right.into_number(), span)
         }
         (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
         _ => Err(unsupported(span)),
@@ -281,6 +318,50 @@ fn percentage_number_pair(
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
         BinaryOperator::And | BinaryOperator::Or => Err(unsupported(span)),
+    }
+}
+
+fn fraction_pair(
+    operator: BinaryOperator,
+    left: Number,
+    right: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match number_pair(operator, left, right, span)? {
+        Value::Number(number) => Ok(Fraction::from_number(number.clone())
+            .map(Value::Fraction)
+            .unwrap_or(Value::Number(number))),
+        value => Ok(value),
+    }
+}
+
+fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, Diagnostic> {
+    match target {
+        ConversionTarget::Number => match value {
+            Value::Number(number) => Ok(Value::Number(number)),
+            Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
+            Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
+            Value::Boolean(_) => Err(unsupported(span)),
+        },
+        ConversionTarget::Percentage => match value {
+            Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(number))),
+            Value::Percentage(percentage) => Ok(Value::Percentage(percentage)),
+            Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
+                fraction.into_number(),
+            ))),
+            Value::Boolean(_) => Err(unsupported(span)),
+        },
+        ConversionTarget::Fraction => {
+            let number = match value {
+                Value::Number(number) => number,
+                Value::Percentage(percentage) => percentage.into_ratio(),
+                Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
+                Value::Boolean(_) => return Err(unsupported(span)),
+            };
+            Fraction::from_number(number)
+                .map(Value::Fraction)
+                .ok_or_else(|| unsupported(span))
+        }
     }
 }
 

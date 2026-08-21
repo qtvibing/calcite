@@ -115,6 +115,27 @@ fn logical_operators_have_conventional_precedence_and_short_circuit() {
 }
 
 #[test]
+fn explicit_representation_conversions_preserve_semantics() {
+    let percentage = calculate("0.35 as %").unwrap();
+    assert_eq!(percentage.output, "35%");
+    assert!(percentage.value.as_percentage().is_some());
+
+    assert_eq!(output("2 / 5 as percent"), "40%");
+    assert_eq!(output("2 / 10 as fraction"), "1/5");
+    assert_eq!(output("50% as fraction"), "1/2");
+    assert_eq!(output("20% as decimal"), "0.2");
+    assert_eq!(output("(0.5 as fraction) + 0.25"), "3/4");
+}
+
+#[test]
+fn large_number_suffixes_and_words_are_exact() {
+    assert_eq!(output("2.5k"), "2500");
+    assert_eq!(output("5M"), "5000000");
+    assert_eq!(output("2B"), "2000000000");
+    assert_eq!(output("3 million + 10%"), "3300000");
+}
+
+#[test]
 fn calculation_errors_are_structured_and_spanned() {
     let division = calculate("1 / 0").unwrap_err();
     assert_eq!(division.kind(), DiagnosticKind::DivisionByZero);

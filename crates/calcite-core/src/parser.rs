@@ -45,6 +45,13 @@ impl BinaryOperator {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConversionTarget {
+    Number,
+    Percentage,
+    Fraction,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
     Number {
@@ -70,6 +77,13 @@ pub enum Expression {
         operator_span: Span,
         span: Span,
     },
+    Conversion {
+        expression: Box<Expression>,
+        target: ConversionTarget,
+        operator_span: Span,
+        target_span: Span,
+        span: Span,
+    },
     Binary {
         operator: BinaryOperator,
         operator_span: Span,
@@ -87,6 +101,7 @@ impl Expression {
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }
+            | Self::Conversion { span, .. }
             | Self::Binary { span, .. } => *span,
         }
     }
@@ -135,6 +150,11 @@ impl Parser<'_> {
                 continue;
             }
 
+            if minimum_binding_power == 0 && self.word_is(0, "as") {
+                left = self.parse_conversion(left)?;
+                continue;
+            }
+
             let Some((operator, operator_span, consumed, left_power, right_power)) =
                 self.binary_operator()
             else {
@@ -178,10 +198,16 @@ impl Parser<'_> {
                         Diagnostic::new(DiagnosticKind::NumberTooLarge, token.span)
                     }
                 })?;
-                Ok(Expression::Number {
-                    value,
-                    span: token.span,
-                })
+                let (value, span) = if let Some((factor, scalar)) = self.scalar() {
+                    self.position += 1;
+                    (
+                        value.multiply(Number::from_i64(factor)),
+                        token.span.join(scalar.span),
+                    )
+                } else {
+                    (value, token.span)
+                };
+                Ok(Expression::Number { value, span })
             }
             LexemeKind::Word if self.word_is(0, "true") || self.word_is(0, "false") => {
                 self.position += 1;
@@ -244,6 +270,93 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn parse_conversion(&mut self, expression: Expression) -> Result<Expression, Diagnostic> {
+        let operator = self.current().expect("conversion operator is present");
+        let Some(target_token) = self.tokens.get(self.position + 1).copied() else {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                "expected a conversion target",
+            ));
+        };
+
+        let target = match target_token.kind {
+            LexemeKind::Percent => ConversionTarget::Percentage,
+            LexemeKind::Word => {
+                let target = &self.source[target_token.span.start..target_token.span.end];
+                if target.eq_ignore_ascii_case("number") || target.eq_ignore_ascii_case("decimal") {
+                    ConversionTarget::Number
+                } else if target.eq_ignore_ascii_case("percent")
+                    || target.eq_ignore_ascii_case("percentage")
+                {
+                    ConversionTarget::Percentage
+                } else if target.eq_ignore_ascii_case("fraction") {
+                    ConversionTarget::Fraction
+                } else {
+                    return Err(Diagnostic::with_detail(
+                        DiagnosticKind::UnexpectedToken,
+                        target_token.span,
+                        "expected number, percentage, or fraction",
+                    ));
+                }
+            }
+            _ => {
+                return Err(Diagnostic::with_detail(
+                    DiagnosticKind::UnexpectedToken,
+                    target_token.span,
+                    "expected number, percentage, or fraction",
+                ));
+            }
+        };
+
+        self.position += 2;
+        let span = expression.span().join(target_token.span);
+        Ok(Expression::Conversion {
+            expression: Box::new(expression),
+            target,
+            operator_span: operator.span,
+            target_span: target_token.span,
+            span,
+        })
+    }
+
+    fn scalar(&self) -> Option<(i64, Lexeme)> {
+        let token = self.current()?;
+        if token.kind != LexemeKind::Word {
+            return None;
+        }
+        let text = &self.source[token.span.start..token.span.end];
+        let is_adjacent =
+            self.position > 0 && self.tokens[self.position - 1].span.end == token.span.start;
+
+        let factor = if is_adjacent {
+            match text {
+                "k" | "K" => Some(1_000),
+                "M" => Some(1_000_000),
+                "B" | "G" => Some(1_000_000_000),
+                "T" => Some(1_000_000_000_000),
+                _ => None,
+            }
+        } else {
+            None
+        }
+        .or_else(|| {
+            if text.eq_ignore_ascii_case("thousand") {
+                Some(1_000)
+            } else if text.eq_ignore_ascii_case("million") {
+                Some(1_000_000)
+            } else if text.eq_ignore_ascii_case("billion") {
+                Some(1_000_000_000)
+            } else if text.eq_ignore_ascii_case("trillion") {
+                Some(1_000_000_000_000)
+            } else {
+                None
+            }
+        })?;
+
+        Some((factor, token))
     }
 
     fn binary_operator(&self) -> Option<(BinaryOperator, Span, usize, u8, u8)> {

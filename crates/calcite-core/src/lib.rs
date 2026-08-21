@@ -1,6 +1,7 @@
 mod diagnostic;
 mod evaluator;
 mod formatter;
+mod fraction;
 mod lexer;
 mod number;
 mod parser;
@@ -10,9 +11,10 @@ mod span;
 pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use evaluator::{Value, evaluate};
 pub use formatter::format;
+pub use fraction::Fraction;
 pub use lexer::{Lexeme, LexemeKind, lex};
 pub use number::{Number, NumberParseError};
-pub use parser::{BinaryOperator, Expression, UnaryOperator, parse};
+pub use parser::{BinaryOperator, ConversionTarget, Expression, UnaryOperator, parse};
 pub use percentage::Percentage;
 pub use span::Span;
 
