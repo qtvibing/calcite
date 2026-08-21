@@ -84,6 +84,14 @@ pub enum Expression {
         target_span: Span,
         span: Span,
     },
+    Conditional {
+        condition: Box<Expression>,
+        then_branch: Box<Expression>,
+        else_branch: Box<Expression>,
+        inverted: bool,
+        keyword_span: Span,
+        span: Span,
+    },
     Binary {
         operator: BinaryOperator,
         operator_span: Span,
@@ -102,6 +110,7 @@ impl Expression {
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }
             | Self::Conversion { span, .. }
+            | Self::Conditional { span, .. }
             | Self::Binary { span, .. } => *span,
         }
     }
@@ -209,6 +218,9 @@ impl Parser<'_> {
                 };
                 Ok(Expression::Number { value, span })
             }
+            LexemeKind::Word if self.word_is(0, "if") || self.word_is(0, "unless") => {
+                self.parse_conditional()
+            }
             LexemeKind::Word if self.word_is(0, "true") || self.word_is(0, "false") => {
                 self.position += 1;
                 Ok(Expression::Boolean {
@@ -270,6 +282,49 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn parse_conditional(&mut self) -> Result<Expression, Diagnostic> {
+        let keyword = self.current().expect("conditional keyword is present");
+        let inverted = self.word_is(0, "unless");
+        self.position += 1;
+
+        let condition = self.parse_expression(0)?;
+        self.expect_word("then")?;
+        self.position += 1;
+
+        let then_branch = self.parse_expression(0)?;
+        self.expect_word("else")?;
+        self.position += 1;
+
+        let else_branch = self.parse_expression(0)?;
+        let span = keyword.span.join(else_branch.span());
+        Ok(Expression::Conditional {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch: Box::new(else_branch),
+            inverted,
+            keyword_span: keyword.span,
+            span,
+        })
+    }
+
+    fn expect_word(&self, expected: &str) -> Result<Lexeme, Diagnostic> {
+        let Some(token) = self.current() else {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                format!("expected '{expected}'"),
+            ));
+        };
+        if !self.word_is(0, expected) {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedToken,
+                token.span,
+                format!("expected '{expected}'"),
+            ));
+        }
+        Ok(token)
     }
 
     fn parse_conversion(&mut self, expression: Expression) -> Result<Expression, Diagnostic> {

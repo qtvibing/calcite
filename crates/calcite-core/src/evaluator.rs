@@ -115,6 +115,26 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
             target_span,
             ..
         } => convert(evaluate_expression(expression)?, *target, *target_span),
+        Expression::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+            inverted,
+            keyword_span,
+            ..
+        } => {
+            let Value::Boolean(mut condition) = evaluate_expression(condition)? else {
+                return Err(unsupported(*keyword_span));
+            };
+            if *inverted {
+                condition = !condition;
+            }
+            if condition {
+                evaluate_expression(then_branch)
+            } else {
+                evaluate_expression(else_branch)
+            }
+        }
         Expression::Binary {
             operator,
             operator_span,

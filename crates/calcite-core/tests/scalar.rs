@@ -115,6 +115,13 @@ fn logical_operators_have_conventional_precedence_and_short_circuit() {
 }
 
 #[test]
+fn conditionals_only_evaluate_the_selected_branch() {
+    assert_eq!(output("if 2 > 1 then 10% of 200 else 1 / 0"), "20");
+    assert_eq!(output("if false then 1 / 0 else 42"), "42");
+    assert_eq!(output("unless 2 == 3 then 10 else 20"), "10");
+}
+
+#[test]
 fn explicit_representation_conversions_preserve_semantics() {
     let percentage = calculate("0.35 as %").unwrap();
     assert_eq!(percentage.output, "35%");
