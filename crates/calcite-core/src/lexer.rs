@@ -198,14 +198,33 @@ fn scan_digits(source: &str, mut index: usize, separator: Option<char>) -> usize
         }
         if Some(character) == separator {
             let after_separator = index + character.len_utf8();
-            if next_character_is_digit(source, after_separator) {
-                index = after_separator;
+            if let Some(after_group) = scan_group(source, after_separator) {
+                index = after_group;
                 continue;
             }
         }
         break;
     }
     index
+}
+
+fn scan_group(source: &str, mut index: usize) -> Option<usize> {
+    for _ in 0..3 {
+        let character = source.get(index..)?.chars().next()?;
+        if !character.is_ascii_digit() {
+            return None;
+        }
+        index += character.len_utf8();
+    }
+    if source
+        .get(index..)
+        .and_then(|remainder| remainder.chars().next())
+        .is_some_and(|character| character.is_ascii_digit() || character == '_')
+    {
+        None
+    } else {
+        Some(index)
+    }
 }
 
 fn next_character_is_digit(source: &str, index: usize) -> bool {

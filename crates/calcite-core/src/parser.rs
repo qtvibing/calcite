@@ -51,6 +51,36 @@ impl BinaryOperator {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Function {
+    SquareRoot,
+    AbsoluteValue,
+    Sum,
+    Average,
+    Minimum,
+    Maximum,
+}
+
+impl Function {
+    fn from_name(name: &str) -> Option<Self> {
+        if name.eq_ignore_ascii_case("sqrt") {
+            Some(Self::SquareRoot)
+        } else if name.eq_ignore_ascii_case("abs") {
+            Some(Self::AbsoluteValue)
+        } else if name.eq_ignore_ascii_case("sum") {
+            Some(Self::Sum)
+        } else if name.eq_ignore_ascii_case("average") || name.eq_ignore_ascii_case("avg") {
+            Some(Self::Average)
+        } else if name.eq_ignore_ascii_case("minimum") || name.eq_ignore_ascii_case("min") {
+            Some(Self::Minimum)
+        } else if name.eq_ignore_ascii_case("maximum") || name.eq_ignore_ascii_case("max") {
+            Some(Self::Maximum)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TemporalKeyword {
     Today,
     Tomorrow,
@@ -116,6 +146,12 @@ pub enum Expression {
         name: String,
         span: Span,
     },
+    Call {
+        function: Function,
+        function_span: Span,
+        arguments: Vec<Expression>,
+        span: Span,
+    },
     Unary {
         operator: UnaryOperator,
         operator_span: Span,
@@ -168,6 +204,7 @@ impl Expression {
             | Self::CalendarDuration { span, .. }
             | Self::TemporalKeyword { span, .. }
             | Self::Variable { span, .. }
+            | Self::Call { span, .. }
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }
@@ -200,6 +237,9 @@ pub fn parse_with_context(
 
     let expression = parser.parse_expression(0)?;
     if let Some(token) = parser.current() {
+        if token.kind == LexemeKind::Comma {
+            return Err(Diagnostic::new(DiagnosticKind::InvalidNumber, token.span));
+        }
         return Err(parser.unexpected(token));
     }
     Ok(expression)
@@ -335,6 +375,10 @@ impl Parser<'_> {
             }
             LexemeKind::CurrencySymbol => self.parse_prefixed_money(),
             LexemeKind::Word if self.currency_at(0).is_some() => self.parse_prefixed_money(),
+            LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
+            LexemeKind::Word if self.natural_function_at().is_some() => {
+                self.parse_natural_function()
+            }
             LexemeKind::Word if self.month_at(0).is_some() => self.parse_named_date(true),
             LexemeKind::Word if self.temporal_keyword().is_some() => {
                 let keyword = self.temporal_keyword().expect("guard checked the keyword");
@@ -424,6 +468,105 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn function_call_at(&self) -> Option<Function> {
+        let token = self.current()?;
+        if token.kind != LexemeKind::Word
+            || self.tokens.get(self.position + 1)?.kind != LexemeKind::LeftParenthesis
+        {
+            return None;
+        }
+        Function::from_name(&self.source[token.span.start..token.span.end])
+    }
+
+    fn natural_function_at(&self) -> Option<(Function, usize)> {
+        if self.word_is(0, "square") && self.word_is(1, "root") && self.word_is(2, "of") {
+            Some((Function::SquareRoot, 3))
+        } else if self.word_is(0, "absolute") && self.word_is(1, "value") && self.word_is(2, "of") {
+            Some((Function::AbsoluteValue, 3))
+        } else if self.word_is(1, "of") {
+            let token = self.current()?;
+            Function::from_name(&self.source[token.span.start..token.span.end])
+                .map(|function| (function, 2))
+        } else {
+            None
+        }
+    }
+
+    fn parse_function_call(&mut self) -> Result<Expression, Diagnostic> {
+        let function_token = self.current().expect("function name is present");
+        let function = self
+            .function_call_at()
+            .expect("guard checked the function call");
+        self.position += 2;
+        let mut arguments = Vec::new();
+        if !self
+            .current()
+            .is_some_and(|token| token.kind == LexemeKind::RightParenthesis)
+        {
+            loop {
+                arguments.push(self.parse_expression(0)?);
+                let Some(separator) = self.current() else {
+                    return Err(Diagnostic::with_detail(
+                        DiagnosticKind::UnexpectedEnd,
+                        Span::empty(self.source.len()),
+                        "expected ')'",
+                    ));
+                };
+                if separator.kind == LexemeKind::Comma {
+                    self.position += 1;
+                    continue;
+                }
+                if separator.kind != LexemeKind::RightParenthesis {
+                    return Err(Diagnostic::with_detail(
+                        DiagnosticKind::UnexpectedToken,
+                        separator.span,
+                        "expected ',' or ')'",
+                    ));
+                }
+                break;
+            }
+        }
+        let closing = self.current().expect("closing parenthesis was checked");
+        self.position += 1;
+        Ok(Expression::Call {
+            function,
+            function_span: function_token.span,
+            arguments,
+            span: function_token.span.join(closing.span),
+        })
+    }
+
+    fn parse_natural_function(&mut self) -> Result<Expression, Diagnostic> {
+        let (function, consumed) = self
+            .natural_function_at()
+            .expect("guard checked the natural function");
+        let function_span = self.phrase_span(consumed);
+        self.position += consumed;
+        let mut arguments = Vec::new();
+        loop {
+            arguments.push(self.parse_expression(0)?);
+            if !self
+                .current()
+                .is_some_and(|token| token.kind == LexemeKind::Comma)
+            {
+                break;
+            }
+            self.position += 1;
+        }
+        let span = function_span.join(
+            arguments
+                .last()
+                .expect("natural functions parse at least one argument")
+                .span(),
+        );
+        Ok(Expression::Call {
+            function,
+            function_span,
+            arguments,
+            span,
+        })
     }
 
     fn parse_number_value(&self, token: Lexeme) -> Result<Number, Diagnostic> {

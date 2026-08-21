@@ -4,8 +4,9 @@ use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, ConversionTarget, Date,
-    Diagnostic, DiagnosticKind, Expression, Fraction, Money, Number, NumericError, OffsetDateTime,
-    Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue, parse_with_context,
+    Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
+    OffsetDateTime, Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue,
+    parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -181,6 +182,12 @@ pub(crate) fn evaluate_expression(
             .get(name)
             .cloned()
             .ok_or_else(|| Diagnostic::with_detail(DiagnosticKind::UnknownVariable, *span, name)),
+        Expression::Call {
+            function,
+            function_span,
+            arguments,
+            ..
+        } => evaluate_call(*function, *function_span, arguments, context, variables),
         Expression::Unary {
             operator,
             operator_span,
@@ -309,6 +316,121 @@ pub(crate) fn evaluate_expression(
             evaluate_binary(*operator, left, right, *operator_span, context)
         }
     }
+}
+
+fn evaluate_call(
+    function: Function,
+    span: Span,
+    arguments: &[Expression],
+    context: &CalculationContext,
+    variables: &HashMap<String, Value>,
+) -> Result<Value, Diagnostic> {
+    let values = arguments
+        .iter()
+        .map(|argument| evaluate_expression(argument, context, variables))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    match function {
+        Function::SquareRoot => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let half = Number::from_i64(1)
+                .divide(Number::from_i64(2))
+                .expect("two is nonzero");
+            number
+                .clone()
+                .pow(half)
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::AbsoluteValue => {
+            let [value] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            absolute_value(value.clone(), span)
+        }
+        Function::Sum | Function::Average => {
+            let count = values.len();
+            let mut values = values.into_iter();
+            let mut result = values
+                .next()
+                .ok_or_else(|| invalid_function_arguments(span))?;
+            for value in values {
+                result = evaluate_binary(BinaryOperator::Add, result, value, span, context)?;
+            }
+            if function == Function::Average {
+                result = evaluate_binary(
+                    BinaryOperator::Divide,
+                    result,
+                    Value::Number(Number::from_i64(
+                        i64::try_from(count).map_err(|_| invalid_function_arguments(span))?,
+                    )),
+                    span,
+                    context,
+                )?;
+            }
+            Ok(result)
+        }
+        Function::Minimum | Function::Maximum => {
+            let mut values = values.into_iter();
+            let mut result = values
+                .next()
+                .ok_or_else(|| invalid_function_arguments(span))?;
+            let comparison = if function == Function::Minimum {
+                BinaryOperator::Less
+            } else {
+                BinaryOperator::Greater
+            };
+            for value in values {
+                let Value::Boolean(replace) =
+                    evaluate_binary(comparison, value.clone(), result.clone(), span, context)?
+                else {
+                    return Err(invalid_function_arguments(span));
+                };
+                if replace {
+                    result = value;
+                }
+            }
+            Ok(result)
+        }
+    }
+}
+
+fn absolute_value(value: Value, span: Span) -> Result<Value, Diagnostic> {
+    let negative = |number: &Number| {
+        number
+            .compare(&Number::from_i64(0))
+            .is_some_and(Ordering::is_lt)
+    };
+    match value {
+        Value::Number(number) if negative(&number) => Ok(Value::Number(number.negated())),
+        Value::Percentage(percentage) if negative(percentage.ratio()) => {
+            Ok(Value::Percentage(percentage.negated()))
+        }
+        Value::Fraction(fraction) if negative(fraction.number()) => Ok(Value::Fraction(
+            Fraction::from_number(fraction.into_number().negated())
+                .expect("negating an exact fraction stays exact"),
+        )),
+        Value::Unit(value) if negative(value.magnitude()) => Ok(Value::Unit(value.negated())),
+        Value::Money(money) if negative(money.amount()) => Ok(Value::Money(money.negated())),
+        Value::Rate(rate) if negative(rate.magnitude()) => Ok(Value::Rate(rate.negated())),
+        Value::CalendarDuration(duration) if duration.total_months() < 0 => {
+            Ok(Value::CalendarDuration(duration.negated()))
+        }
+        Value::Number(_)
+        | Value::Percentage(_)
+        | Value::Fraction(_)
+        | Value::Unit(_)
+        | Value::Money(_)
+        | Value::Rate(_)
+        | Value::CalendarDuration(_) => Ok(value),
+        _ => Err(invalid_function_arguments(span)),
+    }
+}
+
+fn invalid_function_arguments(span: Span) -> Diagnostic {
+    Diagnostic::new(DiagnosticKind::InvalidFunctionArguments, span)
 }
 
 fn evaluate_binary(
