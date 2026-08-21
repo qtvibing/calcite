@@ -9,6 +9,7 @@ mod parser;
 mod percentage;
 mod rate;
 mod span;
+mod temporal;
 mod unit;
 
 pub use context::{CalculationContext, NumberFormat};
@@ -19,11 +20,13 @@ pub use fraction::Fraction;
 pub use lexer::{Lexeme, LexemeKind, lex, lex_with_number_format};
 pub use number::{Number, NumberParseError};
 pub use parser::{
-    BinaryOperator, ConversionTarget, Expression, UnaryOperator, parse, parse_with_context,
+    BinaryOperator, ConversionTarget, Expression, TemporalKeyword, UnaryOperator, parse,
+    parse_with_context,
 };
 pub use percentage::Percentage;
 pub use rate::Rate;
 pub use span::Span;
+pub use temporal::{CalendarDuration, ClockTime, Date, TemporalContext};
 pub use unit::{Dimension, Unit, UnitValue};
 
 pub(crate) use number::NumericError;

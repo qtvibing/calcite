@@ -41,6 +41,18 @@ fn evaluates_an_expression_from_standard_input() {
 }
 
 #[test]
+fn evaluates_natural_calendar_arithmetic() {
+    let output = calcite()
+        .args(["March", "8,", "2025", "+", "1", "month"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2025-04-08\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn reports_spanned_diagnostics_on_standard_error() {
     let output = calcite()
         .args(["1", "km", "+", "1", "kg"])

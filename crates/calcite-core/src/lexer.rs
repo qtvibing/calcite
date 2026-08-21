@@ -10,6 +10,8 @@ pub enum LexemeKind {
     Star,
     Slash,
     Caret,
+    Colon,
+    Comma,
     Percent,
     EqualEqual,
     NotEqual,
@@ -96,6 +98,8 @@ pub fn lex_with_number_format(
                 '×' => LexemeKind::Star,
                 '/' | '÷' => LexemeKind::Slash,
                 '^' => LexemeKind::Caret,
+                ':' => LexemeKind::Colon,
+                ',' => LexemeKind::Comma,
                 '%' => LexemeKind::Percent,
                 '=' if source[index..].starts_with('=') => {
                     index += 1;
@@ -184,10 +188,18 @@ fn scan_digits(source: &str, mut index: usize, separator: Option<char>) -> usize
             .chars()
             .next()
             .expect("valid character boundary");
-        if !character.is_ascii_digit() && character != '_' && Some(character) != separator {
-            break;
+        if character.is_ascii_digit() || character == '_' {
+            index += character.len_utf8();
+            continue;
         }
-        index += character.len_utf8();
+        if Some(character) == separator {
+            let after_separator = index + character.len_utf8();
+            if next_character_is_digit(source, after_separator) {
+                index = after_separator;
+                continue;
+            }
+        }
+        break;
     }
     index
 }

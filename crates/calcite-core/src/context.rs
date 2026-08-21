@@ -85,6 +85,7 @@ impl Default for NumberFormat {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CalculationContext {
     pub number_format: NumberFormat,
+    pub temporal: crate::TemporalContext,
 }
 
 fn digit_count(value: &str) -> usize {

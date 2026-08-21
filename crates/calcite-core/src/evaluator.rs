@@ -3,9 +3,9 @@ use std::{cmp::Ordering, fmt};
 use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
-    BinaryOperator, CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Expression,
-    Fraction, Number, NumericError, Percentage, Rate, Span, UnaryOperator, UnitValue,
-    parse_with_context,
+    BinaryOperator, CalculationContext, CalendarDuration, ClockTime, ConversionTarget, Date,
+    Diagnostic, DiagnosticKind, Expression, Fraction, Number, NumericError, Percentage, Rate, Span,
+    TemporalKeyword, UnaryOperator, Unit, UnitValue, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +16,9 @@ pub enum Value {
     Fraction(Fraction),
     Unit(UnitValue),
     Rate(Rate),
+    Date(Date),
+    Clock(ClockTime),
+    CalendarDuration(CalendarDuration),
     Boolean(bool),
 }
 
@@ -55,6 +58,27 @@ impl Value {
         }
     }
 
+    pub const fn as_date(&self) -> Option<Date> {
+        match self {
+            Self::Date(date) => Some(*date),
+            _ => None,
+        }
+    }
+
+    pub const fn as_clock(&self) -> Option<ClockTime> {
+        match self {
+            Self::Clock(time) => Some(*time),
+            _ => None,
+        }
+    }
+
+    pub const fn as_calendar_duration(&self) -> Option<CalendarDuration> {
+        match self {
+            Self::CalendarDuration(duration) => Some(*duration),
+            _ => None,
+        }
+    }
+
     pub const fn as_boolean(&self) -> Option<bool> {
         match self {
             Self::Boolean(value) => Some(*value),
@@ -69,8 +93,13 @@ impl fmt::Display for Value {
             Self::Number(number) => number.fmt(formatter),
             Self::Percentage(percentage) => percentage.fmt(formatter),
             Self::Fraction(fraction) => fraction.fmt(formatter),
-            Self::Unit(value) => write!(formatter, "{} {}", value.magnitude(), value.unit()),
+            Self::Unit(value) => {
+                write!(formatter, "{} {}", value.magnitude(), value.display_unit())
+            }
             Self::Rate(rate) => rate.fmt(formatter),
+            Self::Date(date) => date.fmt(formatter),
+            Self::Clock(time) => time.fmt(formatter),
+            Self::CalendarDuration(duration) => duration.fmt(formatter),
             Self::Boolean(value) => value.fmt(formatter),
         }
     }
@@ -85,23 +114,53 @@ pub fn evaluate_with_context(
     context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
     let expression = parse_with_context(source, context)?;
-    evaluate_expression(&expression)
+    evaluate_expression(&expression, context)
 }
 
-fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
+fn evaluate_expression(
+    expression: &Expression,
+    context: &CalculationContext,
+) -> Result<Value, Diagnostic> {
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
         Expression::Boolean { value, .. } => Ok(Value::Boolean(*value)),
         Expression::Unit { value, unit, .. } => {
             Ok(Value::Unit(UnitValue::new(value.clone(), *unit)))
         }
+        Expression::Date { value, .. } => Ok(Value::Date(*value)),
+        Expression::Clock { value, .. } => Ok(Value::Clock(*value)),
+        Expression::CalendarDuration { value, .. } => Ok(Value::CalendarDuration(*value)),
+        Expression::TemporalKeyword { keyword, span } => match keyword {
+            TemporalKeyword::Today => context
+                .temporal
+                .today
+                .map(Value::Date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
+            TemporalKeyword::Tomorrow => context
+                .temporal
+                .today
+                .and_then(|date| date.add_days(1))
+                .map(Value::Date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
+            TemporalKeyword::Yesterday => context
+                .temporal
+                .today
+                .and_then(|date| date.add_days(-1))
+                .map(Value::Date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
+            TemporalKeyword::Now => context
+                .temporal
+                .now
+                .map(Value::Clock)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
+        },
         Expression::Unary {
             operator,
             operator_span,
             operand,
             ..
         } => {
-            let operand = evaluate_expression(operand)?;
+            let operand = evaluate_expression(operand, context)?;
             match (operator, operand) {
                 (UnaryOperator::Positive, Value::Number(number)) => Ok(Value::Number(number)),
                 (UnaryOperator::Positive, Value::Percentage(percentage)) => {
@@ -123,24 +182,36 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
                 (UnaryOperator::Negative, Value::Unit(value)) => Ok(Value::Unit(value.negated())),
                 (UnaryOperator::Positive, Value::Rate(rate)) => Ok(Value::Rate(rate)),
                 (UnaryOperator::Negative, Value::Rate(rate)) => Ok(Value::Rate(rate.negated())),
+                (UnaryOperator::Positive, Value::CalendarDuration(duration)) => {
+                    Ok(Value::CalendarDuration(duration))
+                }
+                (UnaryOperator::Negative, Value::CalendarDuration(duration)) => {
+                    Ok(Value::CalendarDuration(duration.negated()))
+                }
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
-                (UnaryOperator::Positive | UnaryOperator::Negative, Value::Boolean(_))
+                (
+                    UnaryOperator::Positive | UnaryOperator::Negative,
+                    Value::Date(_) | Value::Clock(_) | Value::Boolean(_),
+                )
                 | (
                     UnaryOperator::Not,
                     Value::Number(_)
                     | Value::Percentage(_)
                     | Value::Fraction(_)
                     | Value::Unit(_)
-                    | Value::Rate(_),
+                    | Value::Rate(_)
+                    | Value::Date(_)
+                    | Value::Clock(_)
+                    | Value::CalendarDuration(_),
                 ) => Err(unsupported(*operator_span)),
             }
         }
-        Expression::Group { expression, .. } => evaluate_expression(expression),
+        Expression::Group { expression, .. } => evaluate_expression(expression, context),
         Expression::Percentage {
             expression,
             operator_span,
             ..
-        } => match evaluate_expression(expression)? {
+        } => match evaluate_expression(expression, context)? {
             Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(
                 number
                     .divide(Number::from_i64(100))
@@ -153,7 +224,11 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
             target,
             target_span,
             ..
-        } => convert(evaluate_expression(expression)?, *target, *target_span),
+        } => convert(
+            evaluate_expression(expression, context)?,
+            *target,
+            *target_span,
+        ),
         Expression::Conditional {
             condition,
             then_branch,
@@ -162,16 +237,16 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
             keyword_span,
             ..
         } => {
-            let Value::Boolean(mut condition) = evaluate_expression(condition)? else {
+            let Value::Boolean(mut condition) = evaluate_expression(condition, context)? else {
                 return Err(unsupported(*keyword_span));
             };
             if *inverted {
                 condition = !condition;
             }
             if condition {
-                evaluate_expression(then_branch)
+                evaluate_expression(then_branch, context)
             } else {
-                evaluate_expression(else_branch)
+                evaluate_expression(else_branch, context)
             }
         }
         Expression::Binary {
@@ -181,7 +256,7 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
             right,
             ..
         } => {
-            let left = evaluate_expression(left)?;
+            let left = evaluate_expression(left, context)?;
             if matches!(operator, BinaryOperator::And | BinaryOperator::Or) {
                 let Value::Boolean(left) = left else {
                     return Err(unsupported(*operator_span));
@@ -191,13 +266,13 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
                 {
                     return Ok(Value::Boolean(left));
                 }
-                return match evaluate_expression(right)? {
+                return match evaluate_expression(right, context)? {
                     Value::Boolean(right) => Ok(Value::Boolean(right)),
                     _ => Err(unsupported(*operator_span)),
                 };
             }
 
-            let right = evaluate_expression(right)?;
+            let right = evaluate_expression(right, context)?;
             evaluate_binary(*operator, left, right, *operator_span)
         }
     }
@@ -252,6 +327,31 @@ fn evaluate_binary(
         }
         (Value::Unit(left), Value::Rate(right)) if operator == BinaryOperator::Multiply => {
             apply_rate(right, left, span)
+        }
+        (Value::Date(left), Value::Date(right)) => date_pair(operator, left, right, span),
+        (Value::Date(date), Value::CalendarDuration(duration)) => {
+            date_calendar_pair(operator, date, duration, span)
+        }
+        (Value::CalendarDuration(duration), Value::Date(date)) => {
+            calendar_date_pair(operator, duration, date, span)
+        }
+        (Value::Date(date), Value::Unit(duration)) => {
+            date_duration_pair(operator, date, duration, span)
+        }
+        (Value::Clock(time), Value::Clock(right)) => clock_pair(operator, time, right, span),
+        (Value::Clock(time), Value::Unit(duration)) => {
+            clock_duration_pair(operator, time, duration, span)
+        }
+        (Value::CalendarDuration(left), Value::CalendarDuration(right)) => {
+            calendar_pair(operator, left, right, span)
+        }
+        (Value::CalendarDuration(duration), Value::Number(number)) => {
+            calendar_number_pair(operator, duration, number, span)
+        }
+        (Value::Number(number), Value::CalendarDuration(duration))
+            if operator == BinaryOperator::Multiply =>
+        {
+            calendar_number_pair(operator, duration, number, span)
         }
         (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
         _ => Err(unsupported(span)),
@@ -443,6 +543,173 @@ fn unit_pair(
         }
         _ => Err(unsupported(span)),
     }
+}
+
+fn date_pair(
+    operator: BinaryOperator,
+    left: Date,
+    right: Date,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Subtract => Ok(Value::Unit(UnitValue::new(
+            Number::from_i64(left.days_since(right)),
+            Unit::Day,
+        ))),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_ordering(operator, left.cmp(&right), span),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn date_calendar_pair(
+    operator: BinaryOperator,
+    date: Date,
+    duration: CalendarDuration,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let months = match operator {
+        BinaryOperator::Add => duration.total_months(),
+        BinaryOperator::Subtract => duration
+            .total_months()
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))?,
+        _ => return Err(unsupported(span)),
+    };
+    date.add_months(months)
+        .map(Value::Date)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+}
+
+fn calendar_date_pair(
+    operator: BinaryOperator,
+    duration: CalendarDuration,
+    date: Date,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if operator == BinaryOperator::Add {
+        date_calendar_pair(operator, date, duration, span)
+    } else {
+        Err(unsupported(span))
+    }
+}
+
+fn date_duration_pair(
+    operator: BinaryOperator,
+    date: Date,
+    duration: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let duration = duration
+        .converted_to(Unit::Day)
+        .map_err(|error| unit_diagnostic(error, span))?;
+    let mut days = duration
+        .magnitude()
+        .exact_i64()
+        .ok_or_else(|| unsupported(span))?;
+    if operator == BinaryOperator::Subtract {
+        days = days
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))?;
+    } else if operator != BinaryOperator::Add {
+        return Err(unsupported(span));
+    }
+    date.add_days(days)
+        .map(Value::Date)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+}
+
+fn clock_pair(
+    operator: BinaryOperator,
+    left: ClockTime,
+    right: ClockTime,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Subtract => Ok(Value::Unit(UnitValue::new(
+            Number::from_i64(left.seconds_since(right)),
+            Unit::Second,
+        ))),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_ordering(operator, left.cmp(&right), span),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn clock_duration_pair(
+    operator: BinaryOperator,
+    time: ClockTime,
+    duration: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let duration = duration
+        .converted_to(Unit::Second)
+        .map_err(|error| unit_diagnostic(error, span))?;
+    let mut seconds = duration
+        .magnitude()
+        .exact_i64()
+        .ok_or_else(|| unsupported(span))?;
+    if operator == BinaryOperator::Subtract {
+        seconds = seconds
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span))?;
+    } else if operator != BinaryOperator::Add {
+        return Err(unsupported(span));
+    }
+    Ok(Value::Clock(time.add_seconds(seconds)))
+}
+
+fn calendar_pair(
+    operator: BinaryOperator,
+    left: CalendarDuration,
+    right: CalendarDuration,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => left
+            .checked_add(right)
+            .map(Value::CalendarDuration)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)),
+        BinaryOperator::Subtract => left
+            .checked_subtract(right)
+            .map(Value::CalendarDuration)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_ordering(
+            operator,
+            left.total_months().cmp(&right.total_months()),
+            span,
+        ),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn calendar_number_pair(
+    operator: BinaryOperator,
+    duration: CalendarDuration,
+    number: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if operator != BinaryOperator::Multiply {
+        return Err(unsupported(span));
+    }
+    let factor = number.exact_i64().ok_or_else(|| unsupported(span))?;
+    duration
+        .checked_multiply(factor)
+        .map(Value::CalendarDuration)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))
 }
 
 fn rate_pair(
@@ -640,7 +907,12 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             Value::Number(number) => Ok(Value::Number(number)),
             Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
-            Value::Unit(_) | Value::Rate(_) | Value::Boolean(_) => Err(unsupported(span)),
+            Value::Unit(_)
+            | Value::Rate(_)
+            | Value::Date(_)
+            | Value::Clock(_)
+            | Value::CalendarDuration(_)
+            | Value::Boolean(_) => Err(unsupported(span)),
         },
         ConversionTarget::Percentage => match value {
             Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(number))),
@@ -648,16 +920,24 @@ fn convert(value: Value, target: ConversionTarget, span: Span) -> Result<Value, 
             Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
                 fraction.into_number(),
             ))),
-            Value::Unit(_) | Value::Rate(_) | Value::Boolean(_) => Err(unsupported(span)),
+            Value::Unit(_)
+            | Value::Rate(_)
+            | Value::Date(_)
+            | Value::Clock(_)
+            | Value::CalendarDuration(_)
+            | Value::Boolean(_) => Err(unsupported(span)),
         },
         ConversionTarget::Fraction => {
             let number = match value {
                 Value::Number(number) => number,
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
-                Value::Unit(_) | Value::Rate(_) | Value::Boolean(_) => {
-                    return Err(unsupported(span));
-                }
+                Value::Unit(_)
+                | Value::Rate(_)
+                | Value::Date(_)
+                | Value::Clock(_)
+                | Value::CalendarDuration(_)
+                | Value::Boolean(_) => return Err(unsupported(span)),
             };
             Fraction::from_number(number)
                 .map(Value::Fraction)

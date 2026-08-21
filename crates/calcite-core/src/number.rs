@@ -67,6 +67,15 @@ impl Number {
         }
     }
 
+    pub(crate) fn exact_i64(&self) -> Option<i64> {
+        let value = self.exact_fraction()?;
+        if value.contains('/') {
+            None
+        } else {
+            value.parse().ok()
+        }
+    }
+
     pub(crate) fn negated(self) -> Self {
         match self.0 {
             Representation::Exact(value) => Self(Representation::Exact(-value)),

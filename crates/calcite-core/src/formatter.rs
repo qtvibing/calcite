@@ -13,7 +13,7 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         Value::Unit(value) => format!(
             "{} {}",
             value.magnitude().formatted_with(decimal_separator),
-            value.unit()
+            value.display_unit()
         ),
         Value::Rate(rate) => match rate.numerator() {
             Some(numerator) => format!(
@@ -27,6 +27,9 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
                 rate.denominator()
             ),
         },
+        Value::Date(date) => date.to_string(),
+        Value::Clock(time) => time.to_string(),
+        Value::CalendarDuration(duration) => duration.to_string(),
         Value::Boolean(value) => value.to_string(),
     }
 }

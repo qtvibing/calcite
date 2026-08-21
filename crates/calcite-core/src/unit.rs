@@ -180,6 +180,15 @@ impl UnitValue {
         self.unit
     }
 
+    pub(crate) fn display_unit(&self) -> &'static str {
+        let plural = !matches!(self.magnitude.exact_fraction().as_deref(), Some("1" | "-1"));
+        match (self.unit, plural) {
+            (Unit::Day, true) => "days",
+            (Unit::Week, true) => "weeks",
+            _ => self.unit.symbol(),
+        }
+    }
+
     pub(crate) fn converted_to(&self, target: Unit) -> Result<Self, UnitError> {
         if self.unit.dimension() != target.dimension() {
             return Err(UnitError::IncompatibleDimensions);

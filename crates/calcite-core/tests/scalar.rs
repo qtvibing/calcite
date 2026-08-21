@@ -183,6 +183,7 @@ fn number_punctuation_is_explicitly_contextual() {
 
     let context = CalculationContext {
         number_format: NumberFormat::decimal_comma(),
+        ..CalculationContext::default()
     };
     assert_eq!(
         calculate_with_context("1.234,5 + 0,75", &context)
