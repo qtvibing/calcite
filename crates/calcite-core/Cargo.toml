@@ -1,0 +1,9 @@
+[package]
+name = "calcite-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dashu-float.workspace = true
+dashu-int.workspace = true
+dashu-ratio.workspace = true

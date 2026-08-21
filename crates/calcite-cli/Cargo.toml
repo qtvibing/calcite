@@ -1,0 +1,7 @@
+[package]
+name = "calcite-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+calcite-core = { path = "../calcite-core" }
