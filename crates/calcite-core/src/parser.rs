@@ -1,4 +1,7 @@
-use crate::{Diagnostic, DiagnosticKind, Lexeme, LexemeKind, Number, NumberParseError, Span, lex};
+use crate::{
+    CalculationContext, Diagnostic, DiagnosticKind, Lexeme, LexemeKind, Number, NumberFormat,
+    NumberParseError, Span, lex_with_number_format,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnaryOperator {
@@ -117,7 +120,14 @@ impl Expression {
 }
 
 pub fn parse(source: &str) -> Result<Expression, Diagnostic> {
-    let tokens = lex(source)?
+    parse_with_context(source, &CalculationContext::default())
+}
+
+pub fn parse_with_context(
+    source: &str,
+    context: &CalculationContext,
+) -> Result<Expression, Diagnostic> {
+    let tokens = lex_with_number_format(source, context.number_format)?
         .into_iter()
         .filter(|token| token.kind != LexemeKind::Whitespace)
         .collect();
@@ -125,6 +135,7 @@ pub fn parse(source: &str) -> Result<Expression, Diagnostic> {
         source,
         tokens,
         position: 0,
+        number_format: context.number_format,
     };
 
     let expression = parser.parse_expression(0)?;
@@ -138,6 +149,7 @@ struct Parser<'a> {
     source: &'a str,
     tokens: Vec<Lexeme>,
     position: usize,
+    number_format: NumberFormat,
 }
 
 impl Parser<'_> {
@@ -199,7 +211,10 @@ impl Parser<'_> {
             LexemeKind::Number => {
                 self.position += 1;
                 let source = &self.source[token.span.start..token.span.end];
-                let value = Number::parse_decimal(source).map_err(|error| match error {
+                let normalized = self.number_format.normalize(source).ok_or_else(|| {
+                    Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
+                })?;
+                let value = Number::parse_decimal(&normalized).map_err(|error| match error {
                     NumberParseError::Invalid => {
                         Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
                     }

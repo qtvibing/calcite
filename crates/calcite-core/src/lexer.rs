@@ -1,4 +1,4 @@
-use crate::{Diagnostic, DiagnosticKind, Span};
+use crate::{Diagnostic, DiagnosticKind, NumberFormat, Span};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LexemeKind {
@@ -31,6 +31,13 @@ pub struct Lexeme {
 }
 
 pub fn lex(source: &str) -> Result<Vec<Lexeme>, Diagnostic> {
+    lex_with_number_format(source, NumberFormat::default())
+}
+
+pub fn lex_with_number_format(
+    source: &str,
+    number_format: NumberFormat,
+) -> Result<Vec<Lexeme>, Diagnostic> {
     let mut lexemes = Vec::new();
     let mut index = 0;
 
@@ -55,9 +62,10 @@ pub fn lex(source: &str) -> Result<Vec<Lexeme>, Diagnostic> {
             }
             LexemeKind::Whitespace
         } else if character.is_ascii_digit()
-            || (character == '.' && next_byte_is_digit(source, index + 1))
+            || (character == number_format.decimal_separator()
+                && next_character_is_digit(source, index + character.len_utf8()))
         {
-            index = scan_number(source, index);
+            index = scan_number(source, index, number_format);
             LexemeKind::Number
         } else if character.is_alphabetic() {
             index += character.len_utf8();
@@ -137,29 +145,29 @@ pub fn lex(source: &str) -> Result<Vec<Lexeme>, Diagnostic> {
     Ok(lexemes)
 }
 
-fn scan_number(source: &str, start: usize) -> usize {
-    let bytes = source.as_bytes();
+fn scan_number(source: &str, start: usize, number_format: NumberFormat) -> usize {
+    let decimal = number_format.decimal_separator();
     let mut index = start;
 
-    if bytes[index] == b'.' {
-        index += 1;
-        index = scan_digits(bytes, index);
+    if source[index..].starts_with(decimal) {
+        index += decimal.len_utf8();
+        index = scan_digits(source, index, None);
     } else {
-        index = scan_digits(bytes, index);
-        if bytes.get(index) == Some(&b'.') {
-            index += 1;
-            index = scan_digits(bytes, index);
+        index = scan_digits(source, index, number_format.grouping_separator());
+        if source[index..].starts_with(decimal) {
+            index += decimal.len_utf8();
+            index = scan_digits(source, index, None);
         }
     }
 
-    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+    if matches!(source.as_bytes().get(index), Some(b'e' | b'E')) {
         let mut exponent_end = index + 1;
-        if matches!(bytes.get(exponent_end), Some(b'+' | b'-')) {
+        if matches!(source.as_bytes().get(exponent_end), Some(b'+' | b'-')) {
             exponent_end += 1;
         }
         let digits_start = exponent_end;
-        exponent_end = scan_digits(bytes, exponent_end);
-        if bytes[digits_start..exponent_end]
+        exponent_end = scan_digits(source, exponent_end, None);
+        if source.as_bytes()[digits_start..exponent_end]
             .iter()
             .any(u8::is_ascii_digit)
         {
@@ -170,15 +178,25 @@ fn scan_number(source: &str, start: usize) -> usize {
     index
 }
 
-fn scan_digits(bytes: &[u8], mut index: usize) -> usize {
-    while matches!(bytes.get(index), Some(byte) if byte.is_ascii_digit() || *byte == b'_') {
-        index += 1;
+fn scan_digits(source: &str, mut index: usize, separator: Option<char>) -> usize {
+    while index < source.len() {
+        let character = source[index..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        if !character.is_ascii_digit() && character != '_' && Some(character) != separator {
+            break;
+        }
+        index += character.len_utf8();
     }
     index
 }
 
-fn next_byte_is_digit(source: &str, index: usize) -> bool {
-    source.as_bytes().get(index).is_some_and(u8::is_ascii_digit)
+fn next_character_is_digit(source: &str, index: usize) -> bool {
+    source[index..]
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_digit())
 }
 
 #[cfg(test)]

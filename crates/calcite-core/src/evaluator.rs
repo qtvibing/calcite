@@ -1,8 +1,8 @@
 use std::{cmp::Ordering, fmt};
 
 use crate::{
-    BinaryOperator, ConversionTarget, Diagnostic, DiagnosticKind, Expression, Fraction, Number,
-    NumericError, Percentage, Span, UnaryOperator, parse,
+    BinaryOperator, CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Expression,
+    Fraction, Number, NumericError, Percentage, Span, UnaryOperator, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,7 +56,14 @@ impl fmt::Display for Value {
 }
 
 pub fn evaluate(source: &str) -> Result<Value, Diagnostic> {
-    let expression = parse(source)?;
+    evaluate_with_context(source, &CalculationContext::default())
+}
+
+pub fn evaluate_with_context(
+    source: &str,
+    context: &CalculationContext,
+) -> Result<Value, Diagnostic> {
+    let expression = parse_with_context(source, context)?;
     evaluate_expression(&expression)
 }
 

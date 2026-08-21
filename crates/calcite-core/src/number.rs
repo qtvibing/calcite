@@ -174,7 +174,7 @@ impl Number {
         }
     }
 
-    fn formatted(&self) -> String {
+    pub(crate) fn formatted_with(&self, decimal_separator: char) -> String {
         let rendered = match &self.0 {
             Representation::Exact(value) if value.denominator() == &dashu_int::UBig::ONE => {
                 value.numerator().to_string()
@@ -187,13 +187,18 @@ impl Number {
             }
         };
 
-        trim_decimal_zeros(rendered)
+        let rendered = trim_decimal_zeros(rendered);
+        if decimal_separator == '.' {
+            rendered
+        } else {
+            rendered.replace('.', &decimal_separator.to_string())
+        }
     }
 }
 
 impl fmt::Display for Number {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.formatted())
+        formatter.write_str(&self.formatted_with('.'))
     }
 }
 

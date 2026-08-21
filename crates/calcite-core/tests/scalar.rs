@@ -1,4 +1,6 @@
-use calcite_core::{DiagnosticKind, calculate};
+use calcite_core::{
+    CalculationContext, DiagnosticKind, NumberFormat, calculate, calculate_with_context,
+};
 
 fn output(expression: &str) -> String {
     calculate(expression).unwrap().output
@@ -140,6 +142,24 @@ fn large_number_suffixes_and_words_are_exact() {
     assert_eq!(output("5M"), "5000000");
     assert_eq!(output("2B"), "2000000000");
     assert_eq!(output("3 million + 10%"), "3300000");
+}
+
+#[test]
+fn number_punctuation_is_explicitly_contextual() {
+    assert_eq!(output("1,234.5 + 0.5"), "1235");
+
+    let context = CalculationContext {
+        number_format: NumberFormat::decimal_comma(),
+    };
+    assert_eq!(
+        calculate_with_context("1.234,5 + 0,75", &context)
+            .unwrap()
+            .output,
+        "1235,25"
+    );
+
+    let malformed = calculate("12,34 + 1").unwrap_err();
+    assert_eq!(malformed.kind(), DiagnosticKind::InvalidNumber);
 }
 
 #[test]

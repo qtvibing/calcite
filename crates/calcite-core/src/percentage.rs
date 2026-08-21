@@ -21,11 +21,15 @@ impl Percentage {
     pub(crate) fn negated(self) -> Self {
         Self(self.0.negated())
     }
+
+    pub(crate) fn formatted_with(&self, decimal_separator: char) -> String {
+        let value = self.0.clone().multiply(Number::from_i64(100));
+        format!("{}%", value.formatted_with(decimal_separator))
+    }
 }
 
 impl fmt::Display for Percentage {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = self.0.clone().multiply(Number::from_i64(100));
-        write!(formatter, "{value}%")
+        formatter.write_str(&self.formatted_with('.'))
     }
 }
