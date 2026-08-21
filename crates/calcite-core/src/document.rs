@@ -6,9 +6,16 @@ use crate::{
     format_with_context, lex_with_number_format, parse_with_context,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentDependency {
+    pub name: String,
+    pub source_result: Option<usize>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocumentLine {
     pub name: Option<String>,
+    pub dependencies: Vec<DocumentDependency>,
     pub span: Span,
     pub value: Value,
     pub output: String,
@@ -51,6 +58,7 @@ pub fn calculate_document_with_context(
     context: &CalculationContext,
 ) -> Result<DocumentCalculation, Diagnostic> {
     let mut variables = HashMap::new();
+    let mut definitions = HashMap::new();
     let mut lines = Vec::new();
     let mut entries = Vec::new();
     let mut source_offset = 0;
@@ -63,6 +71,7 @@ pub fn calculate_document_with_context(
             source_offset,
             context,
             &mut variables,
+            &mut definitions,
             &mut lines,
             &mut entries,
         )?;
@@ -77,6 +86,7 @@ fn evaluate_line(
     source_offset: usize,
     context: &CalculationContext,
     variables: &mut HashMap<String, Value>,
+    definitions: &mut HashMap<String, usize>,
     lines: &mut Vec<DocumentLine>,
     entries: &mut Vec<DocumentEntry>,
 ) -> Result<(), Diagnostic> {
@@ -186,15 +196,26 @@ fn evaluate_line(
 
     let expression = parse_with_context(expression_source, context)
         .map_err(|error| error.shifted(expression_offset))?;
+    let mut references = Vec::new();
+    collect_variable_references(&expression, &mut references);
+    let dependencies = references
+        .into_iter()
+        .map(|name| DocumentDependency {
+            source_result: definitions.get(&name).copied(),
+            name,
+        })
+        .collect();
     let value = evaluate_expression(&expression, context, variables)
         .map_err(|error| error.shifted(expression_offset))?;
     let output = format_with_context(&value, context);
+    let result_index = lines.len();
     if let Some(name) = &name {
         variables.insert(name.clone(), value.clone());
+        definitions.insert(name.clone(), result_index);
     }
-    let result_index = lines.len();
     lines.push(DocumentLine {
         name,
+        dependencies,
         span: Span::new(content_offset, content_offset + content.len()),
         value,
         output,
@@ -208,6 +229,58 @@ fn evaluate_line(
         },
     });
     Ok(())
+}
+
+fn collect_variable_references(expression: &Expression, references: &mut Vec<String>) {
+    match expression {
+        Expression::Variable { name, .. } => {
+            if !references.contains(name) {
+                references.push(name.clone());
+            }
+        }
+        Expression::Call { arguments, .. } => {
+            for argument in arguments {
+                collect_variable_references(argument, references);
+            }
+        }
+        Expression::Unary { operand, .. }
+        | Expression::Group {
+            expression: operand,
+            ..
+        }
+        | Expression::Percentage {
+            expression: operand,
+            ..
+        }
+        | Expression::Conversion {
+            expression: operand,
+            ..
+        } => collect_variable_references(operand, references),
+        Expression::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_variable_references(condition, references);
+            collect_variable_references(then_branch, references);
+            collect_variable_references(else_branch, references);
+        }
+        Expression::Binary { left, right, .. } => {
+            collect_variable_references(left, references);
+            collect_variable_references(right, references);
+        }
+        Expression::Number { .. }
+        | Expression::Boolean { .. }
+        | Expression::Constant { .. }
+        | Expression::Unit { .. }
+        | Expression::Money { .. }
+        | Expression::Date { .. }
+        | Expression::Clock { .. }
+        | Expression::OffsetDateTime { .. }
+        | Expression::CalendarDuration { .. }
+        | Expression::TemporalKeyword { .. } => {}
+    }
 }
 
 fn label_separator(content: &str) -> Option<usize> {

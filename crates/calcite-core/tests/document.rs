@@ -1,4 +1,4 @@
-use calcite_core::{DiagnosticKind, DocumentEntryKind, calculate_document};
+use calcite_core::{DiagnosticKind, DocumentDependency, DocumentEntryKind, calculate_document};
 
 fn outputs(source: &str) -> Vec<String> {
     calculate_document(source)
@@ -39,6 +39,59 @@ fn reassignment_only_affects_following_lines() {
     assert_eq!(
         outputs("amount = 10\namount + 1\namount = 20\namount + 1"),
         ["10", "11", "20", "21"]
+    );
+}
+
+#[test]
+fn dependencies_resolve_to_source_order_definitions() {
+    let document = calculate_document(
+        "value = 10\n\
+         first = value + 1\n\
+         value = value * 2\n\
+         if true then value + first else missing\n\
+         distance = 1 km\n\
+         round((distance + distance) in m)",
+    )
+    .unwrap();
+
+    assert!(document.lines[0].dependencies.is_empty());
+    assert_eq!(
+        document.lines[1].dependencies,
+        [DocumentDependency {
+            name: "value".to_owned(),
+            source_result: Some(0),
+        }]
+    );
+    assert_eq!(
+        document.lines[2].dependencies,
+        [DocumentDependency {
+            name: "value".to_owned(),
+            source_result: Some(0),
+        }]
+    );
+    assert_eq!(
+        document.lines[3].dependencies,
+        [
+            DocumentDependency {
+                name: "value".to_owned(),
+                source_result: Some(2),
+            },
+            DocumentDependency {
+                name: "first".to_owned(),
+                source_result: Some(1),
+            },
+            DocumentDependency {
+                name: "missing".to_owned(),
+                source_result: None,
+            },
+        ]
+    );
+    assert_eq!(
+        document.lines[5].dependencies,
+        [DocumentDependency {
+            name: "distance".to_owned(),
+            source_result: Some(4),
+        }]
     );
 }
 
