@@ -8,6 +8,7 @@ pub enum Dimension {
     Mass,
     Duration,
     Temperature,
+    Angle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,6 +33,8 @@ pub enum Unit {
     Celsius,
     Fahrenheit,
     Kelvin,
+    Radian,
+    Degree,
 }
 
 impl Unit {
@@ -50,6 +53,7 @@ impl Unit {
                 Dimension::Duration
             }
             Self::Celsius | Self::Fahrenheit | Self::Kelvin => Dimension::Temperature,
+            Self::Radian | Self::Degree => Dimension::Angle,
         }
     }
 
@@ -85,6 +89,8 @@ impl Unit {
             "celsius" => Some(Self::Celsius),
             "fahrenheit" => Some(Self::Fahrenheit),
             "kelvin" => Some(Self::Kelvin),
+            "rad" | "radian" | "radians" => Some(Self::Radian),
+            "deg" | "degree" | "degrees" => Some(Self::Degree),
             _ => None,
         }
     }
@@ -111,6 +117,8 @@ impl Unit {
             Self::Celsius => "°C",
             Self::Fahrenheit => "°F",
             Self::Kelvin => "K",
+            Self::Radian => "rad",
+            Self::Degree => "deg",
         }
     }
 
@@ -132,8 +140,16 @@ impl Unit {
         if self == Self::Fahrenheit {
             return (ratio("5", "9"), ratio("-160", "9"));
         }
+        if self == Self::Degree {
+            return (
+                Number::pi()
+                    .divide(Number::from_i64(180))
+                    .expect("one hundred eighty is nonzero"),
+                exact("0"),
+            );
+        }
         let (scale, offset) = match self {
-            Self::Meter | Self::Gram | Self::Second | Self::Celsius => ("1", "0"),
+            Self::Meter | Self::Gram | Self::Second | Self::Celsius | Self::Radian => ("1", "0"),
             Self::Kilometer => ("1000", "0"),
             Self::Centimeter => ("0.01", "0"),
             Self::Millimeter => ("0.001", "0"),
@@ -149,7 +165,7 @@ impl Unit {
             Self::Day => ("86400", "0"),
             Self::Week => ("604800", "0"),
             Self::Kelvin => ("1", "-273.15"),
-            Self::Fahrenheit => unreachable!("handled above"),
+            Self::Fahrenheit | Self::Degree => unreachable!("handled above"),
         };
         (exact(scale), exact(offset))
     }

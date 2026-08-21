@@ -49,6 +49,7 @@ pub(crate) enum NumericError {
     PrecisionTooLarge,
     RootDegreeTooLarge,
     InvalidLogarithm,
+    InvalidTrigonometry,
     NonRealResult,
 }
 
@@ -144,6 +145,51 @@ impl Number {
             (Representation::Exact(left), Representation::Exact(right)) => Some(left.cmp(right)),
             (left, right) => into_real(left.clone()).partial_cmp(&into_real(right.clone())),
         }
+    }
+
+    pub(crate) fn pi() -> Self {
+        Self(Representation::Approximate(Real::pi(WORKING_PRECISION)))
+    }
+
+    pub(crate) fn sine(self) -> Self {
+        Self(Representation::Approximate(into_real(self.0).sin()))
+    }
+
+    pub(crate) fn cosine(self) -> Self {
+        Self(Representation::Approximate(into_real(self.0).cos()))
+    }
+
+    pub(crate) fn tangent(self) -> Self {
+        Self(Representation::Approximate(into_real(self.0).tan()))
+    }
+
+    pub(crate) fn arc_sine(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value < -Real::ONE || value > Real::ONE {
+            return Err(NumericError::InvalidTrigonometry);
+        }
+        Ok(Self(Representation::Approximate(value.asin())))
+    }
+
+    pub(crate) fn arc_cosine(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value < -Real::ONE || value > Real::ONE {
+            return Err(NumericError::InvalidTrigonometry);
+        }
+        Ok(Self(Representation::Approximate(value.acos())))
+    }
+
+    pub(crate) fn arc_tangent(self) -> Self {
+        Self(Representation::Approximate(into_real(self.0).atan()))
+    }
+
+    pub(crate) fn arc_tangent2(self, x: Self) -> Result<Self, NumericError> {
+        if self.is_zero() && x.is_zero() {
+            return Err(NumericError::InvalidTrigonometry);
+        }
+        Ok(Self(Representation::Approximate(
+            into_real(self.0).atan2(&into_real(x.0)),
+        )))
     }
 
     pub(crate) fn nth_root(self, degree: usize) -> Result<Self, NumericError> {

@@ -58,6 +58,13 @@ pub enum Function {
     NaturalLogarithm,
     CommonLogarithm,
     BinaryLogarithm,
+    Sine,
+    Cosine,
+    Tangent,
+    ArcSine,
+    ArcCosine,
+    ArcTangent,
+    ArcTangent2,
     AbsoluteValue,
     Sum,
     Average,
@@ -85,6 +92,20 @@ impl Function {
             Some(Self::CommonLogarithm)
         } else if name.eq_ignore_ascii_case("log2") {
             Some(Self::BinaryLogarithm)
+        } else if name.eq_ignore_ascii_case("sin") || name.eq_ignore_ascii_case("sine") {
+            Some(Self::Sine)
+        } else if name.eq_ignore_ascii_case("cos") || name.eq_ignore_ascii_case("cosine") {
+            Some(Self::Cosine)
+        } else if name.eq_ignore_ascii_case("tan") || name.eq_ignore_ascii_case("tangent") {
+            Some(Self::Tangent)
+        } else if name.eq_ignore_ascii_case("asin") || name.eq_ignore_ascii_case("arcsine") {
+            Some(Self::ArcSine)
+        } else if name.eq_ignore_ascii_case("acos") || name.eq_ignore_ascii_case("arccosine") {
+            Some(Self::ArcCosine)
+        } else if name.eq_ignore_ascii_case("atan") || name.eq_ignore_ascii_case("arctangent") {
+            Some(Self::ArcTangent)
+        } else if name.eq_ignore_ascii_case("atan2") {
+            Some(Self::ArcTangent2)
         } else if name.eq_ignore_ascii_case("abs") {
             Some(Self::AbsoluteValue)
         } else if name.eq_ignore_ascii_case("sum") {

@@ -77,6 +77,18 @@ fn evaluates_natural_calendar_arithmetic() {
 }
 
 #[test]
+fn evaluates_angle_aware_trigonometry() {
+    let output = calcite()
+        .args(["asin", "(1)", "in", "deg"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "90 deg\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_roots_and_logarithms_from_the_command_line() {
     let root = calcite()
         .args(["cube", "root", "of", "-8"])

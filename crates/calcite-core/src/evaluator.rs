@@ -386,6 +386,43 @@ fn evaluate_call(
                 .map(Value::Number)
                 .map_err(|error| numeric_diagnostic(error, span))
         }
+        Function::Sine | Function::Cosine | Function::Tangent => {
+            let [value] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            if function == Function::Tangent && tangent_is_undefined(value) {
+                return Err(Diagnostic::new(DiagnosticKind::InvalidTrigonometry, span));
+            }
+            let radians = angle_in_radians(value, span)?;
+            Ok(Value::Number(match function {
+                Function::Sine => radians.sine(),
+                Function::Cosine => radians.cosine(),
+                Function::Tangent => radians.tangent(),
+                _ => unreachable!(),
+            }))
+        }
+        Function::ArcSine | Function::ArcCosine | Function::ArcTangent => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let radians = match function {
+                Function::ArcSine => number.clone().arc_sine(),
+                Function::ArcCosine => number.clone().arc_cosine(),
+                Function::ArcTangent => Ok(number.clone().arc_tangent()),
+                _ => unreachable!(),
+            }
+            .map_err(|error| numeric_diagnostic(error, span))?;
+            Ok(Value::Unit(UnitValue::new(radians, Unit::Radian)))
+        }
+        Function::ArcTangent2 => {
+            let [Value::Number(y), Value::Number(x)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            y.clone()
+                .arc_tangent2(x.clone())
+                .map(|radians| Value::Unit(UnitValue::new(radians, Unit::Radian)))
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
         Function::AbsoluteValue => {
             let [value] = values.as_slice() else {
                 return Err(invalid_function_arguments(span));
@@ -460,6 +497,34 @@ fn evaluate_call(
             }
             Ok(result)
         }
+    }
+}
+
+fn tangent_is_undefined(value: &Value) -> bool {
+    let Value::Unit(value) = value else {
+        return false;
+    };
+    if value.unit() != Unit::Degree {
+        return false;
+    }
+    value
+        .magnitude()
+        .clone()
+        .subtract(Number::from_i64(90))
+        .divide(Number::from_i64(180))
+        .ok()
+        .and_then(|turns| turns.exact_i64())
+        .is_some()
+}
+
+fn angle_in_radians(value: &Value, span: Span) -> Result<Number, Diagnostic> {
+    match value {
+        Value::Number(number) => Ok(number.clone()),
+        Value::Unit(value) if value.unit().dimension() == crate::Dimension::Angle => value
+            .converted_to(Unit::Radian)
+            .map(|value| value.magnitude().clone())
+            .map_err(|error| unit_diagnostic(error, span)),
+        _ => Err(invalid_function_arguments(span)),
     }
 }
 
@@ -1572,6 +1637,7 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::PrecisionTooLarge => DiagnosticKind::PrecisionTooLarge,
         NumericError::RootDegreeTooLarge => DiagnosticKind::RootDegreeTooLarge,
         NumericError::InvalidLogarithm => DiagnosticKind::InvalidLogarithm,
+        NumericError::InvalidTrigonometry => DiagnosticKind::InvalidTrigonometry,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

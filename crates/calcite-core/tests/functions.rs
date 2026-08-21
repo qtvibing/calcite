@@ -37,6 +37,29 @@ fn function_arguments_can_reference_document_variables() {
 }
 
 #[test]
+fn trigonometry_requires_explicit_angle_semantics() {
+    assert_eq!(output("sin(90 deg)"), "1");
+    assert_eq!(output("cosine of 180 degrees"), "-1");
+    assert_eq!(output("tan(45 deg)"), "1");
+    assert_eq!(output("round(sin(1.5707963267948966), 8)"), "1");
+}
+
+#[test]
+fn inverse_trigonometry_returns_convertible_angles() {
+    assert_eq!(output("asin(1) in deg"), "90 deg");
+    assert_eq!(output("acos(0) in deg"), "90 deg");
+    assert_eq!(output("atan2(1, -1) in deg"), "135 deg");
+    assert_eq!(output("180 deg in rad"), "3.1415926536 rad");
+    assert_eq!(output("round(1 rad in deg, 6)"), "57.29578 deg");
+}
+
+#[test]
+fn trigonometry_uses_document_angle_values() {
+    let document = calculate_document("heading = 30 deg\nsine of heading").unwrap();
+    assert_eq!(document.lines[1].output, "0.5");
+}
+
+#[test]
 fn roots_support_explicit_degrees_and_natural_phrases() {
     assert_eq!(output("cube root of -8"), "-2");
     assert_eq!(output("root(81, 4)"), "3");
@@ -57,7 +80,7 @@ fn logarithms_have_explicit_and_predictable_bases() {
 
 #[test]
 fn roots_and_logs_use_document_variables() {
-    let document = calculate_document("value = 625\ndegree = 4\nroot(value, degree)").unwrap();
+    let document = calculate_document("value = 625\nindex = 4\nroot(value, index)").unwrap();
     assert_eq!(document.lines[2].output, "5");
 }
 
@@ -128,6 +151,12 @@ fn invalid_function_domains_and_arities_are_diagnostic() {
         assert_eq!(
             calculate(source).unwrap_err().kind(),
             DiagnosticKind::InvalidLogarithm
+        );
+    }
+    for source in ["asin(2)", "acos(-2)", "atan2(0, 0)", "tan(90 deg)"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::InvalidTrigonometry
         );
     }
 }
