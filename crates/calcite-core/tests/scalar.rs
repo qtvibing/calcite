@@ -145,6 +145,25 @@ fn large_number_suffixes_and_words_are_exact() {
 }
 
 #[test]
+fn compatible_units_convert_exactly_during_arithmetic() {
+    assert_eq!(output("1 km + 500 m"), "1.5 km");
+    assert_eq!(output("500 m + 1 km"), "1500 m");
+    assert_eq!(output("300 + 20 km"), "320 km");
+    assert_eq!(output("1 mile in km"), "1.609344 km");
+    assert_eq!(output("1 km / 250 m"), "4");
+    assert_eq!(output("1 km > 999 m"), "true");
+    assert_eq!(output("10% of 50 km"), "5 km");
+    assert_eq!(output("50 km + 10%"), "55 km");
+}
+
+#[test]
+fn affine_temperature_units_convert_without_losing_precision() {
+    assert_eq!(output("32 F to C"), "0 °C");
+    assert_eq!(output("0 C in F"), "32 °F");
+    assert_eq!(output("273.15 K in C"), "0 °C");
+}
+
+#[test]
 fn number_punctuation_is_explicitly_contextual() {
     assert_eq!(output("1,234.5 + 0.5"), "1235");
 
@@ -160,6 +179,13 @@ fn number_punctuation_is_explicitly_contextual() {
 
     let malformed = calculate("12,34 + 1").unwrap_err();
     assert_eq!(malformed.kind(), DiagnosticKind::InvalidNumber);
+}
+
+#[test]
+fn incompatible_units_report_a_dimension_error() {
+    let error = calculate("1 km + 1 kg").unwrap_err();
+    assert_eq!(error.kind(), DiagnosticKind::UnitMismatch);
+    assert_eq!(&"1 km + 1 kg"[error.span().start..error.span().end], "+");
 }
 
 #[test]

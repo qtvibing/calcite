@@ -13,6 +13,7 @@ pub enum DiagnosticKind {
     ExponentTooLarge,
     NonRealResult,
     UnsupportedOperation,
+    UnitMismatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +63,7 @@ impl Diagnostic {
             DiagnosticKind::ExponentTooLarge => "exponent is too large",
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
+            DiagnosticKind::UnitMismatch => "units have incompatible dimensions",
         }
     }
 }

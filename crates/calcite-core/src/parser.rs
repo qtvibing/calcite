@@ -1,6 +1,6 @@
 use crate::{
     CalculationContext, Diagnostic, DiagnosticKind, Lexeme, LexemeKind, Number, NumberFormat,
-    NumberParseError, Span, lex_with_number_format,
+    NumberParseError, Span, Unit, lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +53,7 @@ pub enum ConversionTarget {
     Number,
     Percentage,
     Fraction,
+    Unit(Unit),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +64,11 @@ pub enum Expression {
     },
     Boolean {
         value: bool,
+        span: Span,
+    },
+    Unit {
+        value: Number,
+        unit: Unit,
         span: Span,
     },
     Unary {
@@ -109,6 +115,7 @@ impl Expression {
         match self {
             Self::Number { span, .. }
             | Self::Boolean { span, .. }
+            | Self::Unit { span, .. }
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }
@@ -171,7 +178,7 @@ impl Parser<'_> {
                 continue;
             }
 
-            if minimum_binding_power == 0 && self.word_is(0, "as") {
+            if minimum_binding_power == 0 && self.is_conversion_operator() {
                 left = self.parse_conversion(left)?;
                 continue;
             }
@@ -231,7 +238,16 @@ impl Parser<'_> {
                 } else {
                     (value, token.span)
                 };
-                Ok(Expression::Number { value, span })
+                if let Some((unit, unit_token)) = self.unit() {
+                    self.position += 1;
+                    Ok(Expression::Unit {
+                        value,
+                        unit,
+                        span: span.join(unit_token.span),
+                    })
+                } else {
+                    Ok(Expression::Number { value, span })
+                }
             }
             LexemeKind::Word if self.word_is(0, "if") || self.word_is(0, "unless") => {
                 self.parse_conditional()
@@ -342,6 +358,12 @@ impl Parser<'_> {
         Ok(token)
     }
 
+    fn is_conversion_operator(&self) -> bool {
+        self.word_is(0, "as")
+            || self.word_is(0, "in")
+            || (self.word_is(0, "to") && !self.word_is(1, "the"))
+    }
+
     fn parse_conversion(&mut self, expression: Expression) -> Result<Expression, Diagnostic> {
         let operator = self.current().expect("conversion operator is present");
         let Some(target_token) = self.tokens.get(self.position + 1).copied() else {
@@ -356,7 +378,11 @@ impl Parser<'_> {
             LexemeKind::Percent => ConversionTarget::Percentage,
             LexemeKind::Word => {
                 let target = &self.source[target_token.span.start..target_token.span.end];
-                if target.eq_ignore_ascii_case("number") || target.eq_ignore_ascii_case("decimal") {
+                if let Some(unit) = Unit::from_alias(target) {
+                    ConversionTarget::Unit(unit)
+                } else if target.eq_ignore_ascii_case("number")
+                    || target.eq_ignore_ascii_case("decimal")
+                {
                     ConversionTarget::Number
                 } else if target.eq_ignore_ascii_case("percent")
                     || target.eq_ignore_ascii_case("percentage")
@@ -368,7 +394,7 @@ impl Parser<'_> {
                     return Err(Diagnostic::with_detail(
                         DiagnosticKind::UnexpectedToken,
                         target_token.span,
-                        "expected number, percentage, or fraction",
+                        "expected a unit, number, percentage, or fraction",
                     ));
                 }
             }
@@ -376,7 +402,7 @@ impl Parser<'_> {
                 return Err(Diagnostic::with_detail(
                     DiagnosticKind::UnexpectedToken,
                     target_token.span,
-                    "expected number, percentage, or fraction",
+                    "expected a unit, number, percentage, or fraction",
                 ));
             }
         };
@@ -390,6 +416,15 @@ impl Parser<'_> {
             target_span: target_token.span,
             span,
         })
+    }
+
+    fn unit(&self) -> Option<(Unit, Lexeme)> {
+        let token = self.current()?;
+        if token.kind != LexemeKind::Word {
+            return None;
+        }
+        let source = &self.source[token.span.start..token.span.end];
+        Unit::from_alias(source).map(|unit| (unit, token))
     }
 
     fn scalar(&self) -> Option<(i64, Lexeme)> {

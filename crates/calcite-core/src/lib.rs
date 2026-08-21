@@ -8,6 +8,7 @@ mod number;
 mod parser;
 mod percentage;
 mod span;
+mod unit;
 
 pub use context::{CalculationContext, NumberFormat};
 pub use diagnostic::{Diagnostic, DiagnosticKind};
@@ -21,6 +22,7 @@ pub use parser::{
 };
 pub use percentage::Percentage;
 pub use span::Span;
+pub use unit::{Dimension, Unit, UnitValue};
 
 pub(crate) use number::NumericError;
 

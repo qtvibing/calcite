@@ -10,6 +10,11 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         Value::Number(number) => number.formatted_with(decimal_separator),
         Value::Percentage(percentage) => percentage.formatted_with(decimal_separator),
         Value::Fraction(fraction) => fraction.to_string(),
+        Value::Unit(value) => format!(
+            "{} {}",
+            value.magnitude().formatted_with(decimal_separator),
+            value.unit()
+        ),
         Value::Boolean(value) => value.to_string(),
     }
 }
