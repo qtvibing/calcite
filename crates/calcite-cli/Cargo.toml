@@ -3,5 +3,9 @@ name = "calcite-cli"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "calcite"
+path = "src/main.rs"
+
 [dependencies]
 calcite-core = { path = "../calcite-core" }
