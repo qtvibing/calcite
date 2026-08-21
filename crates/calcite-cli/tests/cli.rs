@@ -77,6 +77,23 @@ fn evaluates_natural_calendar_arithmetic() {
 }
 
 #[test]
+fn evaluates_roots_and_logarithms_from_the_command_line() {
+    let root = calcite()
+        .args(["cube", "root", "of", "-8"])
+        .output()
+        .expect("calcite should run");
+    assert!(root.status.success());
+    assert_eq!(String::from_utf8(root.stdout).unwrap(), "-2\n");
+
+    let logarithm = calcite()
+        .args(["log", "(81,", "3)"])
+        .output()
+        .expect("calcite should run");
+    assert!(logarithm.status.success());
+    assert_eq!(String::from_utf8(logarithm.stdout).unwrap(), "4\n");
+}
+
+#[test]
 fn rounds_typed_values_from_the_command_line() {
     let output = calcite()
         .args(["round", "($12.345,", "2)"])

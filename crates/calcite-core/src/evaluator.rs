@@ -331,16 +331,58 @@ fn evaluate_call(
         .collect::<Result<Vec<_>, _>>()?;
 
     match function {
-        Function::SquareRoot => {
+        Function::SquareRoot | Function::CubicRoot => {
             let [Value::Number(number)] = values.as_slice() else {
                 return Err(invalid_function_arguments(span));
             };
-            let half = Number::from_i64(1)
-                .divide(Number::from_i64(2))
-                .expect("two is nonzero");
+            let degree = if function == Function::SquareRoot {
+                2
+            } else {
+                3
+            };
             number
                 .clone()
-                .pow(half)
+                .nth_root(degree)
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::NthRoot => {
+            let [Value::Number(number), Value::Number(degree)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let degree = degree
+                .exact_i64()
+                .and_then(|degree| usize::try_from(degree).ok())
+                .filter(|degree| *degree > 0)
+                .ok_or_else(|| invalid_function_arguments(span))?;
+            number
+                .clone()
+                .nth_root(degree)
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::NaturalLogarithm | Function::BinaryLogarithm => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let result = if function == Function::NaturalLogarithm {
+                number.clone().natural_log()
+            } else {
+                number.clone().binary_log()
+            };
+            result
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::CommonLogarithm => {
+            let result = match values.as_slice() {
+                [Value::Number(number)] => number.clone().common_log(),
+                [Value::Number(number), Value::Number(base)] => {
+                    number.clone().logarithm(base.clone())
+                }
+                _ => return Err(invalid_function_arguments(span)),
+            };
+            result
                 .map(Value::Number)
                 .map_err(|error| numeric_diagnostic(error, span))
         }
@@ -1528,6 +1570,8 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::DivisionByZero => DiagnosticKind::DivisionByZero,
         NumericError::ExponentTooLarge => DiagnosticKind::ExponentTooLarge,
         NumericError::PrecisionTooLarge => DiagnosticKind::PrecisionTooLarge,
+        NumericError::RootDegreeTooLarge => DiagnosticKind::RootDegreeTooLarge,
+        NumericError::InvalidLogarithm => DiagnosticKind::InvalidLogarithm,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

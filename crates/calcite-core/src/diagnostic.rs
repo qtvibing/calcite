@@ -19,6 +19,8 @@ pub enum DiagnosticKind {
     DivisionByZero,
     ExponentTooLarge,
     PrecisionTooLarge,
+    RootDegreeTooLarge,
+    InvalidLogarithm,
     NonRealResult,
     UnsupportedOperation,
     UnitMismatch,
@@ -84,6 +86,10 @@ impl Diagnostic {
             DiagnosticKind::DivisionByZero => "cannot divide by zero",
             DiagnosticKind::ExponentTooLarge => "exponent is too large",
             DiagnosticKind::PrecisionTooLarge => "requested precision is too large",
+            DiagnosticKind::RootDegreeTooLarge => "root degree is too large",
+            DiagnosticKind::InvalidLogarithm => {
+                "logarithm input and base must be positive, and the base cannot be one"
+            }
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
             DiagnosticKind::UnitMismatch => "units have incompatible dimensions",

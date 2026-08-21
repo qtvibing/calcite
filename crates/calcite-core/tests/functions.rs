@@ -37,6 +37,31 @@ fn function_arguments_can_reference_document_variables() {
 }
 
 #[test]
+fn roots_support_explicit_degrees_and_natural_phrases() {
+    assert_eq!(output("cube root of -8"), "-2");
+    assert_eq!(output("root(81, 4)"), "3");
+    assert_eq!(output("cbrt(125)"), "5");
+    assert_eq!(output("round(root(2, 3), 6)"), "1.259921");
+}
+
+#[test]
+fn logarithms_have_explicit_and_predictable_bases() {
+    assert_eq!(output("ln(1)"), "0");
+    assert_eq!(output("log(1000)"), "3");
+    assert_eq!(output("log2(1024)"), "10");
+    assert_eq!(output("log(81, 3)"), "4");
+    assert_eq!(output("round(ln(2), 6)"), "0.693147");
+    assert_eq!(output("natural logarithm of 1"), "0");
+    assert_eq!(output("binary log of 32"), "5");
+}
+
+#[test]
+fn roots_and_logs_use_document_variables() {
+    let document = calculate_document("value = 625\ndegree = 4\nroot(value, degree)").unwrap();
+    assert_eq!(document.lines[2].output, "5");
+}
+
+#[test]
 fn rounding_is_exact_and_uses_half_away_from_zero() {
     assert_eq!(output("round(2.5)"), "3");
     assert_eq!(output("round(-2.5)"), "-3");
@@ -87,4 +112,22 @@ fn invalid_function_domains_and_arities_are_diagnostic() {
         calculate("round(1.2, 10001)").unwrap_err().kind(),
         DiagnosticKind::PrecisionTooLarge
     );
+    assert_eq!(
+        calculate("root(-16, 2)").unwrap_err().kind(),
+        DiagnosticKind::NonRealResult
+    );
+    assert_eq!(
+        calculate("root(2, 0)").unwrap_err().kind(),
+        DiagnosticKind::InvalidFunctionArguments
+    );
+    assert_eq!(
+        calculate("root(2, 1001)").unwrap_err().kind(),
+        DiagnosticKind::RootDegreeTooLarge
+    );
+    for source in ["log(0)", "log(-1)", "log(10, 1)", "ln(-2)"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::InvalidLogarithm
+        );
+    }
 }

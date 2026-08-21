@@ -53,6 +53,11 @@ impl BinaryOperator {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Function {
     SquareRoot,
+    CubicRoot,
+    NthRoot,
+    NaturalLogarithm,
+    CommonLogarithm,
+    BinaryLogarithm,
     AbsoluteValue,
     Sum,
     Average,
@@ -67,6 +72,19 @@ impl Function {
     fn from_name(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("sqrt") {
             Some(Self::SquareRoot)
+        } else if name.eq_ignore_ascii_case("cbrt") {
+            Some(Self::CubicRoot)
+        } else if name.eq_ignore_ascii_case("root") {
+            Some(Self::NthRoot)
+        } else if name.eq_ignore_ascii_case("ln") {
+            Some(Self::NaturalLogarithm)
+        } else if name.eq_ignore_ascii_case("log")
+            || name.eq_ignore_ascii_case("log10")
+            || name.eq_ignore_ascii_case("logarithm")
+        {
+            Some(Self::CommonLogarithm)
+        } else if name.eq_ignore_ascii_case("log2") {
+            Some(Self::BinaryLogarithm)
         } else if name.eq_ignore_ascii_case("abs") {
             Some(Self::AbsoluteValue)
         } else if name.eq_ignore_ascii_case("sum") {
@@ -492,6 +510,23 @@ impl Parser<'_> {
     fn natural_function_at(&self) -> Option<(Function, usize)> {
         if self.word_is(0, "square") && self.word_is(1, "root") && self.word_is(2, "of") {
             Some((Function::SquareRoot, 3))
+        } else if self.word_is(0, "cube") && self.word_is(1, "root") && self.word_is(2, "of") {
+            Some((Function::CubicRoot, 3))
+        } else if self.word_is(0, "natural")
+            && (self.word_is(1, "log") || self.word_is(1, "logarithm"))
+            && self.word_is(2, "of")
+        {
+            Some((Function::NaturalLogarithm, 3))
+        } else if self.word_is(0, "common")
+            && (self.word_is(1, "log") || self.word_is(1, "logarithm"))
+            && self.word_is(2, "of")
+        {
+            Some((Function::CommonLogarithm, 3))
+        } else if self.word_is(0, "binary")
+            && (self.word_is(1, "log") || self.word_is(1, "logarithm"))
+            && self.word_is(2, "of")
+        {
+            Some((Function::BinaryLogarithm, 3))
         } else if self.word_is(0, "absolute") && self.word_is(1, "value") && self.word_is(2, "of") {
             Some((Function::AbsoluteValue, 3))
         } else if self.word_is(1, "of") {
@@ -555,16 +590,18 @@ impl Parser<'_> {
             .expect("guard checked the natural function");
         let function_span = self.phrase_span(consumed);
         self.position += consumed;
-        let mut arguments = Vec::new();
-        loop {
-            arguments.push(self.parse_expression(0)?);
-            if !self
+        let mut arguments = vec![self.parse_expression(0)?];
+        let accepts_list = matches!(
+            function,
+            Function::Sum | Function::Average | Function::Minimum | Function::Maximum
+        );
+        while accepts_list
+            && self
                 .current()
                 .is_some_and(|token| token.kind == LexemeKind::Comma)
-            {
-                break;
-            }
+        {
             self.position += 1;
+            arguments.push(self.parse_expression(0)?);
         }
         let span = function_span.join(
             arguments

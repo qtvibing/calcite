@@ -12,6 +12,7 @@ const MAX_LITERAL_DIGITS: usize = 10_000;
 const MAX_LITERAL_EXPONENT: u32 = 100_000;
 const MAX_INTEGER_EXPONENT: isize = 100_000;
 const MAX_ROUNDING_PLACES: u64 = 10_000;
+const MAX_ROOT_DEGREE: usize = 1_000;
 
 type Real = FBig<HalfAway, 10>;
 
@@ -46,6 +47,8 @@ pub(crate) enum NumericError {
     DivisionByZero,
     ExponentTooLarge,
     PrecisionTooLarge,
+    RootDegreeTooLarge,
+    InvalidLogarithm,
     NonRealResult,
 }
 
@@ -141,6 +144,53 @@ impl Number {
             (Representation::Exact(left), Representation::Exact(right)) => Some(left.cmp(right)),
             (left, right) => into_real(left.clone()).partial_cmp(&into_real(right.clone())),
         }
+    }
+
+    pub(crate) fn nth_root(self, degree: usize) -> Result<Self, NumericError> {
+        if degree == 0 {
+            return Err(NumericError::NonRealResult);
+        }
+        if degree > MAX_ROOT_DEGREE {
+            return Err(NumericError::RootDegreeTooLarge);
+        }
+        let value = into_real(self.0);
+        if value < Real::ZERO && degree.is_multiple_of(2) {
+            return Err(NumericError::NonRealResult);
+        }
+        Ok(Self(Representation::Approximate(value.nth_root(degree))))
+    }
+
+    pub(crate) fn natural_log(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value <= Real::ZERO {
+            return Err(NumericError::InvalidLogarithm);
+        }
+        Ok(Self(Representation::Approximate(value.ln())))
+    }
+
+    pub(crate) fn common_log(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value <= Real::ZERO {
+            return Err(NumericError::InvalidLogarithm);
+        }
+        Ok(Self(Representation::Approximate(value.log10())))
+    }
+
+    pub(crate) fn binary_log(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value <= Real::ZERO {
+            return Err(NumericError::InvalidLogarithm);
+        }
+        Ok(Self(Representation::Approximate(value.log2())))
+    }
+
+    pub(crate) fn logarithm(self, base: Self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        let base = into_real(base.0);
+        if value <= Real::ZERO || base <= Real::ZERO || base == Real::ONE {
+            return Err(NumericError::InvalidLogarithm);
+        }
+        Ok(Self(Representation::Approximate(value.ln() / base.ln())))
     }
 
     pub(crate) fn rounded(self, decimal_places: i64) -> Result<Self, NumericError> {
