@@ -22,6 +22,7 @@ pub enum DiagnosticKind {
     RootDegreeTooLarge,
     InvalidLogarithm,
     InvalidTrigonometry,
+    InvalidHyperbolic,
     NonRealResult,
     UnsupportedOperation,
     UnitMismatch,
@@ -92,6 +93,7 @@ impl Diagnostic {
                 "logarithm input and base must be positive, and the base cannot be one"
             }
             DiagnosticKind::InvalidTrigonometry => "value is outside the trigonometric domain",
+            DiagnosticKind::InvalidHyperbolic => "value is outside the hyperbolic domain",
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
             DiagnosticKind::UnitMismatch => "units have incompatible dimensions",

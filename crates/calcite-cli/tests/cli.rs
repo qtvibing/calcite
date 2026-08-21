@@ -77,6 +77,18 @@ fn evaluates_natural_calendar_arithmetic() {
 }
 
 #[test]
+fn evaluates_constants_and_exponentials() {
+    let output = calcite()
+        .args(["round", "(ln(e),", "10)"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_angle_aware_trigonometry() {
     let output = calcite()
         .args(["asin", "(1)", "in", "deg"])

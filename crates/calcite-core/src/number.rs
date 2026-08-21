@@ -13,6 +13,7 @@ const MAX_LITERAL_EXPONENT: u32 = 100_000;
 const MAX_INTEGER_EXPONENT: isize = 100_000;
 const MAX_ROUNDING_PLACES: u64 = 10_000;
 const MAX_ROOT_DEGREE: usize = 1_000;
+const MAX_EXPONENTIAL_ARGUMENT: i64 = 1_000;
 
 type Real = FBig<HalfAway, 10>;
 
@@ -50,6 +51,7 @@ pub(crate) enum NumericError {
     RootDegreeTooLarge,
     InvalidLogarithm,
     InvalidTrigonometry,
+    InvalidHyperbolic,
     NonRealResult,
 }
 
@@ -149,6 +151,63 @@ impl Number {
 
     pub(crate) fn pi() -> Self {
         Self(Representation::Approximate(Real::pi(WORKING_PRECISION)))
+    }
+
+    pub(crate) fn e() -> Self {
+        Self(Representation::Approximate(Real::e(WORKING_PRECISION)))
+    }
+
+    pub(crate) fn exponential(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        let limit = Real::from(MAX_EXPONENTIAL_ARGUMENT);
+        if value > limit || value < -limit {
+            return Err(NumericError::ExponentTooLarge);
+        }
+        Ok(Self(Representation::Approximate(value.exp())))
+    }
+
+    pub(crate) fn hyperbolic_sine(self) -> Result<Self, NumericError> {
+        self.bounded_hyperbolic(Real::sinh)
+    }
+
+    pub(crate) fn hyperbolic_cosine(self) -> Result<Self, NumericError> {
+        self.bounded_hyperbolic(Real::cosh)
+    }
+
+    pub(crate) fn hyperbolic_tangent(self) -> Result<Self, NumericError> {
+        self.bounded_hyperbolic(Real::tanh)
+    }
+
+    fn bounded_hyperbolic(
+        self,
+        operation: impl FnOnce(&Real) -> Real,
+    ) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        let limit = Real::from(MAX_EXPONENTIAL_ARGUMENT);
+        if value > limit || value < -limit {
+            return Err(NumericError::ExponentTooLarge);
+        }
+        Ok(Self(Representation::Approximate(operation(&value))))
+    }
+
+    pub(crate) fn inverse_hyperbolic_sine(self) -> Self {
+        Self(Representation::Approximate(into_real(self.0).asinh()))
+    }
+
+    pub(crate) fn inverse_hyperbolic_cosine(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value < Real::ONE {
+            return Err(NumericError::InvalidHyperbolic);
+        }
+        Ok(Self(Representation::Approximate(value.acosh())))
+    }
+
+    pub(crate) fn inverse_hyperbolic_tangent(self) -> Result<Self, NumericError> {
+        let value = into_real(self.0);
+        if value <= -Real::ONE || value >= Real::ONE {
+            return Err(NumericError::InvalidHyperbolic);
+        }
+        Ok(Self(Representation::Approximate(value.atanh())))
     }
 
     pub(crate) fn sine(self) -> Self {

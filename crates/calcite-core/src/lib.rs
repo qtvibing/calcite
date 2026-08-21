@@ -26,8 +26,8 @@ pub use lexer::{Lexeme, LexemeKind, lex, lex_with_number_format};
 pub use money::{Currency, ExchangeRates, InvalidExchangeRate, MonetaryContext, Money};
 pub use number::{Number, NumberParseError};
 pub use parser::{
-    BinaryOperator, ConversionTarget, Expression, Function, TemporalKeyword, UnaryOperator, parse,
-    parse_with_context,
+    BinaryOperator, Constant, ConversionTarget, Expression, Function, TemporalKeyword,
+    UnaryOperator, parse, parse_with_context,
 };
 pub use percentage::Percentage;
 pub use rate::Rate;

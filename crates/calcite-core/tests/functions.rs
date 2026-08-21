@@ -37,6 +37,33 @@ fn function_arguments_can_reference_document_variables() {
 }
 
 #[test]
+fn mathematical_constants_share_the_configured_precision() {
+    assert_eq!(output("round(pi, 10)"), "3.1415926536");
+    assert_eq!(output("round(tau / 2, 10)"), "3.1415926536");
+    assert_eq!(output("round(e, 10)"), "2.7182818285");
+    assert_eq!(output("round(sin(pi / 2), 10)"), "1");
+    assert_eq!(output("round(ln(e), 10)"), "1");
+}
+
+#[test]
+fn exponential_and_hyperbolic_functions_are_precision_aware() {
+    assert_eq!(output("round(exp(1), 10)"), "2.7182818285");
+    assert_eq!(output("hyperbolic sine of 0"), "0");
+    assert_eq!(output("cosh(0)"), "1");
+    assert_eq!(output("tanh(0)"), "0");
+    assert_eq!(output("round(asinh(1), 6)"), "0.881374");
+    assert_eq!(output("round(acosh(2), 6)"), "1.316958");
+    assert_eq!(output("round(atanh(0.5), 6)"), "0.549306");
+}
+
+#[test]
+fn constants_and_exponentials_work_in_documents() {
+    let document =
+        calculate_document("radius = 2\narea = pi * radius ^ 2\nround(area, 6)").unwrap();
+    assert_eq!(document.lines[2].output, "12.566371");
+}
+
+#[test]
 fn trigonometry_requires_explicit_angle_semantics() {
     assert_eq!(output("sin(90 deg)"), "1");
     assert_eq!(output("cosine of 180 degrees"), "-1");
@@ -159,4 +186,14 @@ fn invalid_function_domains_and_arities_are_diagnostic() {
             DiagnosticKind::InvalidTrigonometry
         );
     }
+    for source in ["acosh(0)", "atanh(1)", "atanh(-1)"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::InvalidHyperbolic
+        );
+    }
+    assert_eq!(
+        calculate("exp(1001)").unwrap_err().kind(),
+        DiagnosticKind::ExponentTooLarge
+    );
 }

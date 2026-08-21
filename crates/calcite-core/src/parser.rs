@@ -65,6 +65,13 @@ pub enum Function {
     ArcCosine,
     ArcTangent,
     ArcTangent2,
+    Exponential,
+    HyperbolicSine,
+    HyperbolicCosine,
+    HyperbolicTangent,
+    InverseHyperbolicSine,
+    InverseHyperbolicCosine,
+    InverseHyperbolicTangent,
     AbsoluteValue,
     Sum,
     Average,
@@ -106,6 +113,20 @@ impl Function {
             Some(Self::ArcTangent)
         } else if name.eq_ignore_ascii_case("atan2") {
             Some(Self::ArcTangent2)
+        } else if name.eq_ignore_ascii_case("exp") || name.eq_ignore_ascii_case("exponential") {
+            Some(Self::Exponential)
+        } else if name.eq_ignore_ascii_case("sinh") {
+            Some(Self::HyperbolicSine)
+        } else if name.eq_ignore_ascii_case("cosh") {
+            Some(Self::HyperbolicCosine)
+        } else if name.eq_ignore_ascii_case("tanh") {
+            Some(Self::HyperbolicTangent)
+        } else if name.eq_ignore_ascii_case("asinh") {
+            Some(Self::InverseHyperbolicSine)
+        } else if name.eq_ignore_ascii_case("acosh") {
+            Some(Self::InverseHyperbolicCosine)
+        } else if name.eq_ignore_ascii_case("atanh") {
+            Some(Self::InverseHyperbolicTangent)
         } else if name.eq_ignore_ascii_case("abs") {
             Some(Self::AbsoluteValue)
         } else if name.eq_ignore_ascii_case("sum") {
@@ -126,6 +147,13 @@ impl Function {
             None
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Constant {
+    Pi,
+    Tau,
+    E,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +186,10 @@ pub enum Expression {
     },
     Boolean {
         value: bool,
+        span: Span,
+    },
+    Constant {
+        constant: Constant,
         span: Span,
     },
     Unit {
@@ -244,6 +276,7 @@ impl Expression {
         match self {
             Self::Number { span, .. }
             | Self::Boolean { span, .. }
+            | Self::Constant { span, .. }
             | Self::Unit { span, .. }
             | Self::Money { span, .. }
             | Self::Date { span, .. }
@@ -423,6 +456,14 @@ impl Parser<'_> {
             }
             LexemeKind::CurrencySymbol => self.parse_prefixed_money(),
             LexemeKind::Word if self.currency_at(0).is_some() => self.parse_prefixed_money(),
+            LexemeKind::Word if self.constant_at().is_some() => {
+                let constant = self.constant_at().expect("guard checked the constant");
+                self.position += 1;
+                Ok(Expression::Constant {
+                    constant,
+                    span: token.span,
+                })
+            }
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
             LexemeKind::Word if self.natural_function_at().is_some() => {
                 self.parse_natural_function()
@@ -518,6 +559,23 @@ impl Parser<'_> {
         }
     }
 
+    fn constant_at(&self) -> Option<Constant> {
+        let token = self.current()?;
+        if token.kind != LexemeKind::Word {
+            return None;
+        }
+        let name = &self.source[token.span.start..token.span.end];
+        if name.eq_ignore_ascii_case("pi") {
+            Some(Constant::Pi)
+        } else if name.eq_ignore_ascii_case("tau") {
+            Some(Constant::Tau)
+        } else if name == "e" {
+            Some(Constant::E)
+        } else {
+            None
+        }
+    }
+
     fn function_call_at(&self) -> Option<Function> {
         let token = self.current()?;
         if token.kind != LexemeKind::Word
@@ -548,6 +606,20 @@ impl Parser<'_> {
             && self.word_is(2, "of")
         {
             Some((Function::BinaryLogarithm, 3))
+        } else if self.word_is(0, "exponential") && self.word_is(1, "of") {
+            Some((Function::Exponential, 2))
+        } else if self.word_is(0, "hyperbolic")
+            && self.word_is(2, "of")
+            && (self.word_is(1, "sine") || self.word_is(1, "cosine") || self.word_is(1, "tangent"))
+        {
+            let function = if self.word_is(1, "sine") {
+                Function::HyperbolicSine
+            } else if self.word_is(1, "cosine") {
+                Function::HyperbolicCosine
+            } else {
+                Function::HyperbolicTangent
+            };
+            Some((function, 3))
         } else if self.word_is(0, "absolute") && self.word_is(1, "value") && self.word_is(2, "of") {
             Some((Function::AbsoluteValue, 3))
         } else if self.word_is(1, "of") {

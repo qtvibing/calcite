@@ -3,8 +3,8 @@ use std::{cmp::Ordering, collections::HashMap, fmt};
 use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, ClockTime, ConversionTarget, Date,
-    Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
+    BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, ConversionTarget,
+    Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
     OffsetDateTime, Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue,
     parse_with_context,
 };
@@ -144,6 +144,11 @@ pub(crate) fn evaluate_expression(
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
         Expression::Boolean { value, .. } => Ok(Value::Boolean(*value)),
+        Expression::Constant { constant, .. } => Ok(Value::Number(match constant {
+            Constant::Pi => Number::pi(),
+            Constant::Tau => Number::pi().multiply(Number::from_i64(2)),
+            Constant::E => Number::e(),
+        })),
         Expression::Unit { value, unit, .. } => {
             Ok(Value::Unit(UnitValue::new(value.clone(), *unit)))
         }
@@ -421,6 +426,46 @@ fn evaluate_call(
             y.clone()
                 .arc_tangent2(x.clone())
                 .map(|radians| Value::Unit(UnitValue::new(radians, Unit::Radian)))
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::Exponential => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            number
+                .clone()
+                .exponential()
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::HyperbolicSine | Function::HyperbolicCosine | Function::HyperbolicTangent => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let result = match function {
+                Function::HyperbolicSine => number.clone().hyperbolic_sine(),
+                Function::HyperbolicCosine => number.clone().hyperbolic_cosine(),
+                Function::HyperbolicTangent => number.clone().hyperbolic_tangent(),
+                _ => unreachable!(),
+            };
+            result
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::InverseHyperbolicSine
+        | Function::InverseHyperbolicCosine
+        | Function::InverseHyperbolicTangent => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let result = match function {
+                Function::InverseHyperbolicSine => Ok(number.clone().inverse_hyperbolic_sine()),
+                Function::InverseHyperbolicCosine => number.clone().inverse_hyperbolic_cosine(),
+                Function::InverseHyperbolicTangent => number.clone().inverse_hyperbolic_tangent(),
+                _ => unreachable!(),
+            };
+            result
+                .map(Value::Number)
                 .map_err(|error| numeric_diagnostic(error, span))
         }
         Function::AbsoluteValue => {
@@ -1638,6 +1683,7 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::RootDegreeTooLarge => DiagnosticKind::RootDegreeTooLarge,
         NumericError::InvalidLogarithm => DiagnosticKind::InvalidLogarithm,
         NumericError::InvalidTrigonometry => DiagnosticKind::InvalidTrigonometry,
+        NumericError::InvalidHyperbolic => DiagnosticKind::InvalidHyperbolic,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)
