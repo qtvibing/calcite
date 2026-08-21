@@ -175,6 +175,18 @@ fn evaluates_natural_typed_functions() {
 }
 
 #[test]
+fn converts_area_and_volume_units() {
+    let output = calcite()
+        .args(["1", "usgal", "in", "L"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "3.785411784 L\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_typed_money_without_hiding_currency() {
     let output = calcite()
         .args(["$100", "+", "10%"])

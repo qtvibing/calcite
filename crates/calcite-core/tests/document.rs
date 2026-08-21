@@ -10,6 +10,14 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn area_and_volume_values_flow_through_variables() {
+    assert_eq!(
+        outputs("plot = 1 acre\nplot in ha\nbatch = 1 metriccup\nbatch in ml"),
+        ["1 acre", "0.4046856422 ha", "1 metric cup", "250 mL"]
+    );
+}
+
+#[test]
 fn variables_retain_typed_values_in_source_order() {
     let document = calculate_document(
         "principal = 1000\n\

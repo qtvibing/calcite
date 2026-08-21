@@ -9,6 +9,8 @@ pub enum Dimension {
     Duration,
     Temperature,
     Angle,
+    Area,
+    Volume,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -35,6 +37,30 @@ pub enum Unit {
     Kelvin,
     Radian,
     Degree,
+    SquareMeter,
+    SquareKilometer,
+    SquareCentimeter,
+    SquareMillimeter,
+    SquareInch,
+    SquareFoot,
+    SquareYard,
+    SquareMile,
+    Hectare,
+    Acre,
+    Liter,
+    Milliliter,
+    CubicMeter,
+    CubicCentimeter,
+    UsGallon,
+    UsQuart,
+    UsPint,
+    UsCup,
+    UsFluidOunce,
+    UsTablespoon,
+    UsTeaspoon,
+    MetricCup,
+    MetricTablespoon,
+    MetricTeaspoon,
 }
 
 impl Unit {
@@ -54,6 +80,30 @@ impl Unit {
             }
             Self::Celsius | Self::Fahrenheit | Self::Kelvin => Dimension::Temperature,
             Self::Radian | Self::Degree => Dimension::Angle,
+            Self::SquareMeter
+            | Self::SquareKilometer
+            | Self::SquareCentimeter
+            | Self::SquareMillimeter
+            | Self::SquareInch
+            | Self::SquareFoot
+            | Self::SquareYard
+            | Self::SquareMile
+            | Self::Hectare
+            | Self::Acre => Dimension::Area,
+            Self::Liter
+            | Self::Milliliter
+            | Self::CubicMeter
+            | Self::CubicCentimeter
+            | Self::UsGallon
+            | Self::UsQuart
+            | Self::UsPint
+            | Self::UsCup
+            | Self::UsFluidOunce
+            | Self::UsTablespoon
+            | Self::UsTeaspoon
+            | Self::MetricCup
+            | Self::MetricTablespoon
+            | Self::MetricTeaspoon => Dimension::Volume,
         }
     }
 
@@ -91,6 +141,39 @@ impl Unit {
             "kelvin" => Some(Self::Kelvin),
             "rad" | "radian" | "radians" => Some(Self::Radian),
             "deg" | "degree" | "degrees" => Some(Self::Degree),
+            "m2" | "m²" | "sqm" | "squaremeter" | "squaremeters" | "squaremetre"
+            | "squaremetres" => Some(Self::SquareMeter),
+            "km2" | "km²" | "sqkm" | "squarekilometer" | "squarekilometers" | "squarekilometre"
+            | "squarekilometres" => Some(Self::SquareKilometer),
+            "cm2" | "cm²" | "sqcm" | "squarecentimeter" | "squarecentimeters"
+            | "squarecentimetre" | "squarecentimetres" => Some(Self::SquareCentimeter),
+            "mm2" | "mm²" | "sqmm" | "squaremillimeter" | "squaremillimeters"
+            | "squaremillimetre" | "squaremillimetres" => Some(Self::SquareMillimeter),
+            "in2" | "in²" | "sqin" | "squareinch" | "squareinches" => Some(Self::SquareInch),
+            "ft2" | "ft²" | "sqft" | "squarefoot" | "squarefeet" => Some(Self::SquareFoot),
+            "yd2" | "yd²" | "sqyd" | "squareyard" | "squareyards" => Some(Self::SquareYard),
+            "mi2" | "mi²" | "sqmi" | "squaremile" | "squaremiles" => Some(Self::SquareMile),
+            "ha" | "hectare" | "hectares" => Some(Self::Hectare),
+            "acre" | "acres" => Some(Self::Acre),
+            "l" | "liter" | "liters" | "litre" | "litres" => Some(Self::Liter),
+            "ml" | "milliliter" | "milliliters" | "millilitre" | "millilitres" => {
+                Some(Self::Milliliter)
+            }
+            "m3" | "m³" | "cubicmeter" | "cubicmeters" | "cubicmetre" | "cubicmetres" => {
+                Some(Self::CubicMeter)
+            }
+            "cm3" | "cm³" | "cc" | "cubiccentimeter" | "cubiccentimeters" | "cubiccentimetre"
+            | "cubiccentimetres" => Some(Self::CubicCentimeter),
+            "usgal" | "usgallon" | "usgallons" => Some(Self::UsGallon),
+            "usqt" | "usquart" | "usquarts" => Some(Self::UsQuart),
+            "uspt" | "uspint" | "uspints" => Some(Self::UsPint),
+            "uscup" | "uscups" => Some(Self::UsCup),
+            "usfloz" | "usfluidounce" | "usfluidounces" => Some(Self::UsFluidOunce),
+            "ustbsp" | "ustablespoon" | "ustablespoons" => Some(Self::UsTablespoon),
+            "ustsp" | "usteaspoon" | "usteaspoons" => Some(Self::UsTeaspoon),
+            "metriccup" | "metriccups" => Some(Self::MetricCup),
+            "metrictbsp" | "metrictablespoon" | "metrictablespoons" => Some(Self::MetricTablespoon),
+            "metrictsp" | "metricteaspoon" | "metricteaspoons" => Some(Self::MetricTeaspoon),
             _ => None,
         }
     }
@@ -119,6 +202,30 @@ impl Unit {
             Self::Kelvin => "K",
             Self::Radian => "rad",
             Self::Degree => "deg",
+            Self::SquareMeter => "m²",
+            Self::SquareKilometer => "km²",
+            Self::SquareCentimeter => "cm²",
+            Self::SquareMillimeter => "mm²",
+            Self::SquareInch => "in²",
+            Self::SquareFoot => "ft²",
+            Self::SquareYard => "yd²",
+            Self::SquareMile => "mi²",
+            Self::Hectare => "ha",
+            Self::Acre => "acre",
+            Self::Liter => "L",
+            Self::Milliliter => "mL",
+            Self::CubicMeter => "m³",
+            Self::CubicCentimeter => "cm³",
+            Self::UsGallon => "US gal",
+            Self::UsQuart => "US qt",
+            Self::UsPint => "US pt",
+            Self::UsCup => "US cup",
+            Self::UsFluidOunce => "US fl oz",
+            Self::UsTablespoon => "US tbsp",
+            Self::UsTeaspoon => "US tsp",
+            Self::MetricCup => "metric cup",
+            Self::MetricTablespoon => "metric tbsp",
+            Self::MetricTeaspoon => "metric tsp",
         }
     }
 
@@ -149,7 +256,13 @@ impl Unit {
             );
         }
         let (scale, offset) = match self {
-            Self::Meter | Self::Gram | Self::Second | Self::Celsius | Self::Radian => ("1", "0"),
+            Self::Meter
+            | Self::Gram
+            | Self::Second
+            | Self::Celsius
+            | Self::Radian
+            | Self::SquareMeter
+            | Self::Liter => ("1", "0"),
             Self::Kilometer => ("1000", "0"),
             Self::Centimeter => ("0.01", "0"),
             Self::Millimeter => ("0.001", "0"),
@@ -165,6 +278,27 @@ impl Unit {
             Self::Day => ("86400", "0"),
             Self::Week => ("604800", "0"),
             Self::Kelvin => ("1", "-273.15"),
+            Self::SquareKilometer => ("1000000", "0"),
+            Self::SquareCentimeter => ("0.0001", "0"),
+            Self::SquareMillimeter => ("0.000001", "0"),
+            Self::SquareInch => ("0.00064516", "0"),
+            Self::SquareFoot => ("0.09290304", "0"),
+            Self::SquareYard => ("0.83612736", "0"),
+            Self::SquareMile => ("2589988.110336", "0"),
+            Self::Hectare => ("10000", "0"),
+            Self::Acre => ("4046.8564224", "0"),
+            Self::Milliliter | Self::CubicCentimeter => ("0.001", "0"),
+            Self::CubicMeter => ("1000", "0"),
+            Self::UsGallon => ("3.785411784", "0"),
+            Self::UsQuart => ("0.946352946", "0"),
+            Self::UsPint => ("0.473176473", "0"),
+            Self::UsCup => ("0.2365882365", "0"),
+            Self::UsFluidOunce => ("0.0295735295625", "0"),
+            Self::UsTablespoon => ("0.01478676478125", "0"),
+            Self::UsTeaspoon => ("0.00492892159375", "0"),
+            Self::MetricCup => ("0.25", "0"),
+            Self::MetricTablespoon => ("0.015", "0"),
+            Self::MetricTeaspoon => ("0.005", "0"),
             Self::Fahrenheit | Self::Degree => unreachable!("handled above"),
         };
         (exact(scale), exact(offset))

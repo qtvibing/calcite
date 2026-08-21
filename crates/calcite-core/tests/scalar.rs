@@ -171,6 +171,19 @@ fn rates_form_convert_and_apply_as_typed_values() {
 }
 
 #[test]
+fn area_and_volume_units_convert_exactly() {
+    assert_eq!(output("1 acre in m2"), "4046.8564224 m²");
+    assert_eq!(output("1 km² in hectares"), "100 ha");
+    assert_eq!(output("1 sqft in cm2"), "929.0304 cm²");
+    assert_eq!(output("1 m³ in L"), "1000 L");
+    assert_eq!(output("2 L + 500 ml"), "2.5 L");
+    assert_eq!(output("1 usgal in L"), "3.785411784 L");
+    assert_eq!(output("1 uscup in usfloz"), "8 US fl oz");
+    assert_eq!(output("1 metriccup in ml"), "250 mL");
+    assert_eq!(output("10 L / 2 h"), "5 L/h");
+}
+
+#[test]
 fn affine_temperature_units_convert_without_losing_precision() {
     assert_eq!(output("32 F to C"), "0 °C");
     assert_eq!(output("0 C in F"), "32 °F");
@@ -201,6 +214,9 @@ fn incompatible_units_report_a_dimension_error() {
     let error = calculate("1 km + 1 kg").unwrap_err();
     assert_eq!(error.kind(), DiagnosticKind::UnitMismatch);
     assert_eq!(&"1 km + 1 kg"[error.span().start..error.span().end], "+");
+
+    let error = calculate("1 m² + 1 m").unwrap_err();
+    assert_eq!(error.kind(), DiagnosticKind::UnitMismatch);
 }
 
 #[test]
