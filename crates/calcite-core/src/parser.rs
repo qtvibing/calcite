@@ -58,6 +58,9 @@ pub enum Function {
     Average,
     Minimum,
     Maximum,
+    Round,
+    Floor,
+    Ceiling,
 }
 
 impl Function {
@@ -74,6 +77,12 @@ impl Function {
             Some(Self::Minimum)
         } else if name.eq_ignore_ascii_case("maximum") || name.eq_ignore_ascii_case("max") {
             Some(Self::Maximum)
+        } else if name.eq_ignore_ascii_case("round") {
+            Some(Self::Round)
+        } else if name.eq_ignore_ascii_case("floor") {
+            Some(Self::Floor)
+        } else if name.eq_ignore_ascii_case("ceiling") || name.eq_ignore_ascii_case("ceil") {
+            Some(Self::Ceiling)
         } else {
             None
         }
@@ -489,6 +498,8 @@ impl Parser<'_> {
             let token = self.current()?;
             Function::from_name(&self.source[token.span.start..token.span.end])
                 .map(|function| (function, 2))
+        } else if self.word_is(0, "round") {
+            Some((Function::Round, 1))
         } else {
             None
         }

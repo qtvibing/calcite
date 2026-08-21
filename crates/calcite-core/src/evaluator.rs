@@ -350,6 +350,30 @@ fn evaluate_call(
             };
             absolute_value(value.clone(), span)
         }
+        Function::Round => {
+            let (value, decimal_places) = match values.as_slice() {
+                [value] => (value.clone(), 0),
+                [value, Value::Number(decimal_places)] => (
+                    value.clone(),
+                    decimal_places
+                        .exact_i64()
+                        .ok_or_else(|| invalid_function_arguments(span))?,
+                ),
+                _ => return Err(invalid_function_arguments(span)),
+            };
+            round_value(value, decimal_places, FunctionRounding::Nearest, span)
+        }
+        Function::Floor | Function::Ceiling => {
+            let [value] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let rounding = if function == Function::Floor {
+                FunctionRounding::Floor
+            } else {
+                FunctionRounding::Ceiling
+            };
+            round_value(value.clone(), 0, rounding, span)
+        }
         Function::Sum | Function::Average => {
             let count = values.len();
             let mut values = values.into_iter();
@@ -394,6 +418,62 @@ fn evaluate_call(
             }
             Ok(result)
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FunctionRounding {
+    Nearest,
+    Floor,
+    Ceiling,
+}
+
+fn round_value(
+    value: Value,
+    decimal_places: i64,
+    rounding: FunctionRounding,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let round_number = |number: Number| match rounding {
+        FunctionRounding::Nearest => number.rounded(decimal_places),
+        FunctionRounding::Floor => Ok(number.floor()),
+        FunctionRounding::Ceiling => Ok(number.ceiling()),
+    };
+    match value {
+        Value::Number(number) => round_number(number)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        Value::Fraction(fraction) => round_number(fraction.into_number())
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        Value::Percentage(percentage) => {
+            let displayed = percentage.into_ratio().multiply(Number::from_i64(100));
+            let rounded = round_number(displayed)
+                .map_err(|error| numeric_diagnostic(error, span))?
+                .divide(Number::from_i64(100))
+                .expect("one hundred is nonzero");
+            Ok(Value::Percentage(Percentage::from_ratio(rounded)))
+        }
+        Value::Unit(value) => {
+            let unit = value.unit();
+            round_number(value.magnitude().clone())
+                .map(|magnitude| Value::Unit(UnitValue::new(magnitude, unit)))
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Value::Money(money) => {
+            let currency = money.currency();
+            round_number(money.amount().clone())
+                .map(|amount| Value::Money(Money::new(amount, currency)))
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Value::Rate(rate) => {
+            let numerator = rate.numerator();
+            let denominator = rate.denominator();
+            round_number(rate.magnitude().clone())
+                .map(|magnitude| Value::Rate(Rate::new(magnitude, numerator, denominator)))
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        _ => Err(invalid_function_arguments(span)),
     }
 }
 
@@ -1447,6 +1527,7 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
     let kind = match error {
         NumericError::DivisionByZero => DiagnosticKind::DivisionByZero,
         NumericError::ExponentTooLarge => DiagnosticKind::ExponentTooLarge,
+        NumericError::PrecisionTooLarge => DiagnosticKind::PrecisionTooLarge,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

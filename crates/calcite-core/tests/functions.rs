@@ -37,6 +37,31 @@ fn function_arguments_can_reference_document_variables() {
 }
 
 #[test]
+fn rounding_is_exact_and_uses_half_away_from_zero() {
+    assert_eq!(output("round(2.5)"), "3");
+    assert_eq!(output("round(-2.5)"), "-3");
+    assert_eq!(output("round(1.2345, 2)"), "1.23");
+    assert_eq!(output("round(1234, -2)"), "1200");
+    assert_eq!(output("round(sqrt(2), 4)"), "1.4142");
+}
+
+#[test]
+fn directional_rounding_handles_negative_values_correctly() {
+    assert_eq!(output("floor(-1.2)"), "-2");
+    assert_eq!(output("ceiling(-1.2)"), "-1");
+    assert_eq!(output("floor of 1.9"), "1");
+    assert_eq!(output("round 4.6"), "5");
+}
+
+#[test]
+fn typed_rounding_uses_the_displayed_magnitude() {
+    assert_eq!(output("round($12.345, 2)"), "12.35 USD");
+    assert_eq!(output("round(12.65%, 1)"), "12.7%");
+    assert_eq!(output("round(1234.56 m, -2)"), "1200 m");
+    assert_eq!(output("ceiling(1.2 km / h)"), "2 km/h");
+}
+
+#[test]
 fn invalid_function_domains_and_arities_are_diagnostic() {
     assert_eq!(
         calculate("sqrt(-1)").unwrap_err().kind(),
@@ -53,5 +78,13 @@ fn invalid_function_domains_and_arities_are_diagnostic() {
     assert_eq!(
         calculate("sum(1 USD, 1 EUR)").unwrap_err().kind(),
         DiagnosticKind::CurrencyMismatch
+    );
+    assert_eq!(
+        calculate("round(1.2, 1.5)").unwrap_err().kind(),
+        DiagnosticKind::InvalidFunctionArguments
+    );
+    assert_eq!(
+        calculate("round(1.2, 10001)").unwrap_err().kind(),
+        DiagnosticKind::PrecisionTooLarge
     );
 }

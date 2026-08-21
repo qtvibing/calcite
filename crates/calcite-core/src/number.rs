@@ -1,6 +1,9 @@
 use std::{cmp::Ordering, error::Error, fmt};
 
-use dashu_float::{FBig, round::mode::HalfAway};
+use dashu_float::{
+    FBig,
+    round::mode::{Down, HalfAway, Up},
+};
 use dashu_ratio::RBig;
 
 const WORKING_PRECISION: usize = 34;
@@ -8,6 +11,7 @@ const DISPLAY_DECIMAL_PLACES: usize = 10;
 const MAX_LITERAL_DIGITS: usize = 10_000;
 const MAX_LITERAL_EXPONENT: u32 = 100_000;
 const MAX_INTEGER_EXPONENT: isize = 100_000;
+const MAX_ROUNDING_PLACES: u64 = 10_000;
 
 type Real = FBig<HalfAway, 10>;
 
@@ -41,6 +45,7 @@ impl Error for NumberParseError {}
 pub(crate) enum NumericError {
     DivisionByZero,
     ExponentTooLarge,
+    PrecisionTooLarge,
     NonRealResult,
 }
 
@@ -138,6 +143,52 @@ impl Number {
         }
     }
 
+    pub(crate) fn rounded(self, decimal_places: i64) -> Result<Self, NumericError> {
+        self.round_with(decimal_places, Rounding::Nearest)
+    }
+
+    pub(crate) fn floor(self) -> Self {
+        self.round_with(0, Rounding::Floor)
+            .expect("zero decimal places are within the rounding limit")
+    }
+
+    pub(crate) fn ceiling(self) -> Self {
+        self.round_with(0, Rounding::Ceiling)
+            .expect("zero decimal places are within the rounding limit")
+    }
+
+    fn round_with(self, decimal_places: i64, rounding: Rounding) -> Result<Self, NumericError> {
+        if decimal_places.unsigned_abs() > MAX_ROUNDING_PLACES {
+            return Err(NumericError::PrecisionTooLarge);
+        }
+        let power = isize::try_from(decimal_places.unsigned_abs())
+            .map_err(|_| NumericError::PrecisionTooLarge)?;
+        let factor = Self(Representation::Exact(RBig::from(10).pow(power)));
+        let scaled = if decimal_places >= 0 {
+            self.multiply(factor.clone())
+        } else {
+            self.divide(factor.clone())?
+        };
+        let integer = match scaled.0 {
+            Representation::Exact(value) => match rounding {
+                Rounding::Nearest => value.round(),
+                Rounding::Floor => value.floor(),
+                Rounding::Ceiling => value.ceil(),
+            },
+            Representation::Approximate(value) => match rounding {
+                Rounding::Nearest => value.to_int().value(),
+                Rounding::Floor => value.with_rounding::<Down>().to_int().value(),
+                Rounding::Ceiling => value.with_rounding::<Up>().to_int().value(),
+            },
+        };
+        let integer = Self(Representation::Exact(RBig::from(integer)));
+        if decimal_places >= 0 {
+            integer.divide(factor)
+        } else {
+            Ok(integer.multiply(factor))
+        }
+    }
+
     pub(crate) fn pow(self, exponent: Self) -> Result<Self, NumericError> {
         if let Representation::Exact(exact_exponent) = &exponent.0 {
             let (integer, fraction) = exact_exponent.clone().split_at_point();
@@ -209,6 +260,13 @@ impl fmt::Display for Number {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.formatted_with('.'))
     }
+}
+
+#[derive(Clone, Copy)]
+enum Rounding {
+    Nearest,
+    Floor,
+    Ceiling,
 }
 
 fn validate_decimal_size(source: &str) -> Result<(), NumberParseError> {
