@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{cmp::Ordering, error::Error, fmt};
 
 use dashu_float::{FBig, round::mode::HalfAway};
 use dashu_ratio::RBig;
@@ -120,6 +120,13 @@ impl Number {
                 into_real(left) / into_real(right),
             )),
         })
+    }
+
+    pub(crate) fn compare(&self, other: &Self) -> Option<Ordering> {
+        match (&self.0, &other.0) {
+            (Representation::Exact(left), Representation::Exact(right)) => Some(left.cmp(right)),
+            (left, right) => into_real(left.clone()).partial_cmp(&into_real(right.clone())),
+        }
     }
 
     pub(crate) fn pow(self, exponent: Self) -> Result<Self, NumericError> {

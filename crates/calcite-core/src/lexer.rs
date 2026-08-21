@@ -11,6 +11,15 @@ pub enum LexemeKind {
     Slash,
     Caret,
     Percent,
+    EqualEqual,
+    NotEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+    LogicalAnd,
+    LogicalOr,
+    LogicalNot,
     LeftParenthesis,
     RightParenthesis,
 }
@@ -80,6 +89,33 @@ pub fn lex(source: &str) -> Result<Vec<Lexeme>, Diagnostic> {
                 '/' | '÷' => LexemeKind::Slash,
                 '^' => LexemeKind::Caret,
                 '%' => LexemeKind::Percent,
+                '=' if source[index..].starts_with('=') => {
+                    index += 1;
+                    LexemeKind::EqualEqual
+                }
+                '!' if source[index..].starts_with('=') => {
+                    index += 1;
+                    LexemeKind::NotEqual
+                }
+                '!' => LexemeKind::LogicalNot,
+                '>' if source[index..].starts_with('=') => {
+                    index += 1;
+                    LexemeKind::GreaterEqual
+                }
+                '>' => LexemeKind::Greater,
+                '<' if source[index..].starts_with('=') => {
+                    index += 1;
+                    LexemeKind::LessEqual
+                }
+                '<' => LexemeKind::Less,
+                '&' if source[index..].starts_with('&') => {
+                    index += 1;
+                    LexemeKind::LogicalAnd
+                }
+                '|' if source[index..].starts_with('|') => {
+                    index += 1;
+                    LexemeKind::LogicalOr
+                }
                 '(' => LexemeKind::LeftParenthesis,
                 ')' => LexemeKind::RightParenthesis,
                 _ => {

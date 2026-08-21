@@ -98,6 +98,23 @@ fn percentages_can_modify_or_measure_a_base_value() {
 }
 
 #[test]
+fn comparisons_and_boolean_logic_are_typed() {
+    let comparison = calculate("20 > 10").unwrap();
+    assert_eq!(comparison.output, "true");
+    assert_eq!(comparison.value.as_boolean(), Some(true));
+}
+
+#[test]
+fn logical_operators_have_conventional_precedence_and_short_circuit() {
+    assert_eq!(output("24 >= 18.5 and 24 < 25"), "true");
+    assert_eq!(output("not 2 == 3"), "true");
+    assert_eq!(output("true || 1 / 0 == 1"), "true");
+    assert_eq!(output("false && 1 / 0 == 1"), "false");
+    assert_eq!(output("10% equal to 0.1"), "true");
+    assert_eq!(output("5 at least 5"), "true");
+}
+
+#[test]
 fn calculation_errors_are_structured_and_spanned() {
     let division = calculate("1 / 0").unwrap_err();
     assert_eq!(division.kind(), DiagnosticKind::DivisionByZero);

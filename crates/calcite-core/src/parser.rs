@@ -4,6 +4,7 @@ use crate::{Diagnostic, DiagnosticKind, Lexeme, LexemeKind, Number, NumberParseE
 pub enum UnaryOperator {
     Positive,
     Negative,
+    Not,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,12 +17,42 @@ pub enum BinaryOperator {
     Of,
     On,
     Off,
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+    And,
+    Or,
+}
+
+impl BinaryOperator {
+    const fn binding_power(self) -> (u8, u8) {
+        match self {
+            Self::Or => (1, 2),
+            Self::And => (3, 4),
+            Self::Equal
+            | Self::NotEqual
+            | Self::Greater
+            | Self::GreaterEqual
+            | Self::Less
+            | Self::LessEqual => (5, 6),
+            Self::Add | Self::Subtract => (7, 8),
+            Self::Multiply | Self::Divide | Self::Of | Self::On | Self::Off => (9, 10),
+            Self::Power => (11, 11),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
     Number {
         value: Number,
+        span: Span,
+    },
+    Boolean {
+        value: bool,
         span: Span,
     },
     Unary {
@@ -52,6 +83,7 @@ impl Expression {
     pub const fn span(&self) -> Span {
         match self {
             Self::Number { span, .. }
+            | Self::Boolean { span, .. }
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }
@@ -151,17 +183,37 @@ impl Parser<'_> {
                     span: token.span,
                 })
             }
-            LexemeKind::Plus | LexemeKind::Minus => {
+            LexemeKind::Word if self.word_is(0, "true") || self.word_is(0, "false") => {
                 self.position += 1;
-                let operator = if token.kind == LexemeKind::Plus {
-                    UnaryOperator::Positive
-                } else {
-                    UnaryOperator::Negative
+                Ok(Expression::Boolean {
+                    value: self.source[token.span.start..token.span.end]
+                        .eq_ignore_ascii_case("true"),
+                    span: token.span,
+                })
+            }
+            LexemeKind::Plus | LexemeKind::Minus | LexemeKind::LogicalNot => {
+                self.position += 1;
+                let (operator, binding_power) = match token.kind {
+                    LexemeKind::Plus => (UnaryOperator::Positive, 11),
+                    LexemeKind::Minus => (UnaryOperator::Negative, 11),
+                    LexemeKind::LogicalNot => (UnaryOperator::Not, 5),
+                    _ => unreachable!(),
                 };
-                let operand = self.parse_expression(5)?;
+                let operand = self.parse_expression(binding_power)?;
                 let span = token.span.join(operand.span());
                 Ok(Expression::Unary {
                     operator,
+                    operator_span: token.span,
+                    operand: Box::new(operand),
+                    span,
+                })
+            }
+            LexemeKind::Word if self.word_is(0, "not") => {
+                self.position += 1;
+                let operand = self.parse_expression(5)?;
+                let span = token.span.join(operand.span());
+                Ok(Expression::Unary {
+                    operator: UnaryOperator::Not,
                     operator_span: token.span,
                     operand: Box::new(operand),
                     span,
@@ -196,20 +248,26 @@ impl Parser<'_> {
 
     fn binary_operator(&self) -> Option<(BinaryOperator, Span, usize, u8, u8)> {
         let current = self.current()?;
-        let result = match current.kind {
-            LexemeKind::Plus => (BinaryOperator::Add, current.span, 1, 1, 2),
-            LexemeKind::Minus => (BinaryOperator::Subtract, current.span, 1, 1, 2),
-            LexemeKind::Star => (BinaryOperator::Multiply, current.span, 1, 3, 4),
-            LexemeKind::Slash => (BinaryOperator::Divide, current.span, 1, 3, 4),
-            LexemeKind::Caret => (BinaryOperator::Power, current.span, 1, 5, 5),
-            LexemeKind::Word if self.word_is(0, "plus") => {
-                (BinaryOperator::Add, current.span, 1, 1, 2)
-            }
+        let (operator, span, consumed) = match current.kind {
+            LexemeKind::Plus => (BinaryOperator::Add, current.span, 1),
+            LexemeKind::Minus => (BinaryOperator::Subtract, current.span, 1),
+            LexemeKind::Star => (BinaryOperator::Multiply, current.span, 1),
+            LexemeKind::Slash => (BinaryOperator::Divide, current.span, 1),
+            LexemeKind::Caret => (BinaryOperator::Power, current.span, 1),
+            LexemeKind::EqualEqual => (BinaryOperator::Equal, current.span, 1),
+            LexemeKind::NotEqual => (BinaryOperator::NotEqual, current.span, 1),
+            LexemeKind::Greater => (BinaryOperator::Greater, current.span, 1),
+            LexemeKind::GreaterEqual => (BinaryOperator::GreaterEqual, current.span, 1),
+            LexemeKind::Less => (BinaryOperator::Less, current.span, 1),
+            LexemeKind::LessEqual => (BinaryOperator::LessEqual, current.span, 1),
+            LexemeKind::LogicalAnd => (BinaryOperator::And, current.span, 1),
+            LexemeKind::LogicalOr => (BinaryOperator::Or, current.span, 1),
+            LexemeKind::Word if self.word_is(0, "plus") => (BinaryOperator::Add, current.span, 1),
             LexemeKind::Word if self.word_is(0, "minus") => {
-                (BinaryOperator::Subtract, current.span, 1, 1, 2)
+                (BinaryOperator::Subtract, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "times") => {
-                (BinaryOperator::Multiply, current.span, 1, 3, 4)
+                (BinaryOperator::Multiply, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "multiplied") => {
                 let consumed = if self.word_is(1, "by") { 2 } else { 1 };
@@ -217,31 +275,60 @@ impl Parser<'_> {
                     BinaryOperator::Multiply,
                     self.phrase_span(consumed),
                     consumed,
-                    3,
-                    4,
                 )
             }
             LexemeKind::Word if self.word_is(0, "divided") => {
                 let consumed = if self.word_is(1, "by") { 2 } else { 1 };
-                (
-                    BinaryOperator::Divide,
-                    self.phrase_span(consumed),
-                    consumed,
-                    3,
-                    4,
-                )
+                (BinaryOperator::Divide, self.phrase_span(consumed), consumed)
             }
             LexemeKind::Word if self.word_is(0, "over") => {
-                (BinaryOperator::Divide, current.span, 1, 3, 4)
+                (BinaryOperator::Divide, current.span, 1)
             }
-            LexemeKind::Word if self.word_is(0, "of") => {
-                (BinaryOperator::Of, current.span, 1, 3, 4)
+            LexemeKind::Word if self.word_is(0, "of") => (BinaryOperator::Of, current.span, 1),
+            LexemeKind::Word if self.word_is(0, "on") => (BinaryOperator::On, current.span, 1),
+            LexemeKind::Word if self.word_is(0, "off") => (BinaryOperator::Off, current.span, 1),
+            LexemeKind::Word if self.word_is(0, "and") => (BinaryOperator::And, current.span, 1),
+            LexemeKind::Word if self.word_is(0, "or") => (BinaryOperator::Or, current.span, 1),
+            LexemeKind::Word
+                if self.word_is(0, "not") && self.word_is(1, "equal") && self.word_is(2, "to") =>
+            {
+                (BinaryOperator::NotEqual, self.phrase_span(3), 3)
             }
-            LexemeKind::Word if self.word_is(0, "on") => {
-                (BinaryOperator::On, current.span, 1, 3, 4)
+            LexemeKind::Word
+                if self.word_is(0, "greater")
+                    && self.word_is(1, "than")
+                    && self.word_is(2, "or")
+                    && self.word_is(3, "equal")
+                    && self.word_is(4, "to") =>
+            {
+                (BinaryOperator::GreaterEqual, self.phrase_span(5), 5)
             }
-            LexemeKind::Word if self.word_is(0, "off") => {
-                (BinaryOperator::Off, current.span, 1, 3, 4)
+            LexemeKind::Word
+                if self.word_is(0, "less")
+                    && self.word_is(1, "than")
+                    && self.word_is(2, "or")
+                    && self.word_is(3, "equal")
+                    && self.word_is(4, "to") =>
+            {
+                (BinaryOperator::LessEqual, self.phrase_span(5), 5)
+            }
+            LexemeKind::Word if self.word_is(0, "greater") && self.word_is(1, "than") => {
+                (BinaryOperator::Greater, self.phrase_span(2), 2)
+            }
+            LexemeKind::Word if self.word_is(0, "less") && self.word_is(1, "than") => {
+                (BinaryOperator::Less, self.phrase_span(2), 2)
+            }
+            LexemeKind::Word if self.word_is(0, "equal") && self.word_is(1, "to") => {
+                (BinaryOperator::Equal, self.phrase_span(2), 2)
+            }
+            LexemeKind::Word if self.word_is(0, "equals") => {
+                (BinaryOperator::Equal, current.span, 1)
+            }
+            LexemeKind::Word if self.word_is(0, "at") && self.word_is(1, "least") => {
+                (BinaryOperator::GreaterEqual, self.phrase_span(2), 2)
+            }
+            LexemeKind::Word if self.word_is(0, "at") && self.word_is(1, "most") => {
+                (BinaryOperator::LessEqual, self.phrase_span(2), 2)
             }
             LexemeKind::Word
                 if self.word_is(0, "to")
@@ -249,11 +336,12 @@ impl Parser<'_> {
                     && self.word_is(2, "power")
                     && self.word_is(3, "of") =>
             {
-                (BinaryOperator::Power, self.phrase_span(4), 4, 5, 5)
+                (BinaryOperator::Power, self.phrase_span(4), 4)
             }
             _ => return None,
         };
-        Some(result)
+        let (left_power, right_power) = operator.binding_power();
+        Some((operator, span, consumed, left_power, right_power))
     }
 
     fn current(&self) -> Option<Lexeme> {

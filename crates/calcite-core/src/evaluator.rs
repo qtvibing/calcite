@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{cmp::Ordering, fmt};
 
 use crate::{
     BinaryOperator, Diagnostic, DiagnosticKind, Expression, Number, NumericError, Percentage, Span,
@@ -10,6 +10,7 @@ use crate::{
 pub enum Value {
     Number(Number),
     Percentage(Percentage),
+    Boolean(bool),
 }
 
 impl Value {
@@ -26,6 +27,13 @@ impl Value {
             _ => None,
         }
     }
+
+    pub const fn as_boolean(&self) -> Option<bool> {
+        match self {
+            Self::Boolean(value) => Some(*value),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -33,6 +41,7 @@ impl fmt::Display for Value {
         match self {
             Self::Number(number) => number.fmt(formatter),
             Self::Percentage(percentage) => percentage.fmt(formatter),
+            Self::Boolean(value) => value.fmt(formatter),
         }
     }
 }
@@ -45,17 +54,29 @@ pub fn evaluate(source: &str) -> Result<Value, Diagnostic> {
 fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
+        Expression::Boolean { value, .. } => Ok(Value::Boolean(*value)),
         Expression::Unary {
-            operator, operand, ..
+            operator,
+            operator_span,
+            operand,
+            ..
         } => {
             let operand = evaluate_expression(operand)?;
             match (operator, operand) {
-                (UnaryOperator::Positive, value) => Ok(value),
+                (UnaryOperator::Positive, Value::Number(number)) => Ok(Value::Number(number)),
+                (UnaryOperator::Positive, Value::Percentage(percentage)) => {
+                    Ok(Value::Percentage(percentage))
+                }
                 (UnaryOperator::Negative, Value::Number(number)) => {
                     Ok(Value::Number(number.negated()))
                 }
                 (UnaryOperator::Negative, Value::Percentage(percentage)) => {
                     Ok(Value::Percentage(percentage.negated()))
+                }
+                (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
+                (UnaryOperator::Positive | UnaryOperator::Negative, Value::Boolean(_))
+                | (UnaryOperator::Not, Value::Number(_) | Value::Percentage(_)) => {
+                    Err(unsupported(*operator_span))
                 }
             }
         }
@@ -80,6 +101,21 @@ fn evaluate_expression(expression: &Expression) -> Result<Value, Diagnostic> {
             ..
         } => {
             let left = evaluate_expression(left)?;
+            if matches!(operator, BinaryOperator::And | BinaryOperator::Or) {
+                let Value::Boolean(left) = left else {
+                    return Err(unsupported(*operator_span));
+                };
+                if (*operator == BinaryOperator::And && !left)
+                    || (*operator == BinaryOperator::Or && left)
+                {
+                    return Ok(Value::Boolean(left));
+                }
+                return match evaluate_expression(right)? {
+                    Value::Boolean(right) => Ok(Value::Boolean(right)),
+                    _ => Err(unsupported(*operator_span)),
+                };
+            }
+
             let right = evaluate_expression(right)?;
             evaluate_binary(*operator, left, right, *operator_span)
         }
@@ -93,9 +129,7 @@ fn evaluate_binary(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     match (left, right) {
-        (Value::Number(left), Value::Number(right)) => {
-            number_pair(operator, left, right, span).map(Value::Number)
-        }
+        (Value::Number(left), Value::Number(right)) => number_pair(operator, left, right, span),
         (Value::Percentage(left), Value::Percentage(right)) => {
             percentage_pair(operator, left, right, span)
         }
@@ -105,6 +139,8 @@ fn evaluate_binary(
         (Value::Percentage(left), Value::Number(right)) => {
             percentage_number_pair(operator, left, right, span)
         }
+        (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
+        _ => Err(unsupported(span)),
     }
 }
 
@@ -113,18 +149,30 @@ fn number_pair(
     left: Number,
     right: Number,
     span: Span,
-) -> Result<Number, Diagnostic> {
+) -> Result<Value, Diagnostic> {
     match operator {
-        BinaryOperator::Add => Ok(left.add(right)),
-        BinaryOperator::Subtract => Ok(left.subtract(right)),
-        BinaryOperator::Multiply => Ok(left.multiply(right)),
+        BinaryOperator::Add => Ok(Value::Number(left.add(right))),
+        BinaryOperator::Subtract => Ok(Value::Number(left.subtract(right))),
+        BinaryOperator::Multiply => Ok(Value::Number(left.multiply(right))),
         BinaryOperator::Divide => left
             .divide(right)
+            .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Power => left
             .pow(right)
+            .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
-        BinaryOperator::Of | BinaryOperator::On | BinaryOperator::Off => Err(unsupported(span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_numbers(operator, &left, &right, span),
+        BinaryOperator::Of
+        | BinaryOperator::On
+        | BinaryOperator::Off
+        | BinaryOperator::And
+        | BinaryOperator::Or => Err(unsupported(span)),
     }
 }
 
@@ -152,7 +200,17 @@ fn percentage_pair(
             .pow(right)
             .map(|number| Value::Percentage(Percentage::from_ratio(number)))
             .map_err(|error| numeric_diagnostic(error, span)),
-        BinaryOperator::Of | BinaryOperator::On | BinaryOperator::Off => Err(unsupported(span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_numbers(operator, &left, &right, span),
+        BinaryOperator::Of
+        | BinaryOperator::On
+        | BinaryOperator::Off
+        | BinaryOperator::And
+        | BinaryOperator::Or => Err(unsupported(span)),
     }
 }
 
@@ -174,10 +232,20 @@ fn number_percentage_pair(
             .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Power => number
-            .pow(ratio)
+            .pow(ratio.clone())
             .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
-        BinaryOperator::Of | BinaryOperator::On | BinaryOperator::Off => Err(unsupported(span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_numbers(operator, &number, &ratio, span),
+        BinaryOperator::Of
+        | BinaryOperator::On
+        | BinaryOperator::Off
+        | BinaryOperator::And
+        | BinaryOperator::Or => Err(unsupported(span)),
     }
 }
 
@@ -206,6 +274,47 @@ fn percentage_number_pair(
         BinaryOperator::Off => Ok(Value::Number(
             number.clone().subtract(number.multiply(ratio)),
         )),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
+        BinaryOperator::And | BinaryOperator::Or => Err(unsupported(span)),
+    }
+}
+
+fn compare_numbers(
+    operator: BinaryOperator,
+    left: &Number,
+    right: &Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let ordering = left.compare(right).ok_or_else(|| unsupported(span))?;
+    let result = match operator {
+        BinaryOperator::Equal => ordering == Ordering::Equal,
+        BinaryOperator::NotEqual => ordering != Ordering::Equal,
+        BinaryOperator::Greater => ordering == Ordering::Greater,
+        BinaryOperator::GreaterEqual => ordering != Ordering::Less,
+        BinaryOperator::Less => ordering == Ordering::Less,
+        BinaryOperator::LessEqual => ordering != Ordering::Greater,
+        _ => return Err(unsupported(span)),
+    };
+    Ok(Value::Boolean(result))
+}
+
+fn boolean_pair(
+    operator: BinaryOperator,
+    left: bool,
+    right: bool,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Equal => Ok(Value::Boolean(left == right)),
+        BinaryOperator::NotEqual => Ok(Value::Boolean(left != right)),
+        BinaryOperator::And => Ok(Value::Boolean(left && right)),
+        BinaryOperator::Or => Ok(Value::Boolean(left || right)),
+        _ => Err(unsupported(span)),
     }
 }
 
