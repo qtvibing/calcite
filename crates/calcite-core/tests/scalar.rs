@@ -184,6 +184,28 @@ fn area_and_volume_units_convert_exactly() {
 }
 
 #[test]
+fn multiword_units_work_in_values_conversions_and_rates() {
+    assert_eq!(
+        output("1 square foot in square centimeters"),
+        "929.0304 cm²"
+    );
+    assert_eq!(output("1 cubic meter in liters"), "1000 L");
+    assert_eq!(output("1 US gallon in liters"), "3.785411784 L");
+    assert_eq!(output("1 metric cup in milliliters"), "250 mL");
+    assert_eq!(output("10 US gallons / 2 hours"), "5 US gal/h");
+    assert_eq!(
+        output("60 L / h in US gal / min"),
+        "0.2641720524 US gal/min"
+    );
+    assert_eq!(output("1 sq mile in acres"), "640 acres");
+    assert_eq!(output("2 US cups"), "2 US cups");
+    assert_eq!(output("2 metric cups"), "2 metric cups");
+
+    let formatted = output("1 uscup in usfloz");
+    assert_eq!(output(&formatted), formatted);
+}
+
+#[test]
 fn affine_temperature_units_convert_without_losing_precision() {
     assert_eq!(output("32 F to C"), "0 °C");
     assert_eq!(output("0 C in F"), "32 °F");

@@ -452,12 +452,12 @@ impl Parser<'_> {
                         value: CalendarDuration::months(months),
                         span: span.join(calendar_token.span),
                     })
-                } else if let Some((unit, unit_token)) = self.unit() {
-                    self.position += 1;
+                } else if let Some((unit, consumed, unit_span)) = self.unit() {
+                    self.position += consumed;
                     Ok(Expression::Unit {
                         value,
                         unit,
-                        span: span.join(unit_token.span),
+                        span: span.join(unit_span),
                     })
                 } else {
                     Ok(Expression::Number { value, span })
@@ -487,12 +487,12 @@ impl Parser<'_> {
                 })
             }
             LexemeKind::Word if self.unit().is_some() => {
-                let (unit, token) = self.unit().expect("guard checked the unit");
-                self.position += 1;
+                let (unit, consumed, span) = self.unit().expect("guard checked the unit");
+                self.position += consumed;
                 Ok(Expression::Unit {
                     value: Number::from_i64(1),
                     unit,
-                    span: token.span,
+                    span,
                 })
             }
             LexemeKind::Word if self.word_is(0, "if") || self.word_is(0, "unless") => {
@@ -1081,44 +1081,50 @@ impl Parser<'_> {
             target_span = span;
             ConversionTarget::UtcOffset(offset)
         } else if target_token.kind == LexemeKind::Slash {
-            let (denominator, token) = self.unit_at(2).ok_or_else(|| {
-                Diagnostic::with_detail(
-                    DiagnosticKind::UnexpectedToken,
-                    self.tokens
-                        .get(self.position + 2)
-                        .map_or(Span::empty(self.source.len()), |token| token.span),
-                    "expected a rate denominator",
-                )
-            })?;
-            consumed = 3;
-            target_span = target_span.join(token.span);
-            ConversionTarget::Rate {
-                numerator: None,
-                denominator,
-            }
-        } else if let Some((numerator, _)) = self.unit_at(1) {
-            if self
-                .tokens
-                .get(self.position + 2)
-                .is_some_and(|token| token.kind == LexemeKind::Slash)
-                || self.word_is(2, "per")
-            {
-                let (denominator, token) = self.unit_at(3).ok_or_else(|| {
+            let (denominator, denominator_tokens, denominator_span) =
+                self.unit_at(2).ok_or_else(|| {
                     Diagnostic::with_detail(
                         DiagnosticKind::UnexpectedToken,
                         self.tokens
-                            .get(self.position + 3)
+                            .get(self.position + 2)
                             .map_or(Span::empty(self.source.len()), |token| token.span),
                         "expected a rate denominator",
                     )
                 })?;
-                consumed = 4;
-                target_span = target_span.join(token.span);
+            consumed = 2 + denominator_tokens;
+            target_span = target_span.join(denominator_span);
+            ConversionTarget::Rate {
+                numerator: None,
+                denominator,
+            }
+        } else if let Some((numerator, numerator_tokens, numerator_span)) = self.unit_at(1) {
+            let separator_offset = 1 + numerator_tokens;
+            if self
+                .tokens
+                .get(self.position + separator_offset)
+                .is_some_and(|token| token.kind == LexemeKind::Slash)
+                || self.word_is(separator_offset, "per")
+            {
+                let denominator_offset = separator_offset + 1;
+                let (denominator, denominator_tokens, denominator_span) =
+                    self.unit_at(denominator_offset).ok_or_else(|| {
+                        Diagnostic::with_detail(
+                            DiagnosticKind::UnexpectedToken,
+                            self.tokens
+                                .get(self.position + denominator_offset)
+                                .map_or(Span::empty(self.source.len()), |token| token.span),
+                            "expected a rate denominator",
+                        )
+                    })?;
+                consumed = denominator_offset + denominator_tokens;
+                target_span = numerator_span.join(denominator_span);
                 ConversionTarget::Rate {
                     numerator: Some(numerator),
                     denominator,
                 }
             } else {
+                consumed = 1 + numerator_tokens;
+                target_span = numerator_span;
                 ConversionTarget::Unit(numerator)
             }
         } else {
@@ -1196,17 +1202,118 @@ impl Parser<'_> {
         ))
     }
 
-    fn unit(&self) -> Option<(Unit, Lexeme)> {
+    fn unit(&self) -> Option<(Unit, usize, Span)> {
         self.unit_at(0)
     }
 
-    fn unit_at(&self, offset: usize) -> Option<(Unit, Lexeme)> {
-        let token = *self.tokens.get(self.position + offset)?;
-        if token.kind != LexemeKind::Word {
-            return None;
+    fn unit_at(&self, offset: usize) -> Option<(Unit, usize, Span)> {
+        let first_token = *self.tokens.get(self.position + offset)?;
+        let first = self.word_text_at(offset)?;
+
+        if first.eq_ignore_ascii_case("square") || first.eq_ignore_ascii_case("sq") {
+            let second_token = *self.tokens.get(self.position + offset + 1)?;
+            let unit = match Unit::from_alias(self.word_text_at(offset + 1)?)? {
+                Unit::Meter => Unit::SquareMeter,
+                Unit::Kilometer => Unit::SquareKilometer,
+                Unit::Centimeter => Unit::SquareCentimeter,
+                Unit::Millimeter => Unit::SquareMillimeter,
+                Unit::Inch => Unit::SquareInch,
+                Unit::Foot => Unit::SquareFoot,
+                Unit::Yard => Unit::SquareYard,
+                Unit::Mile => Unit::SquareMile,
+                _ => return None,
+            };
+            return Some((unit, 2, first_token.span.join(second_token.span)));
         }
-        let source = &self.source[token.span.start..token.span.end];
-        Unit::from_alias(source).map(|unit| (unit, token))
+
+        if first.eq_ignore_ascii_case("cubic") {
+            let second_token = *self.tokens.get(self.position + offset + 1)?;
+            let unit = match Unit::from_alias(self.word_text_at(offset + 1)?)? {
+                Unit::Meter => Unit::CubicMeter,
+                Unit::Centimeter => Unit::CubicCentimeter,
+                _ => return None,
+            };
+            return Some((unit, 2, first_token.span.join(second_token.span)));
+        }
+
+        if first.eq_ignore_ascii_case("us") {
+            let second_token = *self.tokens.get(self.position + offset + 1)?;
+            let second = self.word_text_at(offset + 1)?;
+            if second.eq_ignore_ascii_case("fluid") || second.eq_ignore_ascii_case("fl") {
+                let third_token = *self.tokens.get(self.position + offset + 2)?;
+                let third = self.word_text_at(offset + 2)?;
+                if third.eq_ignore_ascii_case("ounce")
+                    || third.eq_ignore_ascii_case("ounces")
+                    || third.eq_ignore_ascii_case("oz")
+                {
+                    return Some((
+                        Unit::UsFluidOunce,
+                        3,
+                        first_token.span.join(third_token.span),
+                    ));
+                }
+            }
+            let unit = if second.eq_ignore_ascii_case("gallon")
+                || second.eq_ignore_ascii_case("gallons")
+                || second.eq_ignore_ascii_case("gal")
+            {
+                Unit::UsGallon
+            } else if second.eq_ignore_ascii_case("quart")
+                || second.eq_ignore_ascii_case("quarts")
+                || second.eq_ignore_ascii_case("qt")
+            {
+                Unit::UsQuart
+            } else if second.eq_ignore_ascii_case("pint")
+                || second.eq_ignore_ascii_case("pints")
+                || second.eq_ignore_ascii_case("pt")
+            {
+                Unit::UsPint
+            } else if second.eq_ignore_ascii_case("cup") || second.eq_ignore_ascii_case("cups") {
+                Unit::UsCup
+            } else if second.eq_ignore_ascii_case("tablespoon")
+                || second.eq_ignore_ascii_case("tablespoons")
+                || second.eq_ignore_ascii_case("tbsp")
+            {
+                Unit::UsTablespoon
+            } else if second.eq_ignore_ascii_case("teaspoon")
+                || second.eq_ignore_ascii_case("teaspoons")
+                || second.eq_ignore_ascii_case("tsp")
+            {
+                Unit::UsTeaspoon
+            } else {
+                return None;
+            };
+            return Some((unit, 2, first_token.span.join(second_token.span)));
+        }
+
+        if first.eq_ignore_ascii_case("metric") {
+            let second_token = *self.tokens.get(self.position + offset + 1)?;
+            let second = self.word_text_at(offset + 1)?;
+            let unit = if second.eq_ignore_ascii_case("cup") || second.eq_ignore_ascii_case("cups")
+            {
+                Unit::MetricCup
+            } else if second.eq_ignore_ascii_case("tablespoon")
+                || second.eq_ignore_ascii_case("tablespoons")
+                || second.eq_ignore_ascii_case("tbsp")
+            {
+                Unit::MetricTablespoon
+            } else if second.eq_ignore_ascii_case("teaspoon")
+                || second.eq_ignore_ascii_case("teaspoons")
+                || second.eq_ignore_ascii_case("tsp")
+            {
+                Unit::MetricTeaspoon
+            } else {
+                return None;
+            };
+            return Some((unit, 2, first_token.span.join(second_token.span)));
+        }
+
+        Unit::from_alias(first).map(|unit| (unit, 1, first_token.span))
+    }
+
+    fn word_text_at(&self, offset: usize) -> Option<&str> {
+        let token = self.tokens.get(self.position + offset)?;
+        (token.kind == LexemeKind::Word).then(|| &self.source[token.span.start..token.span.end])
     }
 
     fn scalar(&self) -> Option<(i64, Lexeme)> {

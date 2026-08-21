@@ -177,7 +177,7 @@ fn evaluates_natural_typed_functions() {
 #[test]
 fn converts_area_and_volume_units() {
     let output = calcite()
-        .args(["1", "usgal", "in", "L"])
+        .args(["1", "US", "gallon", "in", "L"])
         .output()
         .expect("calcite should run");
 

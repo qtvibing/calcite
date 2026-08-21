@@ -335,6 +335,9 @@ impl UnitValue {
         match (self.unit, plural) {
             (Unit::Day, true) => "days",
             (Unit::Week, true) => "weeks",
+            (Unit::Acre, true) => "acres",
+            (Unit::UsCup, true) => "US cups",
+            (Unit::MetricCup, true) => "metric cups",
             _ => self.unit.symbol(),
         }
     }
