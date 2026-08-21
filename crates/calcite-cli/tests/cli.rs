@@ -130,6 +130,18 @@ fn rounds_typed_values_from_the_command_line() {
 }
 
 #[test]
+fn evaluates_remaining_aggregates() {
+    let output = calcite()
+        .args(["median", "of", "1", "km,", "500", "m"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "0.75 km\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_natural_typed_functions() {
     let output = calcite()
         .args(["average", "of", "1", "km,", "500", "m"])

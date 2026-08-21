@@ -30,10 +30,31 @@ fn minimum_and_maximum_return_the_selected_typed_value() {
 }
 
 #[test]
+fn median_sorts_compatible_typed_values() {
+    assert_eq!(output("median(9, 1, 5)"), "5");
+    assert_eq!(output("median of 1, 2, 10, 20"), "6");
+    assert_eq!(output("median(1 km, 500 m, 2 km)"), "1 km");
+    assert_eq!(output("median(1 km, 500 m)"), "0.75 km");
+    assert_eq!(output("median(10%, 30%, 20%, 40%)"), "25%");
+}
+
+#[test]
+fn count_accepts_mixed_values_and_product_reuses_typed_multiplication() {
+    assert_eq!(output("count()"), "0");
+    assert_eq!(output("count(1, true, 2 km, EUR 3)"), "4");
+    assert_eq!(output("product(2, 3, 4)"), "24");
+    assert_eq!(output("product of 3, 2 km"), "6 km");
+    assert_eq!(output("product(EUR 5, 4)"), "20 EUR");
+}
+
+#[test]
 fn function_arguments_can_reference_document_variables() {
-    let document =
-        calculate_document("first = 10 km\nlater = 500 m\naverage(first, later)").unwrap();
+    let document = calculate_document(
+        "first = 10 km\nlater = 500 m\naverage(first, later)\nmedian(first, later)",
+    )
+    .unwrap();
     assert_eq!(document.lines[2].output, "5.25 km");
+    assert_eq!(document.lines[3].output, "5.25 km");
 }
 
 #[test]
@@ -146,10 +167,12 @@ fn invalid_function_domains_and_arities_are_diagnostic() {
         calculate("sqrt(1, 2)").unwrap_err().kind(),
         DiagnosticKind::InvalidFunctionArguments
     );
-    assert_eq!(
-        calculate("average()").unwrap_err().kind(),
-        DiagnosticKind::InvalidFunctionArguments
-    );
+    for source in ["average()", "median()", "product()"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::InvalidFunctionArguments
+        );
+    }
     assert_eq!(
         calculate("sum(1 USD, 1 EUR)").unwrap_err().kind(),
         DiagnosticKind::CurrencyMismatch

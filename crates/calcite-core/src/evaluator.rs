@@ -542,6 +542,75 @@ fn evaluate_call(
             }
             Ok(result)
         }
+        Function::Median => {
+            if values.is_empty() {
+                return Err(invalid_function_arguments(span));
+            }
+            let preferred_unit = match &values[0] {
+                Value::Unit(value) => Some(value.unit()),
+                _ => None,
+            };
+            let mut sorted: Vec<Value> = Vec::with_capacity(values.len());
+            for value in values {
+                let mut position = sorted.len();
+                for (index, existing) in sorted.iter().enumerate() {
+                    let Value::Boolean(precedes) = evaluate_binary(
+                        BinaryOperator::Less,
+                        value.clone(),
+                        existing.clone(),
+                        span,
+                        context,
+                    )?
+                    else {
+                        return Err(invalid_function_arguments(span));
+                    };
+                    if precedes {
+                        position = index;
+                        break;
+                    }
+                }
+                sorted.insert(position, value);
+            }
+            let middle = sorted.len() / 2;
+            if sorted.len() % 2 == 1 {
+                Ok(sorted[middle].clone())
+            } else {
+                let sum = evaluate_binary(
+                    BinaryOperator::Add,
+                    sorted[middle - 1].clone(),
+                    sorted[middle].clone(),
+                    span,
+                    context,
+                )?;
+                let result = evaluate_binary(
+                    BinaryOperator::Divide,
+                    sum,
+                    Value::Number(Number::from_i64(2)),
+                    span,
+                    context,
+                )?;
+                match (result, preferred_unit) {
+                    (Value::Unit(value), Some(unit)) => value
+                        .converted_to(unit)
+                        .map(Value::Unit)
+                        .map_err(|error| unit_diagnostic(error, span)),
+                    (result, _) => Ok(result),
+                }
+            }
+        }
+        Function::Count => Ok(Value::Number(Number::from_i64(
+            i64::try_from(values.len()).map_err(|_| invalid_function_arguments(span))?,
+        ))),
+        Function::Product => {
+            let mut values = values.into_iter();
+            let mut result = values
+                .next()
+                .ok_or_else(|| invalid_function_arguments(span))?;
+            for value in values {
+                result = evaluate_binary(BinaryOperator::Multiply, result, value, span, context)?;
+            }
+            Ok(result)
+        }
     }
 }
 

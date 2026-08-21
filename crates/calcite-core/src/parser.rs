@@ -77,6 +77,9 @@ pub enum Function {
     Average,
     Minimum,
     Maximum,
+    Median,
+    Count,
+    Product,
     Round,
     Floor,
     Ceiling,
@@ -137,6 +140,12 @@ impl Function {
             Some(Self::Minimum)
         } else if name.eq_ignore_ascii_case("maximum") || name.eq_ignore_ascii_case("max") {
             Some(Self::Maximum)
+        } else if name.eq_ignore_ascii_case("median") {
+            Some(Self::Median)
+        } else if name.eq_ignore_ascii_case("count") {
+            Some(Self::Count)
+        } else if name.eq_ignore_ascii_case("product") {
+            Some(Self::Product)
         } else if name.eq_ignore_ascii_case("round") {
             Some(Self::Round)
         } else if name.eq_ignore_ascii_case("floor") {
@@ -686,7 +695,13 @@ impl Parser<'_> {
         let mut arguments = vec![self.parse_expression(0)?];
         let accepts_list = matches!(
             function,
-            Function::Sum | Function::Average | Function::Minimum | Function::Maximum
+            Function::Sum
+                | Function::Average
+                | Function::Minimum
+                | Function::Maximum
+                | Function::Median
+                | Function::Count
+                | Function::Product
         );
         while accepts_list
             && self
