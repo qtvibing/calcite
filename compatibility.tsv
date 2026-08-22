@@ -1,0 +1,45 @@
+# Calcite classification of compatibility-corpus.yaml case IDs from SoulverCore 3.5.0 build 67.
+# Status is one of: supported, intentionally-divergent, missing.
+# This is a problem map, not a parity claim; Calcite behavior is authoritative in its tests.
+id	status	note
+word-add	supported	Natural addition.
+word-subtract	supported	Natural subtraction.
+word-multiply	supported	Natural multiplication.
+word-divide	supported	Natural division.
+power-word	supported	Natural exponentiation.
+remainder-word	missing	Equivalent remainder operator exists, but this prefix phrase does not.
+unary-power	supported	Conventional unary and power precedence agrees.
+signed-exponent	supported	Signed exponents agree.
+unary-signed-exponent	supported	Conventional unary and power precedence agrees.
+parenthesized-negative-power	supported	Parenthesized negative base agrees.
+power-left-associative	intentionally-divergent	Calcite exponentiation is conventionally right-associative.
+subtraction-left-associative	supported	Left-associative subtraction.
+division-left-associative	supported	Left-associative division.
+comparison-chain-true	intentionally-divergent	Calcite rejects comparisons between a boolean intermediate and a number.
+comparison-chain-false-then-true	intentionally-divergent	Calcite does not coerce false to zero in comparison chains.
+comparison-chain-equality	intentionally-divergent	Calcite does not coerce booleans to numbers in comparison chains.
+logical-precedence	supported	Typed boolean operators use conventional precedence.
+compatible-unit-equality	supported	Compatible units compare after exact conversion.
+clock-comparison	supported	Clock values compare directly.
+percentage-same-domain	supported	Typed percentage addition.
+percentage-plus-decimal	supported	Mixed percentage and decimal addition preserves percentage semantics.
+percentage-times-decimal	supported	Percentage scaling.
+decimal-times-percentage	supported	Reverse percentage scaling.
+contextual-percentage-add	supported	Contextual percentage addition.
+explicit-percent-conversion	supported	Explicit percentage conversion.
+percent-fraction-conversion	supported	Exact percentage-to-fraction conversion.
+convert-hex	supported	Arbitrary-precision hexadecimal conversion.
+convert-binary	supported	Arbitrary-precision binary conversion.
+hex-to-decimal	supported	Exact hexadecimal-to-decimal conversion.
+binary-to-octal	supported	Exact binary-to-octal conversion.
+rate-forming-unit	supported	Typed unit rate formation.
+compatible-duration-cancellation	supported	Compatible dimensions cancel exactly; display rounds to configured precision.
+explicit-rate-retention	missing	Dimensionless cancellation currently occurs before an explicit rate target can retain units.
+currency-rate-application	missing	Currency-per-unit values are not yet represented.
+solve-duration-from-rate	missing	Money-per-unit rate solving is deferred until currency semantics are expanded.
+explicit-conversion-inner-first	supported	Chained conversions evaluate from the inside out.
+terminal-error-priority	intentionally-divergent	Calcite has structured values and errors, not pending or failed token states.
+terminal-pending-priority	intentionally-divergent	Calcite has no asynchronous pending value in the deterministic evaluator.
+terminal-none-exposes-value	intentionally-divergent	Calcite does not use Soulver terminal token states.
+formatting-default-dp	supported	Default approximate display is ten decimal places.
+formatting-unformatted	missing	Calcite does not yet expose a disable-formatting preference.
