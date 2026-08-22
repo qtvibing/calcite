@@ -19,6 +19,10 @@ pub enum BinaryOperator {
     Divide,
     Modulo,
     Remainder,
+    Permutation,
+    Combination,
+    PermutationsOf,
+    CombinationsOf,
     Power,
     Of,
     On,
@@ -50,6 +54,10 @@ impl BinaryOperator {
             | Self::Divide
             | Self::Modulo
             | Self::Remainder
+            | Self::Permutation
+            | Self::Combination
+            | Self::PermutationsOf
+            | Self::CombinationsOf
             | Self::Of
             | Self::On
             | Self::Off
@@ -95,6 +103,9 @@ pub enum Function {
     WorkdaysBetween,
     NextWorkday,
     PreviousWorkday,
+    Factorial,
+    Permutation,
+    Combination,
     Round,
     Floor,
     Ceiling,
@@ -102,7 +113,19 @@ pub enum Function {
 
 impl Function {
     fn from_name(name: &str) -> Option<Self> {
-        if name.eq_ignore_ascii_case("sqrt") {
+        if name.eq_ignore_ascii_case("factorial") {
+            Some(Self::Factorial)
+        } else if name.eq_ignore_ascii_case("permutation")
+            || name.eq_ignore_ascii_case("permutations")
+            || name.eq_ignore_ascii_case("perm")
+        {
+            Some(Self::Permutation)
+        } else if name.eq_ignore_ascii_case("combination")
+            || name.eq_ignore_ascii_case("combinations")
+            || name.eq_ignore_ascii_case("choose")
+        {
+            Some(Self::Combination)
+        } else if name.eq_ignore_ascii_case("sqrt") {
             Some(Self::SquareRoot)
         } else if name.eq_ignore_ascii_case("cbrt") {
             Some(Self::CubicRoot)
@@ -418,6 +441,21 @@ impl Parser<'_> {
                 left = Expression::Percentage {
                     expression: Box::new(left),
                     operator_span: percent.span,
+                    span,
+                };
+                continue;
+            }
+
+            if let Some(factorial) = self
+                .current()
+                .filter(|token| token.kind == LexemeKind::LogicalNot)
+            {
+                self.position += 1;
+                let span = left.span().join(factorial.span);
+                left = Expression::Call {
+                    function: Function::Factorial,
+                    function_span: factorial.span,
+                    arguments: vec![left],
                     span,
                 };
                 continue;
@@ -1610,6 +1648,28 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.word_is(0, "remainder") => {
                 (BinaryOperator::Remainder, current.span, 1)
+            }
+            LexemeKind::Word
+                if (self.word_is(0, "permutation") || self.word_is(0, "permutations"))
+                    && self.word_is(1, "of") =>
+            {
+                (BinaryOperator::PermutationsOf, self.phrase_span(2), 2)
+            }
+            LexemeKind::Word
+                if (self.word_is(0, "combination") || self.word_is(0, "combinations"))
+                    && self.word_is(1, "of") =>
+            {
+                (BinaryOperator::CombinationsOf, self.phrase_span(2), 2)
+            }
+            LexemeKind::Word
+                if self.word_is(0, "permutation") || self.word_is(0, "permutations") =>
+            {
+                (BinaryOperator::Permutation, current.span, 1)
+            }
+            LexemeKind::Word
+                if self.word_is(0, "combination") || self.word_is(0, "combinations") =>
+            {
+                (BinaryOperator::Combination, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "of") => (BinaryOperator::Of, current.span, 1),
             LexemeKind::Word if self.word_is(0, "on") => (BinaryOperator::On, current.span, 1),

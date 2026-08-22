@@ -14,6 +14,16 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn combinatorics_flow_through_variables() {
+    assert_eq!(
+        outputs(
+            "population = 25\nselection = 3\npopulation combination selection\nselection permutations of population"
+        ),
+        ["25", "3", "2300", "13800"]
+    );
+}
+
+#[test]
 fn integer_operators_flow_through_variables() {
     assert_eq!(
         outputs("items = 100\nbox_size = 12\nitems mod box_size\n-items remainder box_size"),

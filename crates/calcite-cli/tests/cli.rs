@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_exact_combinatorics() {
+    let output = calcite()
+        .args(["3", "combinations", "of", "25"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2300\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_exact_integer_modulo() {
     let output = calcite()
         .args(["123456789012345678901234567890", "mod", "97"])

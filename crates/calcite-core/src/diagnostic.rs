@@ -24,6 +24,8 @@ pub enum DiagnosticKind {
     InvalidTrigonometry,
     InvalidHyperbolic,
     IntegerRequired,
+    InvalidCombinatorics,
+    CombinatoricsTooLarge,
     NonRealResult,
     UnsupportedOperation,
     UnitMismatch,
@@ -96,6 +98,10 @@ impl Diagnostic {
             DiagnosticKind::InvalidTrigonometry => "value is outside the trigonometric domain",
             DiagnosticKind::InvalidHyperbolic => "value is outside the hyperbolic domain",
             DiagnosticKind::IntegerRequired => "operation requires exact integers",
+            DiagnosticKind::InvalidCombinatorics => {
+                "factorial and combinatorics require non-negative integers, with selection no greater than population"
+            }
+            DiagnosticKind::CombinatoricsTooLarge => "combinatorics input is too large",
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
             DiagnosticKind::UnitMismatch => "units have incompatible dimensions",

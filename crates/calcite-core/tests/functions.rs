@@ -5,6 +5,21 @@ fn output(source: &str) -> String {
 }
 
 #[test]
+fn factorial_and_combinatorics_are_exact_and_bounded() {
+    assert_eq!(output("0!"), "1");
+    assert_eq!(output("20!"), "2432902008176640000");
+    assert_eq!(output("factorial of 6"), "720");
+    assert_eq!(output("2 ^ 3!"), "64");
+    assert_eq!(output("-3!"), "-6");
+    assert_eq!(output("10 permutation 3"), "720");
+    assert_eq!(output("3 permutations of 10"), "720");
+    assert_eq!(output("permutation(10, 3)"), "720");
+    assert_eq!(output("25 combination 3"), "2300");
+    assert_eq!(output("3 combinations of 25"), "2300");
+    assert_eq!(output("choose(100, 97)"), "161700");
+}
+
+#[test]
 fn scalar_functions_preserve_exact_arithmetic_where_possible() {
     assert_eq!(output("sqrt(9)"), "3");
     assert_eq!(output("square root of 2"), "1.4142135624");
@@ -219,4 +234,22 @@ fn invalid_function_domains_and_arities_are_diagnostic() {
         calculate("exp(1001)").unwrap_err().kind(),
         DiagnosticKind::ExponentTooLarge
     );
+    for source in ["(-1)!", "5 combination 6", "permutation(5, -1)"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::InvalidCombinatorics
+        );
+    }
+    for source in ["5.5!", "combination(5, 2.5)"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::IntegerRequired
+        );
+    }
+    for source in ["10001!", "100000 permutation 10001"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::CombinatoricsTooLarge
+        );
+    }
 }

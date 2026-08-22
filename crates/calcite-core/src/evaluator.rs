@@ -395,6 +395,29 @@ fn evaluate_call(
         .collect::<Result<Vec<_>, _>>()?;
 
     match function {
+        Function::Factorial => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            number
+                .clone()
+                .factorial()
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::Permutation | Function::Combination => {
+            let [Value::Number(population), Value::Number(selection)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let result = if function == Function::Permutation {
+                population.clone().permutation(selection.clone())
+            } else {
+                population.clone().combination(selection.clone())
+            };
+            result
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
         Function::SquareRoot | Function::CubicRoot => {
             let [Value::Number(number)] = values.as_slice() else {
                 return Err(invalid_function_arguments(span));
@@ -1074,6 +1097,22 @@ fn number_pair(
             .remainder(right)
             .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Permutation => left
+            .permutation(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Combination => left
+            .combination(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::PermutationsOf => right
+            .permutation(left)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::CombinationsOf => right
+            .combination(left)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Power => left
             .pow(right)
             .map(Value::Number)
@@ -1125,6 +1164,10 @@ fn percentage_pair(
         | BinaryOperator::LessEqual => compare_numbers(operator, &left, &right, span),
         BinaryOperator::Modulo
         | BinaryOperator::Remainder
+        | BinaryOperator::Permutation
+        | BinaryOperator::Combination
+        | BinaryOperator::PermutationsOf
+        | BinaryOperator::CombinationsOf
         | BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
@@ -1163,6 +1206,10 @@ fn number_percentage_pair(
         | BinaryOperator::LessEqual => compare_numbers(operator, &number, &ratio, span),
         BinaryOperator::Modulo
         | BinaryOperator::Remainder
+        | BinaryOperator::Permutation
+        | BinaryOperator::Combination
+        | BinaryOperator::PermutationsOf
+        | BinaryOperator::CombinationsOf
         | BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
@@ -1205,6 +1252,10 @@ fn percentage_number_pair(
         | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
         BinaryOperator::Modulo
         | BinaryOperator::Remainder
+        | BinaryOperator::Permutation
+        | BinaryOperator::Combination
+        | BinaryOperator::PermutationsOf
+        | BinaryOperator::CombinationsOf
         | BinaryOperator::At
         | BinaryOperator::And
         | BinaryOperator::Or => Err(unsupported(span)),
@@ -2062,6 +2113,8 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::InvalidTrigonometry => DiagnosticKind::InvalidTrigonometry,
         NumericError::InvalidHyperbolic => DiagnosticKind::InvalidHyperbolic,
         NumericError::IntegerRequired => DiagnosticKind::IntegerRequired,
+        NumericError::InvalidCombinatorics => DiagnosticKind::InvalidCombinatorics,
+        NumericError::CombinatoricsTooLarge => DiagnosticKind::CombinatoricsTooLarge,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

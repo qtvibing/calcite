@@ -15,6 +15,9 @@ const MAX_INTEGER_EXPONENT: isize = 100_000;
 const MAX_ROUNDING_PLACES: u64 = 10_000;
 const MAX_ROOT_DEGREE: usize = 1_000;
 const MAX_EXPONENTIAL_ARGUMENT: i64 = 1_000;
+const MAX_FACTORIAL_INPUT: usize = 10_000;
+const MAX_COMBINATORIC_POPULATION: usize = 100_000;
+const MAX_COMBINATORIC_SELECTION: usize = 10_000;
 
 type Real = FBig<HalfAway, 10>;
 
@@ -54,6 +57,8 @@ pub(crate) enum NumericError {
     InvalidTrigonometry,
     InvalidHyperbolic,
     IntegerRequired,
+    InvalidCombinatorics,
+    CombinatoricsTooLarge,
     NonRealResult,
 }
 
@@ -164,6 +169,46 @@ impl Number {
         } else {
             remainder
         };
+        Ok(Self(Representation::Exact(RBig::from(result))))
+    }
+
+    pub(crate) fn factorial(self) -> Result<Self, NumericError> {
+        let n = bounded_nonnegative_integer(self.0, MAX_FACTORIAL_INPUT)?;
+        let mut result = IBig::ONE;
+        for factor in 2..=n {
+            result *= IBig::from(factor);
+        }
+        Ok(Self(Representation::Exact(RBig::from(result))))
+    }
+
+    pub(crate) fn permutation(self, selection: Self) -> Result<Self, NumericError> {
+        let population = bounded_nonnegative_integer(self.0, MAX_COMBINATORIC_POPULATION)?;
+        let selection = bounded_nonnegative_integer(selection.0, MAX_COMBINATORIC_SELECTION)?;
+        if selection > population {
+            return Err(NumericError::InvalidCombinatorics);
+        }
+        let mut result = IBig::ONE;
+        for value in population - selection + 1..=population {
+            result *= IBig::from(value);
+        }
+        Ok(Self(Representation::Exact(RBig::from(result))))
+    }
+
+    pub(crate) fn combination(self, selection: Self) -> Result<Self, NumericError> {
+        let population = bounded_nonnegative_integer(self.0, MAX_COMBINATORIC_POPULATION)?;
+        let selection = bounded_nonnegative_integer(selection.0, MAX_COMBINATORIC_POPULATION)?;
+        if selection > population {
+            return Err(NumericError::InvalidCombinatorics);
+        }
+        let selection = selection.min(population - selection);
+        if selection > MAX_COMBINATORIC_SELECTION {
+            return Err(NumericError::CombinatoricsTooLarge);
+        }
+        let mut result = IBig::ONE;
+        for index in 1..=selection {
+            result *= IBig::from(population - selection + index);
+            result /= IBig::from(index);
+        }
         Ok(Self(Representation::Exact(RBig::from(result))))
     }
 
@@ -476,18 +521,35 @@ fn integer_operands(
     left: Representation,
     right: Representation,
 ) -> Result<(IBig, IBig), NumericError> {
-    fn integer(value: Representation) -> Result<IBig, NumericError> {
-        let Representation::Exact(value) = value else {
-            return Err(NumericError::IntegerRequired);
-        };
-        let (numerator, denominator) = value.into_parts();
-        if denominator != 1u8.into() {
-            return Err(NumericError::IntegerRequired);
-        }
-        Ok(numerator)
-    }
+    Ok((integer_value(left)?, integer_value(right)?))
+}
 
-    Ok((integer(left)?, integer(right)?))
+fn integer_value(value: Representation) -> Result<IBig, NumericError> {
+    let Representation::Exact(value) = value else {
+        return Err(NumericError::IntegerRequired);
+    };
+    let (numerator, denominator) = value.into_parts();
+    if denominator != 1u8.into() {
+        return Err(NumericError::IntegerRequired);
+    }
+    Ok(numerator)
+}
+
+fn bounded_nonnegative_integer(
+    value: Representation,
+    maximum: usize,
+) -> Result<usize, NumericError> {
+    let value = integer_value(value)?;
+    if value < IBig::ZERO {
+        return Err(NumericError::InvalidCombinatorics);
+    }
+    if value > IBig::from(maximum) {
+        return Err(NumericError::CombinatoricsTooLarge);
+    }
+    value
+        .to_string()
+        .parse()
+        .map_err(|_| NumericError::CombinatoricsTooLarge)
 }
 
 fn into_real(value: Representation) -> Real {
