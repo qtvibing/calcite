@@ -101,7 +101,7 @@ pub fn lex_with_number_format(
                         LexemeKind::Star
                     }
                 }
-                '×' => LexemeKind::Star,
+                '×' | '·' => LexemeKind::Star,
                 '/' | '÷' => LexemeKind::Slash,
                 '^' => LexemeKind::Caret,
                 ':' => LexemeKind::Colon,

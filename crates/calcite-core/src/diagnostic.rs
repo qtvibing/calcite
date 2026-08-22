@@ -33,6 +33,7 @@ pub enum DiagnosticKind {
     NonRealResult,
     UnsupportedOperation,
     UnitMismatch,
+    InvalidUnitExponent,
     CurrencyMismatch,
     MissingExchangeRate,
 }
@@ -115,6 +116,9 @@ impl Diagnostic {
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
             DiagnosticKind::UnitMismatch => "units have incompatible dimensions",
+            DiagnosticKind::InvalidUnitExponent => {
+                "unit exponents must be exact integers between -100 and 100"
+            }
             DiagnosticKind::CurrencyMismatch => "currencies differ; convert one explicitly",
             DiagnosticKind::MissingExchangeRate => "no exchange rate was provided",
         }

@@ -21,18 +21,9 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
             money.amount().formatted_with(decimal_separator),
             money.currency()
         ),
-        Value::Rate(rate) => match rate.numerator() {
-            Some(numerator) => format!(
-                "{} {numerator}/{}",
-                rate.magnitude().formatted_with(decimal_separator),
-                rate.denominator()
-            ),
-            None => format!(
-                "{}/{}",
-                rate.magnitude().formatted_with(decimal_separator),
-                rate.denominator()
-            ),
-        },
+        Value::Rate(rate) => {
+            rate.formatted_with(&rate.magnitude().formatted_with(decimal_separator))
+        }
         Value::Date(date) => date.to_string(),
         Value::Clock(time) => time.to_string(),
         Value::OffsetDateTime(value) => value.to_string(),

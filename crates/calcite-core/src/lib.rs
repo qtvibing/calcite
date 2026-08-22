@@ -39,7 +39,7 @@ pub use temporal::{
     CalendarDuration, ClockTime, Date, OffsetDateTime, TemporalContext, UtcOffset, Weekday,
     WorkdayCalendar, WorkdayDuration,
 };
-pub use unit::{Dimension, Unit, UnitValue};
+pub use unit::{CompoundUnit, Dimension, Unit, UnitValue};
 
 pub(crate) use number::NumericError;
 

@@ -1,6 +1,8 @@
-use std::{cmp::Ordering, fmt};
+use std::{cmp::Ordering, collections::BTreeMap, fmt};
 
 use crate::{Number, NumericError};
+
+const MAX_COMPOUND_EXPONENT: u32 = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Dimension {
@@ -13,7 +15,7 @@ pub enum Dimension {
     Volume,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Unit {
     Meter,
     Kilometer,
@@ -229,23 +231,21 @@ impl Unit {
         }
     }
 
-    pub(crate) fn linear_factor_to(self, target: Self) -> Result<Number, UnitError> {
-        if self.dimension() != target.dimension() {
-            return Err(UnitError::IncompatibleDimensions);
+    fn dimensions(self) -> Dimensions {
+        match self.dimension() {
+            Dimension::Length => Dimensions::new(1, 0, 0, 0, 0),
+            Dimension::Mass => Dimensions::new(0, 1, 0, 0, 0),
+            Dimension::Duration => Dimensions::new(0, 0, 1, 0, 0),
+            Dimension::Temperature => Dimensions::new(0, 0, 0, 1, 0),
+            Dimension::Angle => Dimensions::new(0, 0, 0, 0, 1),
+            Dimension::Area => Dimensions::new(2, 0, 0, 0, 0),
+            Dimension::Volume => Dimensions::new(3, 0, 0, 0, 0),
         }
-        if self.dimension() == Dimension::Temperature {
-            return Err(UnitError::AffineArithmetic);
-        }
-        let (source_scale, _) = self.scale_and_offset();
-        let (target_scale, _) = target.scale_and_offset();
-        source_scale
-            .divide(target_scale)
-            .map_err(UnitError::Numeric)
     }
 
-    fn scale_and_offset(self) -> (Number, Number) {
+    pub(crate) fn scale_and_offset(self) -> (Number, Number) {
         if self == Self::Fahrenheit {
-            return (ratio("5", "9"), ratio("-160", "9"));
+            return (ratio("5", "9"), ratio("45967", "180"));
         }
         if self == Self::Degree {
             return (
@@ -259,10 +259,9 @@ impl Unit {
             Self::Meter
             | Self::Gram
             | Self::Second
-            | Self::Celsius
+            | Self::Kelvin
             | Self::Radian
-            | Self::SquareMeter
-            | Self::Liter => ("1", "0"),
+            | Self::SquareMeter => ("1", "0"),
             Self::Kilometer => ("1000", "0"),
             Self::Centimeter => ("0.01", "0"),
             Self::Millimeter => ("0.001", "0"),
@@ -277,7 +276,7 @@ impl Unit {
             Self::Hour => ("3600", "0"),
             Self::Day => ("86400", "0"),
             Self::Week => ("604800", "0"),
-            Self::Kelvin => ("1", "-273.15"),
+            Self::Celsius => ("1", "273.15"),
             Self::SquareKilometer => ("1000000", "0"),
             Self::SquareCentimeter => ("0.0001", "0"),
             Self::SquareMillimeter => ("0.000001", "0"),
@@ -287,18 +286,19 @@ impl Unit {
             Self::SquareMile => ("2589988.110336", "0"),
             Self::Hectare => ("10000", "0"),
             Self::Acre => ("4046.8564224", "0"),
-            Self::Milliliter | Self::CubicCentimeter => ("0.001", "0"),
-            Self::CubicMeter => ("1000", "0"),
-            Self::UsGallon => ("3.785411784", "0"),
-            Self::UsQuart => ("0.946352946", "0"),
-            Self::UsPint => ("0.473176473", "0"),
-            Self::UsCup => ("0.2365882365", "0"),
-            Self::UsFluidOunce => ("0.0295735295625", "0"),
-            Self::UsTablespoon => ("0.01478676478125", "0"),
-            Self::UsTeaspoon => ("0.00492892159375", "0"),
-            Self::MetricCup => ("0.25", "0"),
-            Self::MetricTablespoon => ("0.015", "0"),
-            Self::MetricTeaspoon => ("0.005", "0"),
+            Self::Liter => ("0.001", "0"),
+            Self::Milliliter | Self::CubicCentimeter => ("0.000001", "0"),
+            Self::CubicMeter => ("1", "0"),
+            Self::UsGallon => ("0.003785411784", "0"),
+            Self::UsQuart => ("0.000946352946", "0"),
+            Self::UsPint => ("0.000473176473", "0"),
+            Self::UsCup => ("0.0002365882365", "0"),
+            Self::UsFluidOunce => ("0.0000295735295625", "0"),
+            Self::UsTablespoon => ("0.00001478676478125", "0"),
+            Self::UsTeaspoon => ("0.00000492892159375", "0"),
+            Self::MetricCup => ("0.00025", "0"),
+            Self::MetricTablespoon => ("0.000015", "0"),
+            Self::MetricTeaspoon => ("0.000005", "0"),
             Self::Fahrenheit | Self::Degree => unreachable!("handled above"),
         };
         (exact(scale), exact(offset))
@@ -311,14 +311,192 @@ impl fmt::Display for Unit {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Dimensions([i32; 5]);
+
+impl Dimensions {
+    const fn new(length: i32, mass: i32, duration: i32, temperature: i32, angle: i32) -> Self {
+        Self([length, mass, duration, temperature, angle])
+    }
+
+    fn add_scaled(&mut self, other: Self, exponent: i32) {
+        for (value, other) in self.0.iter_mut().zip(other.0) {
+            *value += other * exponent;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CompoundUnit {
+    factors: BTreeMap<Unit, i32>,
+}
+
+impl CompoundUnit {
+    pub fn from_unit(unit: Unit) -> Self {
+        Self {
+            factors: BTreeMap::from([(unit, 1)]),
+        }
+    }
+
+    pub fn atomic_unit(&self) -> Option<Unit> {
+        let mut factors = self.factors.iter();
+        let (unit, exponent) = factors.next()?;
+        (*exponent == 1 && factors.next().is_none()).then_some(*unit)
+    }
+
+    pub fn is_dimensionless(&self) -> bool {
+        self.factors.is_empty()
+    }
+
+    pub fn has_denominator(&self) -> bool {
+        self.factors.values().any(|exponent| *exponent < 0)
+    }
+
+    pub(crate) fn exponents_are_bounded(&self) -> bool {
+        self.factors
+            .values()
+            .all(|exponent| exponent.unsigned_abs() <= MAX_COMPOUND_EXPONENT)
+    }
+
+    fn dimensions(&self) -> Dimensions {
+        let mut dimensions = Dimensions::default();
+        for (unit, exponent) in &self.factors {
+            dimensions.add_scaled(unit.dimensions(), *exponent);
+        }
+        dimensions
+    }
+
+    fn contains_affine_unit(&self) -> bool {
+        self.factors
+            .keys()
+            .any(|unit| matches!(unit, Unit::Celsius | Unit::Fahrenheit))
+    }
+
+    fn scale(&self) -> Result<Number, UnitError> {
+        let mut scale = Number::from_i64(1);
+        for (unit, exponent) in &self.factors {
+            if matches!(unit, Unit::Celsius | Unit::Fahrenheit) && self.atomic_unit().is_none() {
+                return Err(UnitError::AffineArithmetic);
+            }
+            let (factor, _) = unit.scale_and_offset();
+            scale = scale.multiply(
+                factor
+                    .pow(Number::from_i64(i64::from(*exponent)))
+                    .map_err(UnitError::Numeric)?,
+            );
+        }
+        Ok(scale)
+    }
+
+    pub(crate) fn multiply(&self, right: &Self) -> Self {
+        self.combine(right, 1)
+    }
+
+    pub(crate) fn divide(&self, right: &Self) -> Self {
+        self.combine(right, -1)
+    }
+
+    pub(crate) fn pow(&self, exponent: i32) -> Self {
+        let factors = self
+            .factors
+            .iter()
+            .filter_map(|(unit, power)| {
+                let power = power.saturating_mul(exponent);
+                (power != 0).then_some((*unit, power))
+            })
+            .collect();
+        Self { factors }
+    }
+
+    fn combine(&self, right: &Self, sign: i32) -> Self {
+        let mut factors = self.factors.clone();
+        for (unit, exponent) in &right.factors {
+            let combined = factors
+                .get(unit)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(exponent.saturating_mul(sign));
+            if combined == 0 {
+                factors.remove(unit);
+            } else {
+                factors.insert(*unit, combined);
+            }
+        }
+        Self { factors }
+    }
+
+    fn has_dimensional_cancellation(&self) -> bool {
+        let mut positive = Dimensions::default();
+        let mut negative = Dimensions::default();
+        for (unit, exponent) in &self.factors {
+            if *exponent > 0 {
+                positive.add_scaled(unit.dimensions(), *exponent);
+            } else {
+                negative.add_scaled(unit.dimensions(), -*exponent);
+            }
+        }
+        positive
+            .0
+            .iter()
+            .zip(negative.0)
+            .any(|(positive, negative)| *positive != 0 && negative != 0)
+    }
+
+    fn canonical(dimensions: Dimensions) -> Self {
+        let units = [
+            Unit::Meter,
+            Unit::Gram,
+            Unit::Second,
+            Unit::Kelvin,
+            Unit::Radian,
+        ];
+        let factors = units
+            .into_iter()
+            .zip(dimensions.0)
+            .filter_map(|(unit, exponent)| (exponent != 0).then_some((unit, exponent)))
+            .collect();
+        Self { factors }
+    }
+
+    pub(crate) fn formatted(&self) -> String {
+        let numerator = self.format_side(1, "·");
+        let denominator = self.format_side(-1, "/");
+        match (numerator.is_empty(), denominator.is_empty()) {
+            (false, true) => numerator,
+            (true, false) => format!("1/{denominator}"),
+            (false, false) => format!("{numerator}/{denominator}"),
+            (true, true) => String::new(),
+        }
+    }
+
+    fn format_side(&self, sign: i32, separator: &str) -> String {
+        self.factors
+            .iter()
+            .filter(|(_, exponent)| exponent.signum() == sign)
+            .map(|(unit, exponent)| format_factor(*unit, exponent.unsigned_abs()))
+            .collect::<Vec<_>>()
+            .join(separator)
+    }
+}
+
+impl fmt::Display for CompoundUnit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.formatted())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitValue {
     magnitude: Number,
-    unit: Unit,
+    unit: CompoundUnit,
 }
 
 impl UnitValue {
-    pub const fn new(magnitude: Number, unit: Unit) -> Self {
+    pub fn new(magnitude: Number, unit: Unit) -> Self {
+        Self::from_compound(magnitude, CompoundUnit::from_unit(unit))
+    }
+
+    pub(crate) const fn from_compound(magnitude: Number, unit: CompoundUnit) -> Self {
         Self { magnitude, unit }
     }
 
@@ -326,86 +504,142 @@ impl UnitValue {
         &self.magnitude
     }
 
-    pub const fn unit(&self) -> Unit {
-        self.unit
+    pub const fn compound_unit(&self) -> &CompoundUnit {
+        &self.unit
     }
 
-    pub(crate) fn display_unit(&self) -> &'static str {
+    pub(crate) fn into_parts(self) -> (Number, CompoundUnit) {
+        (self.magnitude, self.unit)
+    }
+
+    pub fn atomic_unit(&self) -> Option<Unit> {
+        self.unit.atomic_unit()
+    }
+
+    pub(crate) fn display_unit(&self) -> String {
         let plural = !matches!(self.magnitude.exact_fraction().as_deref(), Some("1" | "-1"));
-        match (self.unit, plural) {
-            (Unit::Day, true) => "days",
-            (Unit::Week, true) => "weeks",
-            (Unit::Acre, true) => "acres",
-            (Unit::UsCup, true) => "US cups",
-            (Unit::MetricCup, true) => "metric cups",
-            _ => self.unit.symbol(),
+        match (self.atomic_unit(), plural) {
+            (Some(Unit::Day), true) => "days".into(),
+            (Some(Unit::Week), true) => "weeks".into(),
+            (Some(Unit::Acre), true) => "acres".into(),
+            (Some(Unit::UsCup), true) => "US cups".into(),
+            (Some(Unit::MetricCup), true) => "metric cups".into(),
+            _ => self.unit.formatted(),
         }
     }
 
     pub(crate) fn converted_to(&self, target: Unit) -> Result<Self, UnitError> {
-        if self.unit.dimension() != target.dimension() {
+        self.converted_to_compound(&CompoundUnit::from_unit(target))
+    }
+
+    pub(crate) fn converted_to_compound(&self, target: &CompoundUnit) -> Result<Self, UnitError> {
+        if self.unit.dimensions() != target.dimensions() {
             return Err(UnitError::IncompatibleDimensions);
         }
-        let (source_scale, source_offset) = self.unit.scale_and_offset();
-        let base = self
-            .magnitude
-            .clone()
-            .multiply(source_scale)
-            .add(source_offset);
-        let (target_scale, target_offset) = target.scale_and_offset();
-        let magnitude = base
-            .subtract(target_offset)
-            .divide(target_scale)
-            .map_err(UnitError::Numeric)?;
-        Ok(Self::new(magnitude, target))
+        let magnitude = match (self.atomic_unit(), target.atomic_unit()) {
+            (Some(source), Some(target))
+                if source.dimension() == Dimension::Temperature
+                    && target.dimension() == Dimension::Temperature =>
+            {
+                let (source_scale, source_offset) = source.scale_and_offset();
+                let base = self
+                    .magnitude
+                    .clone()
+                    .multiply(source_scale)
+                    .add(source_offset);
+                let (target_scale, target_offset) = target.scale_and_offset();
+                base.subtract(target_offset)
+                    .divide(target_scale)
+                    .map_err(UnitError::Numeric)?
+            }
+            _ => self
+                .magnitude
+                .clone()
+                .multiply(self.unit.scale()?)
+                .divide(target.scale()?)
+                .map_err(UnitError::Numeric)?,
+        };
+        Ok(Self::from_compound(magnitude, target.clone()))
     }
 
     pub(crate) fn negated(self) -> Self {
-        Self::new(self.magnitude.negated(), self.unit)
+        Self::from_compound(self.magnitude.negated(), self.unit)
     }
 
     pub(crate) fn add(self, right: Self) -> Result<Self, UnitError> {
         self.ensure_arithmetic_dimension(&right)?;
-        let right = right.converted_to(self.unit)?;
-        Ok(Self::new(self.magnitude.add(right.magnitude), self.unit))
+        let right = right.converted_to_compound(&self.unit)?;
+        Ok(Self::from_compound(
+            self.magnitude.add(right.magnitude),
+            self.unit,
+        ))
     }
 
     pub(crate) fn subtract(self, right: Self) -> Result<Self, UnitError> {
         self.ensure_arithmetic_dimension(&right)?;
-        let right = right.converted_to(self.unit)?;
-        Ok(Self::new(
+        let right = right.converted_to_compound(&self.unit)?;
+        Ok(Self::from_compound(
             self.magnitude.subtract(right.magnitude),
             self.unit,
         ))
     }
 
     pub(crate) fn multiply_number(self, number: Number) -> Self {
-        Self::new(self.magnitude.multiply(number), self.unit)
+        Self::from_compound(self.magnitude.multiply(number), self.unit)
     }
 
     pub(crate) fn divide_number(self, number: Number) -> Result<Self, UnitError> {
         self.magnitude
             .divide(number)
-            .map(|magnitude| Self::new(magnitude, self.unit))
+            .map(|magnitude| Self::from_compound(magnitude, self.unit))
             .map_err(UnitError::Numeric)
     }
 
-    pub(crate) fn ratio(self, right: Self) -> Result<Number, UnitError> {
-        let right = right.converted_to(self.unit)?;
-        self.magnitude
+    pub(crate) fn multiply_unit(self, right: Self) -> Result<Self, UnitError> {
+        if self.unit.contains_affine_unit() || right.unit.contains_affine_unit() {
+            return Err(UnitError::AffineArithmetic);
+        }
+        let magnitude = self.magnitude.multiply(right.magnitude);
+        let unit = self.unit.multiply(&right.unit);
+        ensure_bounded_exponents(&unit)?;
+        normalize_compound_value(magnitude, unit)
+    }
+
+    pub(crate) fn divide_unit(self, right: Self) -> Result<Self, UnitError> {
+        if self.unit.contains_affine_unit() || right.unit.contains_affine_unit() {
+            return Err(UnitError::AffineArithmetic);
+        }
+        let magnitude = self
+            .magnitude
             .divide(right.magnitude)
-            .map_err(UnitError::Numeric)
+            .map_err(UnitError::Numeric)?;
+        let unit = self.unit.divide(&right.unit);
+        ensure_bounded_exponents(&unit)?;
+        normalize_compound_value(magnitude, unit)
+    }
+
+    pub(crate) fn pow(self, exponent: i32) -> Result<Self, UnitError> {
+        if self.unit.contains_affine_unit() && exponent != 1 {
+            return Err(UnitError::AffineArithmetic);
+        }
+        let magnitude = self
+            .magnitude
+            .pow(Number::from_i64(i64::from(exponent)))
+            .map_err(UnitError::Numeric)?;
+        let unit = self.unit.pow(exponent);
+        ensure_bounded_exponents(&unit)?;
+        normalize_compound_value(magnitude, unit)
     }
 
     pub(crate) fn compare(&self, right: &Self) -> Result<Option<Ordering>, UnitError> {
-        let right = right.converted_to(self.unit)?;
+        let right = right.converted_to_compound(&self.unit)?;
         Ok(self.magnitude.compare(&right.magnitude))
     }
 
     fn ensure_arithmetic_dimension(&self, right: &Self) -> Result<(), UnitError> {
-        if self.unit.dimension() != right.unit.dimension() {
+        if self.unit.dimensions() != right.unit.dimensions() {
             Err(UnitError::IncompatibleDimensions)
-        } else if self.unit.dimension() == Dimension::Temperature {
+        } else if self.unit.contains_affine_unit() || right.unit.contains_affine_unit() {
             Err(UnitError::AffineArithmetic)
         } else {
             Ok(())
@@ -413,10 +647,39 @@ impl UnitValue {
     }
 }
 
+fn ensure_bounded_exponents(unit: &CompoundUnit) -> Result<(), UnitError> {
+    if unit.exponents_are_bounded() {
+        Ok(())
+    } else {
+        Err(UnitError::InvalidExponent)
+    }
+}
+
+fn normalize_compound_value(
+    mut magnitude: Number,
+    mut unit: CompoundUnit,
+) -> Result<UnitValue, UnitError> {
+    if unit.is_dimensionless() || unit.has_dimensional_cancellation() {
+        magnitude = magnitude.multiply(unit.scale()?);
+        unit = CompoundUnit::canonical(unit.dimensions());
+    }
+    Ok(UnitValue::from_compound(magnitude, unit))
+}
+
+fn format_factor(unit: Unit, exponent: u32) -> String {
+    match exponent {
+        1 => unit.symbol().into(),
+        2 => format!("{}²", unit.symbol()),
+        3 => format!("{}³", unit.symbol()),
+        exponent => format!("{}^{exponent}", unit.symbol()),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum UnitError {
     IncompatibleDimensions,
     AffineArithmetic,
+    InvalidExponent,
     Numeric(NumericError),
 }
 

@@ -1,13 +1,12 @@
 use std::{cmp::Ordering, collections::HashMap, fmt};
 
-use crate::rate::RateApplication;
 use crate::unit::UnitError;
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, ConversionTarget,
-    Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
-    OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection, Span,
-    TemporalKeyword, UnaryOperator, Unit, UnitValue, Weekday, WorkdayCalendar, WorkdayDuration,
-    parse_with_context,
+    BinaryOperator, CalculationContext, CalendarDuration, ClockTime, CompoundUnit, Constant,
+    ConversionTarget, Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money,
+    Number, NumericError, OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection,
+    Span, TemporalKeyword, UnaryOperator, Unit, UnitValue, Weekday, WorkdayCalendar,
+    WorkdayDuration, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -178,9 +177,9 @@ pub(crate) fn evaluate_expression(
             Constant::Tau => Number::pi().multiply(Number::from_i64(2)),
             Constant::E => Number::e(),
         })),
-        Expression::Unit { value, unit, .. } => {
-            Ok(Value::Unit(UnitValue::new(value.clone(), *unit)))
-        }
+        Expression::Unit { value, unit, .. } => Ok(classify_compound_value(
+            UnitValue::from_compound(value.clone(), unit.clone()),
+        )),
         Expression::Money {
             amount, currency, ..
         } => Ok(Value::Money(Money::new(amount.clone(), *currency))),
@@ -346,7 +345,7 @@ pub(crate) fn evaluate_expression(
             ..
         } => convert(
             evaluate_expression(expression, context, variables)?,
-            *target,
+            target.clone(),
             *target_span,
             context,
         ),
@@ -883,7 +882,7 @@ fn evaluate_call(
                 return Err(invalid_function_arguments(span));
             }
             let preferred_unit = match &values[0] {
-                Value::Unit(value) => Some(value.unit()),
+                Value::Unit(value) => Some(value.compound_unit().clone()),
                 _ => None,
             };
             let mut sorted: Vec<Value> = Vec::with_capacity(values.len());
@@ -927,7 +926,7 @@ fn evaluate_call(
                 )?;
                 match (result, preferred_unit) {
                     (Value::Unit(value), Some(unit)) => value
-                        .converted_to(unit)
+                        .converted_to_compound(&unit)
                         .map(Value::Unit)
                         .map_err(|error| unit_diagnostic(error, span)),
                     (result, _) => Ok(result),
@@ -954,7 +953,7 @@ fn tangent_is_undefined(value: &Value) -> bool {
     let Value::Unit(value) = value else {
         return false;
     };
-    if value.unit() != Unit::Degree {
+    if value.atomic_unit() != Some(Unit::Degree) {
         return false;
     }
     value
@@ -970,10 +969,12 @@ fn tangent_is_undefined(value: &Value) -> bool {
 fn angle_in_radians(value: &Value, span: Span) -> Result<Number, Diagnostic> {
     match value {
         Value::Number(number) => Ok(number.clone()),
-        Value::Unit(value) if value.unit().dimension() == crate::Dimension::Angle => value
-            .converted_to(Unit::Radian)
-            .map(|value| value.magnitude().clone())
-            .map_err(|error| unit_diagnostic(error, span)),
+        Value::Unit(value) if matches!(value.atomic_unit(), Some(Unit::Degree | Unit::Radian)) => {
+            value
+                .converted_to(Unit::Radian)
+                .map(|value| value.magnitude().clone())
+                .map_err(|error| unit_diagnostic(error, span))
+        }
         _ => Err(invalid_function_arguments(span)),
     }
 }
@@ -1012,9 +1013,9 @@ fn round_value(
             Ok(Value::Percentage(Percentage::from_ratio(rounded)))
         }
         Value::Unit(value) => {
-            let unit = value.unit();
+            let unit = value.compound_unit().clone();
             round_number(value.magnitude().clone())
-                .map(|magnitude| Value::Unit(UnitValue::new(magnitude, unit)))
+                .map(|magnitude| Value::Unit(UnitValue::from_compound(magnitude, unit)))
                 .map_err(|error| numeric_diagnostic(error, span))
         }
         Value::Money(money) => {
@@ -1024,10 +1025,9 @@ fn round_value(
                 .map_err(|error| numeric_diagnostic(error, span))
         }
         Value::Rate(rate) => {
-            let numerator = rate.numerator();
-            let denominator = rate.denominator();
+            let unit = rate.compound_unit().clone();
             round_number(rate.magnitude().clone())
-                .map(|magnitude| Value::Rate(Rate::new(magnitude, numerator, denominator)))
+                .map(|magnitude| Value::Rate(Rate::from_compound(magnitude, unit)))
                 .map_err(|error| numeric_diagnostic(error, span))
         }
         _ => Err(invalid_function_arguments(span)),
@@ -1140,12 +1140,8 @@ fn evaluate_binary(
         (Value::Rate(left), Value::Rate(right)) => rate_pair(operator, left, right, span),
         (Value::Rate(left), Value::Number(right)) => rate_number_pair(operator, left, right, span),
         (Value::Number(left), Value::Rate(right)) => number_rate_pair(operator, left, right, span),
-        (Value::Rate(left), Value::Unit(right)) if operator == BinaryOperator::Multiply => {
-            apply_rate(left, right, span)
-        }
-        (Value::Unit(left), Value::Rate(right)) if operator == BinaryOperator::Multiply => {
-            apply_rate(right, left, span)
-        }
+        (Value::Rate(left), Value::Unit(right)) => rate_unit_pair(operator, left, right, span),
+        (Value::Unit(left), Value::Rate(right)) => unit_rate_pair(operator, left, right, span),
         (Value::Date(date), Value::Clock(time)) if operator == BinaryOperator::At => {
             let offset = context
                 .temporal
@@ -1614,22 +1610,15 @@ fn unit_pair(
             .subtract(right)
             .map(Value::Unit)
             .map_err(|error| unit_diagnostic(error, span)),
-        BinaryOperator::Divide if left.unit().dimension() != right.unit().dimension() => {
-            let magnitude = left
-                .magnitude()
-                .clone()
-                .divide(right.magnitude().clone())
-                .map_err(|error| numeric_diagnostic(error, span))?;
-            Ok(Value::Rate(Rate::new(
-                magnitude,
-                Some(left.unit()),
-                right.unit(),
-            )))
-        }
-        BinaryOperator::Divide => left
-            .ratio(right)
-            .map(Value::Number)
+        BinaryOperator::Multiply => left
+            .multiply_unit(right)
+            .map(classify_compound_value)
             .map_err(|error| unit_diagnostic(error, span)),
+        BinaryOperator::Divide => left
+            .divide_unit(right)
+            .map(classify_compound_value)
+            .map_err(|error| unit_diagnostic(error, span)),
+        BinaryOperator::Power => Err(unsupported(span)),
         BinaryOperator::Equal
         | BinaryOperator::NotEqual
         | BinaryOperator::Greater
@@ -1972,26 +1961,31 @@ fn rate_pair(
     right: Rate,
     span: Span,
 ) -> Result<Value, Diagnostic> {
+    if matches!(operator, BinaryOperator::Multiply | BinaryOperator::Divide) {
+        let left = rate_as_unit_value(left);
+        let right = rate_as_unit_value(right);
+        let result = if operator == BinaryOperator::Multiply {
+            left.multiply_unit(right)
+        } else {
+            left.divide_unit(right)
+        };
+        return result
+            .map(classify_compound_value)
+            .map_err(|error| unit_diagnostic(error, span));
+    }
+
     let right = right
-        .converted_to(left.numerator(), left.denominator())
+        .converted_to_compound(left.compound_unit())
         .map_err(|error| unit_diagnostic(error, span))?;
     match operator {
-        BinaryOperator::Add => Ok(Value::Rate(Rate::new(
+        BinaryOperator::Add => Ok(Value::Rate(Rate::from_compound(
             left.magnitude().clone().add(right.magnitude().clone()),
-            left.numerator(),
-            left.denominator(),
+            left.compound_unit().clone(),
         ))),
-        BinaryOperator::Subtract => Ok(Value::Rate(Rate::new(
+        BinaryOperator::Subtract => Ok(Value::Rate(Rate::from_compound(
             left.magnitude().clone().subtract(right.magnitude().clone()),
-            left.numerator(),
-            left.denominator(),
+            left.compound_unit().clone(),
         ))),
-        BinaryOperator::Divide => left
-            .magnitude()
-            .clone()
-            .divide(right.magnitude().clone())
-            .map(Value::Number)
-            .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Equal
         | BinaryOperator::NotEqual
         | BinaryOperator::Greater
@@ -2016,6 +2010,13 @@ fn rate_number_pair(
             .divided_by(right)
             .map(Value::Rate)
             .map_err(|error| unit_diagnostic(error, span)),
+        BinaryOperator::Power => {
+            let exponent = unit_exponent(&right, span)?;
+            rate_as_unit_value(left)
+                .pow(exponent)
+                .map(classify_compound_value)
+                .map_err(|error| unit_diagnostic(error, span))
+        }
         _ => Err(unsupported(span)),
     }
 }
@@ -2028,17 +2029,66 @@ fn number_rate_pair(
 ) -> Result<Value, Diagnostic> {
     match operator {
         BinaryOperator::Multiply => Ok(Value::Rate(right.scaled(left))),
+        BinaryOperator::Divide => {
+            let magnitude = left
+                .divide(right.magnitude().clone())
+                .map_err(|error| numeric_diagnostic(error, span))?;
+            let unit = CompoundUnit::default().divide(right.compound_unit());
+            Ok(classify_compound_value(UnitValue::from_compound(
+                magnitude, unit,
+            )))
+        }
         _ => Err(unsupported(span)),
     }
 }
 
-fn apply_rate(rate: Rate, value: UnitValue, span: Span) -> Result<Value, Diagnostic> {
-    match rate
-        .apply(value)
-        .map_err(|error| unit_diagnostic(error, span))?
-    {
-        RateApplication::Number(number) => Ok(Value::Number(number)),
-        RateApplication::Unit(value) => Ok(Value::Unit(value)),
+fn rate_unit_pair(
+    operator: BinaryOperator,
+    rate: Rate,
+    unit: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let rate = rate_as_unit_value(rate);
+    let result = match operator {
+        BinaryOperator::Multiply => rate.multiply_unit(unit),
+        BinaryOperator::Divide => rate.divide_unit(unit),
+        _ => return Err(unsupported(span)),
+    };
+    result
+        .map(classify_compound_value)
+        .map_err(|error| unit_diagnostic(error, span))
+}
+
+fn unit_rate_pair(
+    operator: BinaryOperator,
+    unit: UnitValue,
+    rate: Rate,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let rate = rate_as_unit_value(rate);
+    let result = match operator {
+        BinaryOperator::Multiply => unit.multiply_unit(rate),
+        BinaryOperator::Divide => unit.divide_unit(rate),
+        _ => return Err(unsupported(span)),
+    };
+    result
+        .map(classify_compound_value)
+        .map_err(|error| unit_diagnostic(error, span))
+}
+
+fn rate_as_unit_value(rate: Rate) -> UnitValue {
+    let (magnitude, unit) = rate.into_parts();
+    UnitValue::from_compound(magnitude, unit)
+}
+
+fn classify_compound_value(value: UnitValue) -> Value {
+    let (magnitude, unit) = value.into_parts();
+    if unit.is_dimensionless() {
+        Value::Number(magnitude)
+    } else if unit.has_denominator() {
+        Value::Rate(Rate::from_compound(magnitude, unit))
+    } else {
+        Value::Unit(UnitValue::from_compound(magnitude, unit))
     }
 }
 
@@ -2097,6 +2147,12 @@ fn unit_number_pair(
             .divide_number(right)
             .map(Value::Unit)
             .map_err(|error| unit_diagnostic(error, span)),
+        BinaryOperator::Power => {
+            let exponent = unit_exponent(&right, span)?;
+            left.pow(exponent)
+                .map(classify_compound_value)
+                .map_err(|error| unit_diagnostic(error, span))
+        }
         BinaryOperator::Add
         | BinaryOperator::Subtract
         | BinaryOperator::Equal
@@ -2105,11 +2161,19 @@ fn unit_number_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => {
-            let unit = left.unit();
-            unit_pair(operator, left, UnitValue::new(right, unit), span)
+            let unit = left.compound_unit().clone();
+            unit_pair(operator, left, UnitValue::from_compound(right, unit), span)
         }
         _ => Err(unsupported(span)),
     }
+}
+
+fn unit_exponent(value: &Number, span: Span) -> Result<i32, Diagnostic> {
+    value
+        .exact_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| value.unsigned_abs() <= 100)
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidUnitExponent, span))
 }
 
 fn number_unit_pair(
@@ -2121,10 +2185,11 @@ fn number_unit_pair(
     match operator {
         BinaryOperator::Multiply => Ok(Value::Unit(right.multiply_number(left))),
         BinaryOperator::Divide => {
-            let denominator = right.unit();
-            left.divide(right.magnitude().clone())
-                .map(|magnitude| Value::Rate(Rate::new(magnitude, None, denominator)))
-                .map_err(|error| numeric_diagnostic(error, span))
+            let magnitude = left
+                .divide(right.magnitude().clone())
+                .map_err(|error| numeric_diagnostic(error, span))?;
+            let unit = CompoundUnit::default().divide(right.compound_unit());
+            Ok(Value::Rate(Rate::from_compound(magnitude, unit)))
         }
         BinaryOperator::Add
         | BinaryOperator::Subtract
@@ -2134,8 +2199,8 @@ fn number_unit_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => {
-            let unit = right.unit();
-            unit_pair(operator, UnitValue::new(left, unit), right, span)
+            let unit = right.compound_unit().clone();
+            unit_pair(operator, UnitValue::from_compound(left, unit), right, span)
         }
         _ => Err(unsupported(span)),
     }
@@ -2229,19 +2294,13 @@ fn convert(
                 .map(Value::Fraction)
                 .ok_or_else(|| unsupported(span))
         }
-        ConversionTarget::Unit(target) => match value {
+        ConversionTarget::CompoundUnit(target) => match value {
             Value::Unit(value) => value
-                .converted_to(target)
-                .map(Value::Unit)
+                .converted_to_compound(&target)
+                .map(classify_compound_value)
                 .map_err(|error| unit_diagnostic(error, span)),
-            _ => Err(unsupported(span)),
-        },
-        ConversionTarget::Rate {
-            numerator,
-            denominator,
-        } => match value {
             Value::Rate(rate) => rate
-                .converted_to(numerator, denominator)
+                .converted_to_compound(&target)
                 .map(Value::Rate)
                 .map_err(|error| unit_diagnostic(error, span)),
             _ => Err(unsupported(span)),
@@ -2323,6 +2382,7 @@ fn unit_diagnostic(error: UnitError, span: Span) -> Diagnostic {
     match error {
         UnitError::IncompatibleDimensions => Diagnostic::new(DiagnosticKind::UnitMismatch, span),
         UnitError::AffineArithmetic => unsupported(span),
+        UnitError::InvalidExponent => Diagnostic::new(DiagnosticKind::InvalidUnitExponent, span),
         UnitError::Numeric(error) => numeric_diagnostic(error, span),
     }
 }

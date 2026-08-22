@@ -1,7 +1,7 @@
 use crate::{
-    CalculationContext, CalendarDuration, ClockTime, Currency, Date, Diagnostic, DiagnosticKind,
-    Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Radix,
-    RadixInteger, Span, Unit, UtcOffset, Weekday, WorkdayDuration, lex_with_number_format,
+    CalculationContext, CalendarDuration, ClockTime, CompoundUnit, Currency, Date, Diagnostic,
+    DiagnosticKind, Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime,
+    Radix, RadixInteger, Span, Unit, UtcOffset, Weekday, WorkdayDuration, lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,17 +293,13 @@ pub enum RelativeWeekdayDirection {
     This,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConversionTarget {
     Number,
     Percentage,
     Fraction,
     Radix(Radix),
-    Unit(Unit),
-    Rate {
-        numerator: Option<Unit>,
-        denominator: Unit,
-    },
+    CompoundUnit(CompoundUnit),
     UtcOffset(UtcOffset),
     Currency(Currency),
 }
@@ -328,7 +324,7 @@ pub enum Expression {
     },
     Unit {
         value: Number,
-        unit: Unit,
+        unit: CompoundUnit,
         span: Span,
     },
     Money {
@@ -638,6 +634,8 @@ impl Parser<'_> {
                 } else if let Some((unit, consumed, unit_span)) =
                     self.unit().filter(|_| !self.in_starts_conversion())
                 {
+                    let (unit, consumed, unit_span) =
+                        self.compound_unit_factor(unit, consumed, unit_span, 0)?;
                     self.position += consumed;
                     Ok(Expression::Unit {
                         value,
@@ -691,6 +689,7 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.unit().is_some() => {
                 let (unit, consumed, span) = self.unit().expect("guard checked the unit");
+                let (unit, consumed, span) = self.compound_unit_factor(unit, consumed, span, 0)?;
                 self.position += consumed;
                 Ok(Expression::Unit {
                     value: Number::from_i64(1),
@@ -1555,6 +1554,153 @@ impl Parser<'_> {
             || (self.word_is(0, "to") && !self.word_is(1, "the"))
     }
 
+    fn compound_unit_target_at(
+        &self,
+        offset: usize,
+    ) -> Result<Option<(CompoundUnit, usize, Span)>, Diagnostic> {
+        let mut cursor = offset;
+        let mut unit = CompoundUnit::default();
+        let mut divide = false;
+        let mut span = None;
+
+        if self
+            .tokens
+            .get(self.position + cursor)
+            .is_some_and(|token| token.kind == LexemeKind::Slash)
+        {
+            span = Some(self.tokens[self.position + cursor].span);
+            divide = true;
+            cursor += 1;
+        }
+
+        let Some((first, consumed, first_span)) = self.unit_at(cursor) else {
+            if divide {
+                return Err(Diagnostic::with_detail(
+                    DiagnosticKind::UnexpectedToken,
+                    self.tokens
+                        .get(self.position + cursor)
+                        .map_or(Span::empty(self.source.len()), |token| token.span),
+                    "expected a unit after '/'",
+                ));
+            }
+            return Ok(None);
+        };
+        let (factor, factor_consumed, factor_span) =
+            self.compound_unit_factor(first, consumed, first_span, cursor)?;
+        unit = if divide {
+            unit.divide(&factor)
+        } else {
+            unit.multiply(&factor)
+        };
+        cursor += factor_consumed;
+        span = Some(span.map_or(factor_span, |span: Span| span.join(factor_span)));
+
+        loop {
+            let separator = self.tokens.get(self.position + cursor).copied();
+            let separator_is_divide = separator
+                .is_some_and(|token| token.kind == LexemeKind::Slash)
+                || self.word_is(cursor, "per");
+            let separator_is_multiply =
+                separator.is_some_and(|token| token.kind == LexemeKind::Star);
+            if !separator_is_divide && !separator_is_multiply {
+                break;
+            }
+            let factor_offset = cursor + 1;
+            let Some((next, consumed, next_span)) = self.unit_at(factor_offset) else {
+                break;
+            };
+            let (factor, factor_consumed, factor_span) =
+                self.compound_unit_factor(next, consumed, next_span, factor_offset)?;
+            unit = if separator_is_divide {
+                unit.divide(&factor)
+            } else {
+                unit.multiply(&factor)
+            };
+            cursor = factor_offset + factor_consumed;
+            span = Some(
+                span.expect("the first unit established a span")
+                    .join(factor_span),
+            );
+        }
+
+        if !unit.exponents_are_bounded() {
+            return Err(Diagnostic::new(
+                DiagnosticKind::InvalidUnitExponent,
+                span.expect("a compound unit contains at least one factor"),
+            ));
+        }
+        Ok(Some((
+            unit,
+            cursor - offset,
+            span.expect("a compound unit contains at least one factor"),
+        )))
+    }
+
+    fn compound_unit_factor(
+        &self,
+        unit: Unit,
+        consumed: usize,
+        span: Span,
+        offset: usize,
+    ) -> Result<(CompoundUnit, usize, Span), Diagnostic> {
+        let unit_source = &self.source[span.start..span.end];
+        if Unit::from_alias(unit_source).is_none() {
+            if unit_source.ends_with('²') {
+                return Ok((CompoundUnit::from_unit(unit).pow(2), consumed, span));
+            }
+            if unit_source.ends_with('³') {
+                return Ok((CompoundUnit::from_unit(unit).pow(3), consumed, span));
+            }
+        }
+
+        let exponent_offset = offset + consumed;
+        if !self
+            .tokens
+            .get(self.position + exponent_offset)
+            .is_some_and(|token| token.kind == LexemeKind::Caret)
+        {
+            return Ok((CompoundUnit::from_unit(unit), consumed, span));
+        }
+        let sign_token = self
+            .tokens
+            .get(self.position + exponent_offset + 1)
+            .copied();
+        let negative = sign_token.is_some_and(|token| token.kind == LexemeKind::Minus);
+        let exponent_token_offset = exponent_offset + 1 + usize::from(negative);
+        let exponent_token = self
+            .tokens
+            .get(self.position + exponent_token_offset)
+            .copied()
+            .ok_or_else(|| {
+                Diagnostic::with_detail(
+                    DiagnosticKind::UnexpectedEnd,
+                    Span::empty(self.source.len()),
+                    "expected an integer unit exponent",
+                )
+            })?;
+        if exponent_token.kind != LexemeKind::Number {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedToken,
+                exponent_token.span,
+                "expected an integer unit exponent",
+            ));
+        }
+        let exponent = self
+            .parse_number_value(exponent_token)?
+            .exact_i64()
+            .map(|value| if negative { -value } else { value })
+            .and_then(|value| i32::try_from(value).ok())
+            .filter(|value| value.unsigned_abs() <= 100)
+            .ok_or_else(|| {
+                Diagnostic::new(DiagnosticKind::InvalidUnitExponent, exponent_token.span)
+            })?;
+        Ok((
+            CompoundUnit::from_unit(unit).pow(exponent),
+            consumed + 2 + usize::from(negative),
+            span.join(exponent_token.span),
+        ))
+    }
+
     fn parse_conversion(&mut self, expression: Expression) -> Result<Expression, Diagnostic> {
         let operator = self.current().expect("conversion operator is present");
         let Some(target_token) = self.tokens.get(self.position + 1).copied() else {
@@ -1574,53 +1720,10 @@ impl Parser<'_> {
             consumed = 1 + offset_tokens;
             target_span = span;
             ConversionTarget::UtcOffset(offset)
-        } else if target_token.kind == LexemeKind::Slash {
-            let (denominator, denominator_tokens, denominator_span) =
-                self.unit_at(2).ok_or_else(|| {
-                    Diagnostic::with_detail(
-                        DiagnosticKind::UnexpectedToken,
-                        self.tokens
-                            .get(self.position + 2)
-                            .map_or(Span::empty(self.source.len()), |token| token.span),
-                        "expected a rate denominator",
-                    )
-                })?;
-            consumed = 2 + denominator_tokens;
-            target_span = target_span.join(denominator_span);
-            ConversionTarget::Rate {
-                numerator: None,
-                denominator,
-            }
-        } else if let Some((numerator, numerator_tokens, numerator_span)) = self.unit_at(1) {
-            let separator_offset = 1 + numerator_tokens;
-            if self
-                .tokens
-                .get(self.position + separator_offset)
-                .is_some_and(|token| token.kind == LexemeKind::Slash)
-                || self.word_is(separator_offset, "per")
-            {
-                let denominator_offset = separator_offset + 1;
-                let (denominator, denominator_tokens, denominator_span) =
-                    self.unit_at(denominator_offset).ok_or_else(|| {
-                        Diagnostic::with_detail(
-                            DiagnosticKind::UnexpectedToken,
-                            self.tokens
-                                .get(self.position + denominator_offset)
-                                .map_or(Span::empty(self.source.len()), |token| token.span),
-                            "expected a rate denominator",
-                        )
-                    })?;
-                consumed = denominator_offset + denominator_tokens;
-                target_span = numerator_span.join(denominator_span);
-                ConversionTarget::Rate {
-                    numerator: Some(numerator),
-                    denominator,
-                }
-            } else {
-                consumed = 1 + numerator_tokens;
-                target_span = numerator_span;
-                ConversionTarget::Unit(numerator)
-            }
+        } else if let Some((unit, unit_tokens, unit_span)) = self.compound_unit_target_at(1)? {
+            consumed = 1 + unit_tokens;
+            target_span = unit_span;
+            ConversionTarget::CompoundUnit(unit)
         } else {
             match target_token.kind {
                 LexemeKind::Percent => ConversionTarget::Percentage,
@@ -1839,7 +1942,14 @@ impl Parser<'_> {
             return Some((unit, 2, first_token.span.join(second_token.span)));
         }
 
-        Unit::from_alias(first).map(|unit| (unit, 1, first_token.span))
+        Unit::from_alias(first)
+            .or_else(|| {
+                first
+                    .strip_suffix('²')
+                    .or_else(|| first.strip_suffix('³'))
+                    .and_then(Unit::from_alias)
+            })
+            .map(|unit| (unit, 1, first_token.span))
     }
 
     fn word_text_at(&self, offset: usize) -> Option<&str> {

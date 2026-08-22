@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_and_converts_compound_units() {
+    let output = calcite()
+        .args(["10", "m/s^2", "in", "km/h^2"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "129600 km/h²\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_natural_aggregate_lists_with_final_and() {
     let output = calcite()
         .args(["sum", "of", "1,", "2,", "and", "3"])
