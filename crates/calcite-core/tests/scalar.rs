@@ -14,6 +14,32 @@ fn symbolic_arithmetic_obeys_precedence() {
 }
 
 #[test]
+fn exact_integer_modulo_and_remainder_have_distinct_sign_rules() {
+    assert_eq!(output("17 mod 5"), "2");
+    assert_eq!(output("17 modulo 5"), "2");
+    assert_eq!(output("-17 mod 5"), "3");
+    assert_eq!(output("17 mod -5"), "2");
+    assert_eq!(output("-17 remainder 5"), "-2");
+    assert_eq!(output("17 remainder -5"), "2");
+    assert_eq!(output("2 + 10 mod 4 * 3"), "8");
+    assert_eq!(output("123456789012345678901234567890 mod 97"), "52");
+}
+
+#[test]
+fn integer_operators_reject_zero_and_non_integer_operands() {
+    assert_eq!(
+        calculate("5 mod 0").unwrap_err().kind(),
+        DiagnosticKind::DivisionByZero
+    );
+    for source in ["5.5 mod 2", "5 remainder 2.5", "sqrt(4) mod 2"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::IntegerRequired
+        );
+    }
+}
+
+#[test]
 fn common_operator_phrases_are_supported() {
     assert_eq!(output("30 plus 20"), "50");
     assert_eq!(output("1000 divided by 200"), "5");

@@ -1066,6 +1066,14 @@ fn number_pair(
             .divide(right)
             .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Modulo => left
+            .modulo(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::Remainder => left
+            .remainder(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Power => left
             .pow(right)
             .map(Value::Number)
@@ -1115,7 +1123,9 @@ fn percentage_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &left, &right, span),
-        BinaryOperator::Of
+        BinaryOperator::Modulo
+        | BinaryOperator::Remainder
+        | BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
         | BinaryOperator::At
@@ -1151,7 +1161,9 @@ fn number_percentage_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &number, &ratio, span),
-        BinaryOperator::Of
+        BinaryOperator::Modulo
+        | BinaryOperator::Remainder
+        | BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
         | BinaryOperator::At
@@ -1191,7 +1203,11 @@ fn percentage_number_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
-        BinaryOperator::At | BinaryOperator::And | BinaryOperator::Or => Err(unsupported(span)),
+        BinaryOperator::Modulo
+        | BinaryOperator::Remainder
+        | BinaryOperator::At
+        | BinaryOperator::And
+        | BinaryOperator::Or => Err(unsupported(span)),
     }
 }
 
@@ -2045,6 +2061,7 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::InvalidLogarithm => DiagnosticKind::InvalidLogarithm,
         NumericError::InvalidTrigonometry => DiagnosticKind::InvalidTrigonometry,
         NumericError::InvalidHyperbolic => DiagnosticKind::InvalidHyperbolic,
+        NumericError::IntegerRequired => DiagnosticKind::IntegerRequired,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

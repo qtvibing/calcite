@@ -4,6 +4,7 @@ use dashu_float::{
     FBig,
     round::mode::{Down, HalfAway, Up},
 };
+use dashu_int::IBig;
 use dashu_ratio::RBig;
 
 const WORKING_PRECISION: usize = 34;
@@ -52,6 +53,7 @@ pub(crate) enum NumericError {
     InvalidLogarithm,
     InvalidTrigonometry,
     InvalidHyperbolic,
+    IntegerRequired,
     NonRealResult,
 }
 
@@ -140,6 +142,29 @@ impl Number {
                 into_real(left) / into_real(right),
             )),
         })
+    }
+
+    pub(crate) fn remainder(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        if right == IBig::ZERO {
+            return Err(NumericError::DivisionByZero);
+        }
+        Ok(Self(Representation::Exact(RBig::from(left % right))))
+    }
+
+    pub(crate) fn modulo(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        if right == IBig::ZERO {
+            return Err(NumericError::DivisionByZero);
+        }
+        let modulus = if right < IBig::ZERO { -right } else { right };
+        let remainder = left % &modulus;
+        let result = if remainder < IBig::ZERO {
+            remainder + modulus
+        } else {
+            remainder
+        };
+        Ok(Self(Representation::Exact(RBig::from(result))))
     }
 
     pub(crate) fn compare(&self, other: &Self) -> Option<Ordering> {
@@ -445,6 +470,24 @@ fn validate_decimal_size(source: &str) -> Result<(), NumberParseError> {
     }
 
     Ok(())
+}
+
+fn integer_operands(
+    left: Representation,
+    right: Representation,
+) -> Result<(IBig, IBig), NumericError> {
+    fn integer(value: Representation) -> Result<IBig, NumericError> {
+        let Representation::Exact(value) = value else {
+            return Err(NumericError::IntegerRequired);
+        };
+        let (numerator, denominator) = value.into_parts();
+        if denominator != 1u8.into() {
+            return Err(NumericError::IntegerRequired);
+        }
+        Ok(numerator)
+    }
+
+    Ok((integer(left)?, integer(right)?))
 }
 
 fn into_real(value: Representation) -> Real {

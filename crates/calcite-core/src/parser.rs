@@ -17,6 +17,8 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
+    Remainder,
     Power,
     Of,
     On,
@@ -44,7 +46,14 @@ impl BinaryOperator {
             | Self::Less
             | Self::LessEqual => (5, 6),
             Self::Add | Self::Subtract => (7, 8),
-            Self::Multiply | Self::Divide | Self::Of | Self::On | Self::Off | Self::At => (9, 10),
+            Self::Multiply
+            | Self::Divide
+            | Self::Modulo
+            | Self::Remainder
+            | Self::Of
+            | Self::On
+            | Self::Off
+            | Self::At => (9, 10),
             Self::Power => (11, 11),
         }
     }
@@ -1595,6 +1604,12 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.word_is(0, "over") || self.word_is(0, "per") => {
                 (BinaryOperator::Divide, current.span, 1)
+            }
+            LexemeKind::Word if self.word_is(0, "mod") || self.word_is(0, "modulo") => {
+                (BinaryOperator::Modulo, current.span, 1)
+            }
+            LexemeKind::Word if self.word_is(0, "remainder") => {
+                (BinaryOperator::Remainder, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "of") => (BinaryOperator::Of, current.span, 1),
             LexemeKind::Word if self.word_is(0, "on") => (BinaryOperator::On, current.span, 1),
