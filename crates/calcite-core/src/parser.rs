@@ -1184,7 +1184,12 @@ impl Parser<'_> {
         let normalized = self.number_format.normalize(source).ok_or_else(|| {
             Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
         })?;
-        Number::parse_decimal(&normalized).map_err(|error| match error {
+        let parsed = if normalized.contains('(') {
+            Number::parse_repeating_decimal(&normalized)
+        } else {
+            Number::parse_decimal(&normalized)
+        };
+        parsed.map_err(|error| match error {
             NumberParseError::Invalid => {
                 Diagnostic::with_detail(DiagnosticKind::InvalidNumber, token.span, source)
             }

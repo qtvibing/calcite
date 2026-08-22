@@ -110,6 +110,25 @@ fn ordinary_decimal_and_fraction_arithmetic_remains_exact() {
 }
 
 #[test]
+fn recurring_decimal_literals_are_exact() {
+    assert_eq!(output("0.(3) as fraction"), "1/3");
+    assert_eq!(output("0.0(15) as fraction"), "1/66");
+    assert_eq!(output("12.34(56) as fraction"), "61111/4950");
+    assert_eq!(output("0.(9)"), "1");
+
+    let comma_context = CalculationContext {
+        number_format: NumberFormat::decimal_comma(),
+        ..CalculationContext::default()
+    };
+    assert_eq!(
+        calculate_with_context("0,(3) as fraction", &comma_context)
+            .unwrap()
+            .output,
+        "1/3"
+    );
+}
+
+#[test]
 fn fractional_powers_are_precision_aware_reals() {
     let calculation = calculate("2 ^ 0.5").unwrap();
     assert_eq!(calculation.output, "1.4142135624");

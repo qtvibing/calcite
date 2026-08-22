@@ -146,6 +146,18 @@ fn evaluates_arbitrary_precision_bitwise_shifts() {
 }
 
 #[test]
+fn evaluates_exact_recurring_decimals() {
+    let output = calcite()
+        .args(["0.(3)", "as", "fraction"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1/3\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn converts_arbitrary_precision_integer_bases() {
     let output = calcite()
         .args(["0xffffffffffffffffffffffffffffffff", "in", "decimal"])

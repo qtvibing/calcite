@@ -80,6 +80,43 @@ impl Number {
             .map_err(|_| NumberParseError::Invalid)
     }
 
+    pub(crate) fn parse_repeating_decimal(source: &str) -> Result<Self, NumberParseError> {
+        let normalized = source.replace('_', "");
+        let (prefix, repeating) = normalized
+            .split_once('(')
+            .ok_or(NumberParseError::Invalid)?;
+        let repeating = repeating
+            .strip_suffix(')')
+            .filter(|digits| !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+            .ok_or(NumberParseError::Invalid)?;
+        let (integer, non_repeating) = prefix.split_once('.').ok_or(NumberParseError::Invalid)?;
+        let integer = if integer.is_empty() { "0" } else { integer };
+        if !integer.bytes().all(|byte| byte.is_ascii_digit())
+            || !non_repeating.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(NumberParseError::Invalid);
+        }
+
+        let upper = Self::parse_decimal(&format!("{integer}{non_repeating}{repeating}"))?;
+        let lower = Self::parse_decimal(&format!("{integer}{non_repeating}"))?;
+        let non_repeating_places =
+            i64::try_from(non_repeating.len()).map_err(|_| NumberParseError::TooLarge)?;
+        let all_places = i64::try_from(non_repeating.len() + repeating.len())
+            .map_err(|_| NumberParseError::TooLarge)?;
+        let denominator = Self::from_i64(10)
+            .pow(Self::from_i64(all_places))
+            .map_err(|_| NumberParseError::TooLarge)?
+            .subtract(
+                Self::from_i64(10)
+                    .pow(Self::from_i64(non_repeating_places))
+                    .map_err(|_| NumberParseError::TooLarge)?,
+            );
+        upper
+            .subtract(lower)
+            .checked_divide(denominator)
+            .ok_or(NumberParseError::Invalid)
+    }
+
     pub(crate) fn parse_radix_integer(source: &str, radix: u8) -> Result<Self, NumberParseError> {
         let digits = source.chars().filter(|character| *character != '_').count();
         if digits == 0 {

@@ -189,14 +189,30 @@ fn scan_number(source: &str, start: usize, number_format: NumberFormat) -> usize
         return index;
     }
 
-    if source[index..].starts_with(decimal) {
+    let has_decimal = if source[index..].starts_with(decimal) {
         index += decimal.len_utf8();
         index = scan_digits(source, index, None);
+        true
     } else {
         index = scan_digits(source, index, number_format.grouping_separator());
         if source[index..].starts_with(decimal) {
             index += decimal.len_utf8();
             index = scan_digits(source, index, None);
+            true
+        } else {
+            false
+        }
+    };
+
+    if has_decimal && source[index..].starts_with('(') {
+        let digits_start = index + 1;
+        let digits_end = source[digits_start..]
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count()
+            + digits_start;
+        if digits_end > digits_start && source[digits_end..].starts_with(')') {
+            return digits_end + 1;
         }
     }
 
@@ -319,6 +335,15 @@ mod tests {
         assert_eq!(tokens[2].span, Span::new(5, 11));
         assert_eq!(tokens[4].kind, LexemeKind::Number);
         assert_eq!(tokens[4].span, Span::new(12, 17));
+    }
+
+    #[test]
+    fn recognizes_repeating_decimals_as_single_numbers() {
+        let tokens = lex("0.(3) + 0.0(15)").unwrap();
+        assert_eq!(tokens[0].kind, LexemeKind::Number);
+        assert_eq!(tokens[0].span, Span::new(0, 5));
+        assert_eq!(tokens[4].kind, LexemeKind::Number);
+        assert_eq!(tokens[4].span, Span::new(8, 15));
     }
 
     #[test]
