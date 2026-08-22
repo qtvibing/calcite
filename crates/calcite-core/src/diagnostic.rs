@@ -28,6 +28,7 @@ pub enum DiagnosticKind {
     CombinatoricsTooLarge,
     InvalidShift,
     ShiftTooLarge,
+    PrimalityInputTooLarge,
     NonRealResult,
     UnsupportedOperation,
     UnitMismatch,
@@ -106,6 +107,9 @@ impl Diagnostic {
             DiagnosticKind::CombinatoricsTooLarge => "combinatorics input is too large",
             DiagnosticKind::InvalidShift => "shift count must be a non-negative exact integer",
             DiagnosticKind::ShiftTooLarge => "shift count is too large",
+            DiagnosticKind::PrimalityInputTooLarge => {
+                "primality checks are limited to unsigned 64-bit integers"
+            }
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
             DiagnosticKind::UnitMismatch => "units have incompatible dimensions",

@@ -119,6 +119,9 @@ pub enum Function {
     Octal,
     Hexadecimal,
     Integer,
+    GreatestCommonDivisor,
+    LeastCommonMultiple,
+    IsPrime,
     Round,
     Floor,
     Ceiling,
@@ -126,7 +129,19 @@ pub enum Function {
 
 impl Function {
     fn from_name(name: &str) -> Option<Self> {
-        if name.eq_ignore_ascii_case("factorial") {
+        if name.eq_ignore_ascii_case("gcd") || name.eq_ignore_ascii_case("greatest_common_divisor")
+        {
+            Some(Self::GreatestCommonDivisor)
+        } else if name.eq_ignore_ascii_case("lcm")
+            || name.eq_ignore_ascii_case("least_common_multiple")
+        {
+            Some(Self::LeastCommonMultiple)
+        } else if name.eq_ignore_ascii_case("is_prime")
+            || name.eq_ignore_ascii_case("isprime")
+            || name.eq_ignore_ascii_case("prime")
+        {
+            Some(Self::IsPrime)
+        } else if name.eq_ignore_ascii_case("factorial") {
             Some(Self::Factorial)
         } else if name.eq_ignore_ascii_case("permutation")
             || name.eq_ignore_ascii_case("permutations")
@@ -764,7 +779,21 @@ impl Parser<'_> {
     }
 
     fn natural_function_at(&self) -> Option<(Function, usize)> {
-        if self.word_is(0, "square") && self.word_is(1, "root") && self.word_is(2, "of") {
+        if self.word_is(0, "greatest")
+            && self.word_is(1, "common")
+            && self.word_is(2, "divisor")
+            && self.word_is(3, "of")
+        {
+            Some((Function::GreatestCommonDivisor, 4))
+        } else if self.word_is(0, "least")
+            && self.word_is(1, "common")
+            && self.word_is(2, "multiple")
+            && self.word_is(3, "of")
+        {
+            Some((Function::LeastCommonMultiple, 4))
+        } else if self.word_is(0, "is") && self.word_is(1, "prime") {
+            Some((Function::IsPrime, 2))
+        } else if self.word_is(0, "square") && self.word_is(1, "root") && self.word_is(2, "of") {
             Some((Function::SquareRoot, 3))
         } else if self.word_is(0, "cube") && self.word_is(1, "root") && self.word_is(2, "of") {
             Some((Function::CubicRoot, 3))
@@ -938,6 +967,8 @@ impl Parser<'_> {
         let accepts_list = matches!(
             function,
             Function::Sum
+                | Function::GreatestCommonDivisor
+                | Function::LeastCommonMultiple
                 | Function::Average
                 | Function::Minimum
                 | Function::Maximum

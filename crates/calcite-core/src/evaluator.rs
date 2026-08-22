@@ -442,6 +442,40 @@ fn evaluate_call(
                 Err(Diagnostic::new(DiagnosticKind::IntegerRequired, span))
             }
         }
+        Function::GreatestCommonDivisor | Function::LeastCommonMultiple => {
+            let [Value::Number(first), Value::Number(second), rest @ ..] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let mut result = if function == Function::GreatestCommonDivisor {
+                first.clone().greatest_common_divisor(second.clone())
+            } else {
+                first.clone().least_common_multiple(second.clone())
+            };
+            for value in rest {
+                let Value::Number(value) = value else {
+                    return Err(invalid_function_arguments(span));
+                };
+                result = result.and_then(|result| {
+                    if function == Function::GreatestCommonDivisor {
+                        result.greatest_common_divisor(value.clone())
+                    } else {
+                        result.least_common_multiple(value.clone())
+                    }
+                });
+            }
+            result
+                .map(Value::Number)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
+        Function::IsPrime => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            number
+                .is_prime()
+                .map(Value::Boolean)
+                .map_err(|error| numeric_diagnostic(error, span))
+        }
         Function::Factorial => {
             let [Value::Number(number)] = values.as_slice() else {
                 return Err(invalid_function_arguments(span));
@@ -2222,6 +2256,7 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::CombinatoricsTooLarge => DiagnosticKind::CombinatoricsTooLarge,
         NumericError::InvalidShift => DiagnosticKind::InvalidShift,
         NumericError::ShiftTooLarge => DiagnosticKind::ShiftTooLarge,
+        NumericError::PrimalityInputTooLarge => DiagnosticKind::PrimalityInputTooLarge,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

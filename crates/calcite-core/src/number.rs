@@ -4,7 +4,7 @@ use dashu_float::{
     FBig,
     round::mode::{Down, HalfAway, Up},
 };
-use dashu_int::IBig;
+use dashu_int::{IBig, ops::UnsignedAbs};
 use dashu_ratio::RBig;
 
 use crate::Radix;
@@ -64,6 +64,7 @@ pub(crate) enum NumericError {
     CombinatoricsTooLarge,
     InvalidShift,
     ShiftTooLarge,
+    PrimalityInputTooLarge,
     NonRealResult,
 }
 
@@ -233,6 +234,34 @@ impl Number {
         let value = integer_value(self.0)?;
         let count = shift_count(count.0)?;
         Ok(Self(Representation::Exact(RBig::from(value >> count))))
+    }
+
+    pub(crate) fn greatest_common_divisor(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        let divisor = unsigned_gcd(left.unsigned_abs(), right.unsigned_abs());
+        Ok(Self(Representation::Exact(RBig::from(divisor))))
+    }
+
+    pub(crate) fn least_common_multiple(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        let left = left.unsigned_abs();
+        let right = right.unsigned_abs();
+        if left == dashu_int::UBig::ZERO || right == dashu_int::UBig::ZERO {
+            return Ok(Self::from_i64(0));
+        }
+        let divisor = unsigned_gcd(left.clone(), right.clone());
+        Ok(Self(Representation::Exact(RBig::from(
+            (left / divisor) * right,
+        ))))
+    }
+
+    pub(crate) fn is_prime(&self) -> Result<bool, NumericError> {
+        let value = integer_value(self.0.clone())?;
+        if value < IBig::from(2) {
+            return Ok(false);
+        }
+        let value = u64::try_from(&value).map_err(|_| NumericError::PrimalityInputTooLarge)?;
+        Ok(is_prime_u64(value))
     }
 
     pub(crate) fn factorial(self) -> Result<Self, NumericError> {
@@ -596,6 +625,65 @@ fn integer_value(value: Representation) -> Result<IBig, NumericError> {
         return Err(NumericError::IntegerRequired);
     }
     Ok(numerator)
+}
+
+fn unsigned_gcd(mut left: dashu_int::UBig, mut right: dashu_int::UBig) -> dashu_int::UBig {
+    while right != dashu_int::UBig::ZERO {
+        let remainder = &left % &right;
+        left = right;
+        right = remainder;
+    }
+    left
+}
+
+fn is_prime_u64(value: u64) -> bool {
+    const SMALL_PRIMES: [u64; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+    if SMALL_PRIMES.contains(&value) {
+        return true;
+    }
+    if SMALL_PRIMES
+        .iter()
+        .any(|prime| value.is_multiple_of(*prime))
+    {
+        return false;
+    }
+
+    let mut odd_part = value - 1;
+    let powers_of_two = odd_part.trailing_zeros();
+    odd_part >>= powers_of_two;
+    for base in [2_u64, 325, 9_375, 28_178, 450_775, 9_780_504, 1_795_265_022] {
+        if base.is_multiple_of(value) {
+            continue;
+        }
+        let mut witness = modular_power(base % value, odd_part, value);
+        if witness == 1 || witness == value - 1 {
+            continue;
+        }
+        let mut composite = true;
+        for _ in 1..powers_of_two {
+            witness = ((witness as u128 * witness as u128) % value as u128) as u64;
+            if witness == value - 1 {
+                composite = false;
+                break;
+            }
+        }
+        if composite {
+            return false;
+        }
+    }
+    true
+}
+
+fn modular_power(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
+    let mut result = 1_u64;
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = ((result as u128 * base as u128) % modulus as u128) as u64;
+        }
+        base = ((base as u128 * base as u128) % modulus as u128) as u64;
+        exponent >>= 1;
+    }
+    result
 }
 
 fn shift_count(value: Representation) -> Result<usize, NumericError> {

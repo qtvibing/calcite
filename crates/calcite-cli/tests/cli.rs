@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_exact_number_theory_functions() {
+    let output = calcite()
+        .args(["is_prime(18446744073709551557)"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_arbitrary_precision_bitwise_shifts() {
     let output = calcite()
         .args(["1", "<<", "100"])
