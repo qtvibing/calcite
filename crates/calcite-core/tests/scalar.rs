@@ -14,6 +14,33 @@ fn symbolic_arithmetic_obeys_precedence() {
 }
 
 #[test]
+fn double_asterisk_is_right_associative_power() {
+    assert_eq!(output("2 ** 3"), "8");
+    assert_eq!(output("2 ** 3 ** 2"), "512");
+    assert_eq!(output("-2 ** 2"), "-4");
+    assert_eq!(output("2 * 3 ** 2"), "18");
+}
+
+#[test]
+fn spaced_percent_is_remainder_while_attached_percent_is_percentage() {
+    assert_eq!(output("17 % 5"), "2");
+    assert_eq!(output("-17 % 5"), "-2");
+    assert_eq!(output("17 % -5"), "2");
+    assert_eq!(output("10%"), "10%");
+    assert_eq!(output("100 + 10%"), "110");
+    assert_eq!(output("100 + 10 %"), "110");
+
+    assert_eq!(
+        calculate("5.5 % 2").unwrap_err().kind(),
+        DiagnosticKind::IntegerRequired
+    );
+    assert_eq!(
+        calculate("5 % 0").unwrap_err().kind(),
+        DiagnosticKind::DivisionByZero
+    );
+}
+
+#[test]
 fn exact_integer_modulo_and_remainder_have_distinct_sign_rules() {
     assert_eq!(output("17 mod 5"), "2");
     assert_eq!(output("17 modulo 5"), "2");

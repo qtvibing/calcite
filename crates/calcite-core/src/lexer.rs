@@ -279,6 +279,13 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_double_asterisk_as_one_power_operator() {
+        let tokens = lex("2 ** 8").unwrap();
+        assert_eq!(tokens[2].kind, LexemeKind::Caret);
+        assert_eq!(tokens[2].span, Span::new(2, 4));
+    }
+
+    #[test]
     fn recognizes_bitwise_symbols_and_shifts() {
         let tokens = lex("1 & 2 | 3 << 4 >> 1").unwrap();
         assert!(

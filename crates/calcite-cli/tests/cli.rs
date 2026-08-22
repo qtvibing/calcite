@@ -8,6 +8,23 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn distinguishes_spaced_remainder_from_attached_percentage() {
+    let remainder = calcite()
+        .args(["17", "%", "5"])
+        .output()
+        .expect("calcite should run");
+    assert!(remainder.status.success());
+    assert_eq!(String::from_utf8(remainder.stdout).unwrap(), "2\n");
+
+    let percentage = calcite()
+        .args(["10%"])
+        .output()
+        .expect("calcite should run");
+    assert!(percentage.status.success());
+    assert_eq!(String::from_utf8(percentage.stdout).unwrap(), "10%\n");
+}
+
+#[test]
 fn evaluates_exact_number_theory_functions() {
     let output = calcite()
         .args(["is_prime(18446744073709551557)"])

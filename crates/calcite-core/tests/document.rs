@@ -26,8 +26,10 @@ fn combinatorics_flow_through_variables() {
 #[test]
 fn integer_operators_flow_through_variables() {
     assert_eq!(
-        outputs("items = 100\nbox_size = 12\nitems mod box_size\n-items remainder box_size"),
-        ["100", "12", "4", "-4"]
+        outputs(
+            "items = 100\nbox_size = 12\nitems mod box_size\n-items remainder box_size\nitems % box_size\n2 ** 8",
+        ),
+        ["100", "12", "4", "-4", "4", "256"]
     );
 }
 

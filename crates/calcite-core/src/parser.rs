@@ -477,6 +477,7 @@ impl Parser<'_> {
             if let Some(percent) = self
                 .current()
                 .filter(|token| token.kind == LexemeKind::Percent)
+                .filter(|token| !self.is_spaced_remainder(*token))
             {
                 self.position += 1;
                 let span = left.span().join(percent.span);
@@ -1744,6 +1745,18 @@ impl Parser<'_> {
         Some((factor, token))
     }
 
+    fn is_spaced_remainder(&self, token: Lexeme) -> bool {
+        self.tokens.get(self.position + 1).is_some()
+            && self.source[..token.span.start]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace)
+            && self.source[token.span.end..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+    }
+
     fn binary_operator(&self) -> Option<(BinaryOperator, Span, usize, u8, u8)> {
         let current = self.current()?;
         let (operator, span, consumed) = match current.kind {
@@ -1751,6 +1764,9 @@ impl Parser<'_> {
             LexemeKind::Minus => (BinaryOperator::Subtract, current.span, 1),
             LexemeKind::Star => (BinaryOperator::Multiply, current.span, 1),
             LexemeKind::Slash => (BinaryOperator::Divide, current.span, 1),
+            LexemeKind::Percent if self.is_spaced_remainder(current) => {
+                (BinaryOperator::Remainder, current.span, 1)
+            }
             LexemeKind::Caret => (BinaryOperator::Power, current.span, 1),
             LexemeKind::EqualEqual => (BinaryOperator::Equal, current.span, 1),
             LexemeKind::NotEqual => (BinaryOperator::NotEqual, current.span, 1),
