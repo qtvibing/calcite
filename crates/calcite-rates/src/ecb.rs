@@ -80,7 +80,9 @@ impl ExchangeRateProvider for EcbProvider {
                     .ok_or(ProviderError::InvalidSnapshot)?;
                 rates.push((request.base(), quote, rate));
             }
-            if rates.is_empty() {
+            if rates.is_empty()
+                || (!request.quotes().is_empty() && rates.len() != request.quotes().len())
+            {
                 return Err(ProviderError::NoRates);
             }
             ExchangeRateSnapshot::new(Some(date_at_utc(&date)?), rates)

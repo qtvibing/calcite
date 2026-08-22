@@ -37,6 +37,8 @@ name = "calcite-cli"
 version = "0.1.0"
 dependencies = [
  "calcite-core",
+ "calcite-rates",
+ "tokio",
 ]
 
 [[package]]

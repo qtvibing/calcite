@@ -1,6 +1,6 @@
 # calcite-rates
 
-Optional exchange-rate loading for `calcite-core`. Evaluation never performs network access.
+Optional exchange-rate loading for `calcite-core`. Evaluation never performs network access. Providers include the official ECB daily feed and Frankfurter v2, which aggregates rates from central banks without requiring an API key.
 
 Core only, with caller-injected snapshots:
 

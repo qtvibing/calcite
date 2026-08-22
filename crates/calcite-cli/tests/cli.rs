@@ -4,7 +4,41 @@ use std::{
 };
 
 fn calcite() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_calcite"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_calcite"));
+    command.env(
+        "CALCITE_RATE_CACHE",
+        std::env::temp_dir().join(format!("calcite-test-{}-rates.json", std::process::id())),
+    );
+    command
+}
+
+#[test]
+fn converts_currencies_from_the_local_rate_cache() {
+    let path = std::env::temp_dir().join(format!(
+        "calcite-test-{}-currency-rates.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"{
+            "as_of": "2025-03-08T00:00:00Z",
+            "rates": [
+                {"source": "USD", "target": "EUR", "rate": "0.8"},
+                {"source": "USD", "target": "JPY", "rate": "150"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let output = calcite()
+        .env("CALCITE_RATE_CACHE", &path)
+        .args(["80", "EUR", "in", "JPY"])
+        .output()
+        .expect("calcite should run");
+    let _ = std::fs::remove_file(path);
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "15000 JPY\n");
+    assert!(output.stderr.is_empty());
 }
 
 #[test]
@@ -445,6 +479,6 @@ fn empty_input_prints_usage_and_uses_a_distinct_exit_code() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "usage: calcite <expression>\n"
+        "usage: calcite [--refresh-rates] <expression>\n"
     );
 }

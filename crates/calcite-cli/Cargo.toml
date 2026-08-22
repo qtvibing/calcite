@@ -9,3 +9,5 @@ path = "src/main.rs"
 
 [dependencies]
 calcite-core = { path = "../calcite-core" }
+calcite-rates = { path = "../calcite-rates", features = ["ecb", "frankfurter"] }
+tokio.workspace = true

@@ -131,6 +131,36 @@ fn exchange_rates_are_injected_snapshots_and_work_in_both_directions() {
 }
 
 #[test]
+fn coherent_snapshots_support_cross_rates_through_a_shared_base() {
+    let mut context = CalculationContext::default();
+    context.monetary.exchange_rates.reload(
+        ExchangeRateSnapshot::new(
+            None,
+            [
+                (
+                    Currency::Usd,
+                    Currency::Eur,
+                    Number::parse_decimal("0.8").unwrap(),
+                ),
+                (
+                    Currency::Usd,
+                    Currency::Jpy,
+                    Number::parse_decimal("150").unwrap(),
+                ),
+            ],
+        )
+        .unwrap(),
+    );
+
+    assert_eq!(
+        calculate_with_context("80 EUR in JPY", &context)
+            .unwrap()
+            .output,
+        "15000 JPY"
+    );
+}
+
+#[test]
 fn exchange_snapshots_reload_as_whole_validated_values() {
     let first = ExchangeRateSnapshot::new(
         None,

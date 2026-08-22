@@ -77,6 +77,15 @@ impl ExchangeRateSnapshot {
             .iter()
             .map(|(&(source, target), rate)| (source, target, rate))
     }
+
+    fn direct_rate(&self, source: Currency, target: Currency) -> Option<Number> {
+        if source == target {
+            return Some(Number::from_i64(1));
+        }
+        self.rates.get(&(source, target)).cloned().or_else(|| {
+            Number::from_i64(1).checked_divide(self.rates.get(&(target, source))?.clone())
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -110,18 +119,21 @@ impl ExchangeRates {
         {
             return Err(ExchangeRateLookupError::Stale);
         }
-        if let Some(rate) = self.snapshot.rates.get(&(source, target)) {
-            return Ok(rate.clone());
+        if let Some(rate) = self.snapshot.direct_rate(source, target) {
+            return Ok(rate);
         }
-        Number::from_i64(1)
-            .divide(
-                self.snapshot
-                    .rates
-                    .get(&(target, source))
-                    .ok_or(ExchangeRateLookupError::Missing)?
-                    .clone(),
-            )
-            .map_err(|_| ExchangeRateLookupError::Missing)
+        for pivot in Currency::all().iter().copied() {
+            if pivot == source || pivot == target {
+                continue;
+            }
+            if let (Some(first), Some(second)) = (
+                self.snapshot.direct_rate(source, pivot),
+                self.snapshot.direct_rate(pivot, target),
+            ) {
+                return Ok(first.multiply(second));
+            }
+        }
+        Err(ExchangeRateLookupError::Missing)
     }
 }
 
