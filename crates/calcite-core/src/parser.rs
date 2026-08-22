@@ -1,7 +1,7 @@
 use crate::{
     CalculationContext, CalendarDuration, ClockTime, Currency, Date, Diagnostic, DiagnosticKind,
     Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Span, Unit,
-    UtcOffset, WorkdayDuration, lex_with_number_format,
+    UtcOffset, Weekday, WorkdayDuration, lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,6 +198,13 @@ pub enum TemporalKeyword {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelativeWeekdayDirection {
+    Next,
+    Previous,
+    This,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConversionTarget {
     Number,
     Percentage,
@@ -257,6 +264,11 @@ pub enum Expression {
     },
     TemporalKeyword {
         keyword: TemporalKeyword,
+        span: Span,
+    },
+    RelativeWeekday {
+        direction: RelativeWeekdayDirection,
+        weekday: Weekday,
         span: Span,
     },
     Variable {
@@ -322,6 +334,7 @@ impl Expression {
             | Self::CalendarDuration { span, .. }
             | Self::WorkdayDuration { span, .. }
             | Self::TemporalKeyword { span, .. }
+            | Self::RelativeWeekday { span, .. }
             | Self::Variable { span, .. }
             | Self::Call { span, .. }
             | Self::Unary { span, .. }
@@ -514,6 +527,17 @@ impl Parser<'_> {
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
             LexemeKind::Word if self.natural_function_at().is_some() => {
                 self.parse_natural_function()
+            }
+            LexemeKind::Word if self.relative_weekday_at().is_some() => {
+                let (direction, weekday, span) = self
+                    .relative_weekday_at()
+                    .expect("guard checked the relative weekday");
+                self.position += 2;
+                Ok(Expression::RelativeWeekday {
+                    direction,
+                    weekday,
+                    span,
+                })
             }
             LexemeKind::Word if self.month_at(0).is_some() => self.parse_named_date(true),
             LexemeKind::Word if self.temporal_keyword().is_some() => {
@@ -1029,6 +1053,43 @@ impl Parser<'_> {
         (token.kind == LexemeKind::Number)
             .then(|| self.source[token.span.start..token.span.end].parse().ok())
             .flatten()
+    }
+
+    fn relative_weekday_at(&self) -> Option<(RelativeWeekdayDirection, Weekday, Span)> {
+        let first = self.current()?;
+        let direction = if self.word_is(0, "next") {
+            RelativeWeekdayDirection::Next
+        } else if self.word_is(0, "last") || self.word_is(0, "previous") {
+            RelativeWeekdayDirection::Previous
+        } else if self.word_is(0, "this") {
+            RelativeWeekdayDirection::This
+        } else {
+            return None;
+        };
+        let second = self.tokens.get(self.position + 1)?;
+        let weekday = self.weekday_at(1)?;
+        Some((direction, weekday, first.span.join(second.span)))
+    }
+
+    fn weekday_at(&self, offset: usize) -> Option<Weekday> {
+        let weekday = self.word_text_at(offset)?;
+        if weekday.eq_ignore_ascii_case("monday") || weekday.eq_ignore_ascii_case("mon") {
+            Some(Weekday::Monday)
+        } else if weekday.eq_ignore_ascii_case("tuesday") || weekday.eq_ignore_ascii_case("tue") {
+            Some(Weekday::Tuesday)
+        } else if weekday.eq_ignore_ascii_case("wednesday") || weekday.eq_ignore_ascii_case("wed") {
+            Some(Weekday::Wednesday)
+        } else if weekday.eq_ignore_ascii_case("thursday") || weekday.eq_ignore_ascii_case("thu") {
+            Some(Weekday::Thursday)
+        } else if weekday.eq_ignore_ascii_case("friday") || weekday.eq_ignore_ascii_case("fri") {
+            Some(Weekday::Friday)
+        } else if weekday.eq_ignore_ascii_case("saturday") || weekday.eq_ignore_ascii_case("sat") {
+            Some(Weekday::Saturday)
+        } else if weekday.eq_ignore_ascii_case("sunday") || weekday.eq_ignore_ascii_case("sun") {
+            Some(Weekday::Sunday)
+        } else {
+            None
+        }
     }
 
     fn temporal_keyword(&self) -> Option<TemporalKeyword> {

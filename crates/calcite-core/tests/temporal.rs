@@ -67,6 +67,31 @@ fn workday_arithmetic_skips_weekends_without_assuming_holidays() {
 }
 
 #[test]
+fn relative_weekdays_have_explicit_strict_semantics() {
+    let context = context_at(2025, 3, 8, 14, 30, 2);
+    for (source, expected) in [
+        ("next Monday", "2025-03-10"),
+        ("last Monday", "2025-03-03"),
+        ("previous Fri", "2025-03-07"),
+        ("this Monday", "2025-03-03"),
+        ("this Saturday", "2025-03-08"),
+        ("next Saturday", "2025-03-15"),
+        ("last Saturday", "2025-03-01"),
+        ("next Monday at 9:00", "2025-03-10T09:00+02:00"),
+    ] {
+        assert_eq!(
+            calculate_with_context(source, &context).unwrap().output,
+            expected
+        );
+    }
+
+    let error = calculate("next Monday").unwrap_err();
+    assert_eq!(error.kind(), DiagnosticKind::MissingTemporalContext);
+    assert_eq!(error.span().start, 0);
+    assert_eq!(error.span().end, "next Monday".len());
+}
+
+#[test]
 fn injected_holidays_change_workday_rules_deterministically() {
     let christmas = Date::new(2025, 12, 25).unwrap();
     let context = CalculationContext {

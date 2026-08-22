@@ -5,8 +5,8 @@ use crate::unit::UnitError;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, ConversionTarget,
     Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
-    OffsetDateTime, Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue,
-    Weekday, WorkdayCalendar, WorkdayDuration, parse_with_context,
+    OffsetDateTime, Percentage, Rate, RelativeWeekdayDirection, Span, TemporalKeyword,
+    UnaryOperator, Unit, UnitValue, Weekday, WorkdayCalendar, WorkdayDuration, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -202,6 +202,34 @@ pub(crate) fn evaluate_expression(
                 .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
         },
+        Expression::RelativeWeekday {
+            direction,
+            weekday,
+            span,
+        } => {
+            let current = context
+                .temporal
+                .current_datetime
+                .map(OffsetDateTime::date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span))?;
+            let current_number = i64::from(current.weekday().number_from_monday());
+            let target_number = i64::from(weekday.number_from_monday());
+            let days = match direction {
+                RelativeWeekdayDirection::Next => {
+                    let distance = (target_number - current_number).rem_euclid(7);
+                    if distance == 0 { 7 } else { distance }
+                }
+                RelativeWeekdayDirection::Previous => {
+                    let distance = (current_number - target_number).rem_euclid(7);
+                    -(if distance == 0 { 7 } else { distance })
+                }
+                RelativeWeekdayDirection::This => target_number - current_number,
+            };
+            current
+                .add_days(days)
+                .map(Value::Date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))
+        }
         Expression::Variable { name, span } => variables
             .get(name)
             .cloned()

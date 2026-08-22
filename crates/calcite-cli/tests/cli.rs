@@ -98,6 +98,21 @@ fn evaluates_deterministic_workday_arithmetic() {
 }
 
 #[test]
+fn relative_weekdays_require_explicit_temporal_context() {
+    let output = calcite()
+        .args(["next", "Monday"])
+        .output()
+        .expect("calcite should run");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: current date or time was not provided\n  next Monday\n  ^^^^^^^^^^^\n"
+    );
+}
+
+#[test]
 fn evaluates_natural_calendar_arithmetic() {
     let output = calcite()
         .args(["March", "8,", "2025", "+", "1", "month"])

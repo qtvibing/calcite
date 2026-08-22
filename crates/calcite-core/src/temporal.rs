@@ -19,6 +19,18 @@ impl Weekday {
     pub const fn is_workday(self) -> bool {
         !matches!(self, Self::Saturday | Self::Sunday)
     }
+
+    pub const fn number_from_monday(self) -> u8 {
+        match self {
+            Self::Monday => 1,
+            Self::Tuesday => 2,
+            Self::Wednesday => 3,
+            Self::Thursday => 4,
+            Self::Friday => 5,
+            Self::Saturday => 6,
+            Self::Sunday => 7,
+        }
+    }
 }
 
 impl fmt::Display for Weekday {
