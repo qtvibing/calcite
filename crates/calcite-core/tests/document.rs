@@ -1,4 +1,7 @@
-use calcite_core::{DiagnosticKind, DocumentDependency, DocumentEntryKind, calculate_document};
+use calcite_core::{
+    CalculationContext, Date, DiagnosticKind, DocumentDependency, DocumentEntryKind,
+    TemporalContext, WorkdayCalendar, calculate_document, calculate_document_with_context,
+};
 
 fn outputs(source: &str) -> Vec<String> {
     calculate_document(source)
@@ -15,6 +18,24 @@ fn workday_values_flow_through_variables() {
         outputs("start = 2025-03-07\ndeadline = start + 5 workdays\nweekday(deadline)"),
         ["2025-03-07", "2025-03-14", "Friday"]
     );
+}
+
+#[test]
+fn document_workdays_use_the_injected_holiday_calendar() {
+    let context = CalculationContext {
+        temporal: TemporalContext {
+            workday_calendar: WorkdayCalendar::new([Date::new(2025, 12, 25).unwrap()]),
+            ..TemporalContext::default()
+        },
+        ..CalculationContext::default()
+    };
+    let document = calculate_document_with_context(
+        "start = 2025-12-24\ndeadline = start + 1 workday\ndeadline",
+        &context,
+    )
+    .unwrap();
+    assert_eq!(document.lines[1].output, "2025-12-26");
+    assert_eq!(document.lines[2].output, "2025-12-26");
 }
 
 #[test]

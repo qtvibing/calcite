@@ -1,6 +1,6 @@
 use calcite_core::{
     CalculationContext, ClockTime, Date, DiagnosticKind, OffsetDateTime, TemporalContext,
-    UtcOffset, calculate, calculate_with_context,
+    UtcOffset, WorkdayCalendar, calculate, calculate_with_context,
 };
 
 fn output(source: &str) -> String {
@@ -23,6 +23,7 @@ fn context_at(
                 UtcOffset::from_seconds(offset_hours * 3600).unwrap(),
             )),
             default_offset: UtcOffset::UTC,
+            ..TemporalContext::default()
         },
         ..CalculationContext::default()
     }
@@ -62,6 +63,44 @@ fn workday_arithmetic_skips_weekends_without_assuming_holidays() {
     assert_eq!(
         output("workdays_between(2025-03-17, 2025-03-10)"),
         "-5 workdays"
+    );
+}
+
+#[test]
+fn injected_holidays_change_workday_rules_deterministically() {
+    let christmas = Date::new(2025, 12, 25).unwrap();
+    let context = CalculationContext {
+        temporal: TemporalContext {
+            workday_calendar: WorkdayCalendar::new([christmas]),
+            ..TemporalContext::default()
+        },
+        ..CalculationContext::default()
+    };
+
+    assert_eq!(output("2025-12-24 + 1 workday"), "2025-12-25");
+    assert_eq!(
+        calculate_with_context("2025-12-24 + 1 workday", &context)
+            .unwrap()
+            .output,
+        "2025-12-26"
+    );
+    assert_eq!(
+        calculate_with_context("2025-12-24 + 2 workdays", &context)
+            .unwrap()
+            .output,
+        "2025-12-29"
+    );
+    assert_eq!(
+        calculate_with_context("workdays_between(2025-12-24, 2025-12-30)", &context)
+            .unwrap()
+            .output,
+        "3 workdays"
+    );
+    assert_eq!(
+        calculate_with_context("is_workday(2025-12-25)", &context)
+            .unwrap()
+            .output,
+        "false"
     );
 }
 
@@ -132,6 +171,7 @@ fn dates_and_times_compose_using_the_context_offset() {
         temporal: TemporalContext {
             current_datetime: None,
             default_offset: UtcOffset::from_seconds(5 * 3600 + 30 * 60).unwrap(),
+            ..TemporalContext::default()
         },
         ..CalculationContext::default()
     };
@@ -153,6 +193,7 @@ fn relative_temporal_words_require_injected_context() {
                 UtcOffset::from_seconds(2 * 3600).unwrap(),
             )),
             default_offset: UtcOffset::UTC,
+            ..TemporalContext::default()
         },
         ..CalculationContext::default()
     };

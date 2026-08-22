@@ -1,4 +1,8 @@
-use std::fmt;
+use std::{
+    collections::BTreeSet,
+    fmt,
+    ops::Bound::{Excluded, Included},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Weekday {
@@ -519,10 +523,82 @@ impl fmt::Display for CalendarDuration {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkdayCalendar {
+    holidays: BTreeSet<Date>,
+}
+
+impl WorkdayCalendar {
+    pub fn new(holidays: impl IntoIterator<Item = Date>) -> Self {
+        Self {
+            holidays: holidays.into_iter().collect(),
+        }
+    }
+
+    pub fn holidays(&self) -> impl Iterator<Item = Date> + '_ {
+        self.holidays.iter().copied()
+    }
+
+    pub fn is_workday(&self, date: Date) -> bool {
+        date.is_workday() && !self.holidays.contains(&date)
+    }
+
+    pub fn add_workdays(&self, date: Date, workdays: i64) -> Option<Date> {
+        if workdays == 0 {
+            return Some(date);
+        }
+        let direction = workdays.signum();
+        let mut segment_start = date;
+        let mut candidate = date.add_workdays(workdays)?;
+        loop {
+            let skipped_holidays = self.traversed_weekday_holidays(segment_start, candidate);
+            if skipped_holidays == 0 {
+                return Some(candidate);
+            }
+            segment_start = candidate;
+            candidate = candidate.add_workdays(direction.checked_mul(skipped_holidays)?)?;
+        }
+    }
+
+    pub fn workdays_between(&self, start: Date, end: Date) -> i64 {
+        let weekdays = start.workdays_until(end);
+        if start <= end {
+            weekdays - self.weekday_holidays_between(start, end)
+        } else {
+            weekdays + self.weekday_holidays_between(end, start)
+        }
+    }
+
+    fn weekday_holidays_between(&self, start: Date, end: Date) -> i64 {
+        let (lower, upper) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        self.holidays
+            .range(lower..upper)
+            .filter(|date| date.is_workday())
+            .count() as i64
+    }
+
+    fn traversed_weekday_holidays(&self, start: Date, end: Date) -> i64 {
+        let range = if start <= end {
+            (Excluded(start), Included(end))
+        } else {
+            (Included(end), Excluded(start))
+        };
+        self.holidays
+            .range(range)
+            .filter(|date| date.is_workday())
+            .count() as i64
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemporalContext {
     pub current_datetime: Option<OffsetDateTime>,
     pub default_offset: UtcOffset,
+    pub workday_calendar: WorkdayCalendar,
 }
 
 impl Default for TemporalContext {
@@ -530,6 +606,7 @@ impl Default for TemporalContext {
         Self {
             current_datetime: None,
             default_offset: UtcOffset::UTC,
+            workday_calendar: WorkdayCalendar::default(),
         }
     }
 }
@@ -610,6 +687,20 @@ mod tests {
         );
         assert_eq!(monday.workdays_until(monday.add_days(7).unwrap()), 5);
         assert_eq!(monday.add_days(7).unwrap().workdays_until(monday), -5);
+    }
+
+    #[test]
+    fn explicit_holidays_are_deduplicated_and_skipped_in_both_directions() {
+        let friday = Date::new(2025, 3, 7).unwrap();
+        let holiday = Date::new(2025, 3, 10).unwrap();
+        let tuesday = Date::new(2025, 3, 11).unwrap();
+        let calendar = WorkdayCalendar::new([holiday, holiday]);
+        assert_eq!(calendar.holidays().collect::<Vec<_>>(), [holiday]);
+        assert!(!calendar.is_workday(holiday));
+        assert_eq!(calendar.add_workdays(friday, 1), Some(tuesday));
+        assert_eq!(calendar.add_workdays(tuesday, -1), Some(friday));
+        assert_eq!(calendar.workdays_between(friday, tuesday), 1);
+        assert_eq!(calendar.workdays_between(tuesday, friday), -1);
     }
 
     #[test]

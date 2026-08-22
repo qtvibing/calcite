@@ -6,7 +6,7 @@ use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, ConversionTarget,
     Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
     OffsetDateTime, Percentage, Rate, Span, TemporalKeyword, UnaryOperator, Unit, UnitValue,
-    Weekday, WorkdayDuration, parse_with_context,
+    Weekday, WorkdayCalendar, WorkdayDuration, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -500,15 +500,17 @@ fn evaluate_call(
                 .map_err(|error| numeric_diagnostic(error, span))
         }
         Function::Weekday | Function::IsWorkday => {
-            let weekday = match values.as_slice() {
-                [Value::Date(date)] => date.weekday(),
-                [Value::OffsetDateTime(value)] => value.date().weekday(),
+            let date = match values.as_slice() {
+                [Value::Date(date)] => *date,
+                [Value::OffsetDateTime(value)] => value.date(),
                 _ => return Err(invalid_function_arguments(span)),
             };
             if function == Function::Weekday {
-                Ok(Value::Weekday(weekday))
+                Ok(Value::Weekday(date.weekday()))
             } else {
-                Ok(Value::Boolean(weekday.is_workday()))
+                Ok(Value::Boolean(
+                    context.temporal.workday_calendar.is_workday(date),
+                ))
             }
         }
         Function::AddWorkdays => match values.as_slice() {
@@ -516,7 +518,10 @@ fn evaluate_call(
                 let days = days
                     .exact_i64()
                     .ok_or_else(|| invalid_function_arguments(span))?;
-                date.add_workdays(days)
+                context
+                    .temporal
+                    .workday_calendar
+                    .add_workdays(*date, days)
                     .map(Value::Date)
                     .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
             }
@@ -524,9 +529,10 @@ fn evaluate_call(
                 let days = days
                     .exact_i64()
                     .ok_or_else(|| invalid_function_arguments(span))?;
-                value
-                    .date()
-                    .add_workdays(days)
+                context
+                    .temporal
+                    .workday_calendar
+                    .add_workdays(value.date(), days)
                     .map(|date| {
                         Value::OffsetDateTime(OffsetDateTime::new(
                             date,
@@ -547,7 +553,10 @@ fn evaluate_call(
                 _ => return Err(invalid_function_arguments(span)),
             };
             Ok(Value::WorkdayDuration(WorkdayDuration::new(
-                start.workdays_until(end),
+                context
+                    .temporal
+                    .workday_calendar
+                    .workdays_between(start, end),
             )))
         }
         Function::AbsoluteValue => {
@@ -902,13 +911,23 @@ fn evaluate_binary(
         (Value::OffsetDateTime(value), Value::CalendarDuration(duration)) => {
             datetime_calendar_pair(operator, value, duration, span)
         }
-        (Value::OffsetDateTime(value), Value::WorkdayDuration(duration)) => {
-            datetime_workday_pair(operator, value, duration, span)
-        }
+        (Value::OffsetDateTime(value), Value::WorkdayDuration(duration)) => datetime_workday_pair(
+            operator,
+            value,
+            duration,
+            &context.temporal.workday_calendar,
+            span,
+        ),
         (Value::WorkdayDuration(duration), Value::OffsetDateTime(value))
             if operator == BinaryOperator::Add =>
         {
-            datetime_workday_pair(operator, value, duration, span)
+            datetime_workday_pair(
+                operator,
+                value,
+                duration,
+                &context.temporal.workday_calendar,
+                span,
+            )
         }
         (Value::CalendarDuration(duration), Value::OffsetDateTime(value))
             if operator == BinaryOperator::Add =>
@@ -919,13 +938,23 @@ fn evaluate_binary(
         (Value::Date(date), Value::CalendarDuration(duration)) => {
             date_calendar_pair(operator, date, duration, span)
         }
-        (Value::Date(date), Value::WorkdayDuration(duration)) => {
-            date_workday_pair(operator, date, duration, span)
-        }
+        (Value::Date(date), Value::WorkdayDuration(duration)) => date_workday_pair(
+            operator,
+            date,
+            duration,
+            &context.temporal.workday_calendar,
+            span,
+        ),
         (Value::WorkdayDuration(duration), Value::Date(date))
             if operator == BinaryOperator::Add =>
         {
-            date_workday_pair(operator, date, duration, span)
+            date_workday_pair(
+                operator,
+                date,
+                duration,
+                &context.temporal.workday_calendar,
+                span,
+            )
         }
         (Value::CalendarDuration(duration), Value::Date(date)) => {
             calendar_date_pair(operator, duration, date, span)
@@ -1357,6 +1386,7 @@ fn datetime_workday_pair(
     operator: BinaryOperator,
     value: OffsetDateTime,
     duration: WorkdayDuration,
+    calendar: &WorkdayCalendar,
     span: Span,
 ) -> Result<Value, Diagnostic> {
     let days = match operator {
@@ -1367,9 +1397,8 @@ fn datetime_workday_pair(
             .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))?,
         _ => return Err(unsupported(span)),
     };
-    value
-        .date()
-        .add_workdays(days)
+    calendar
+        .add_workdays(value.date(), days)
         .map(|date| Value::OffsetDateTime(OffsetDateTime::new(date, value.time(), value.offset())))
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
 }
@@ -1418,6 +1447,7 @@ fn date_workday_pair(
     operator: BinaryOperator,
     date: Date,
     duration: WorkdayDuration,
+    calendar: &WorkdayCalendar,
     span: Span,
 ) -> Result<Value, Diagnostic> {
     let days = match operator {
@@ -1428,7 +1458,8 @@ fn date_workday_pair(
             .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span))?,
         _ => return Err(unsupported(span)),
     };
-    date.add_workdays(days)
+    calendar
+        .add_workdays(date, days)
         .map(Value::Date)
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
 }

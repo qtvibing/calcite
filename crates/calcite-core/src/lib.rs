@@ -35,7 +35,7 @@ pub use rate::Rate;
 pub use span::Span;
 pub use temporal::{
     CalendarDuration, ClockTime, Date, OffsetDateTime, TemporalContext, UtcOffset, Weekday,
-    WorkdayDuration,
+    WorkdayCalendar, WorkdayDuration,
 };
 pub use unit::{Dimension, Unit, UnitValue};
 
