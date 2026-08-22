@@ -572,6 +572,34 @@ fn evaluate_call(
             }
             _ => Err(invalid_function_arguments(span)),
         },
+        Function::NextWorkday | Function::PreviousWorkday => {
+            let days = if function == Function::NextWorkday {
+                1
+            } else {
+                -1
+            };
+            match values.as_slice() {
+                [Value::Date(date)] => context
+                    .temporal
+                    .workday_calendar
+                    .add_workdays(*date, days)
+                    .map(Value::Date)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+                [Value::OffsetDateTime(value)] => context
+                    .temporal
+                    .workday_calendar
+                    .add_workdays(value.date(), days)
+                    .map(|date| {
+                        Value::OffsetDateTime(OffsetDateTime::new(
+                            date,
+                            value.time(),
+                            value.offset(),
+                        ))
+                    })
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+                _ => Err(invalid_function_arguments(span)),
+            }
+        }
         Function::WorkdaysBetween => {
             let (start, end) = match values.as_slice() {
                 [Value::Date(start), Value::Date(end)] => (*start, *end),

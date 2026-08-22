@@ -55,6 +55,11 @@ fn workday_arithmetic_skips_weekends_without_assuming_holidays() {
     assert_eq!(output("2025-03-08 + 1 business day"), "2025-03-10");
     assert_eq!(output("2025-03-10 - 1 weekday"), "2025-03-07");
     assert_eq!(output("add_workdays(2025-03-07, 5)"), "2025-03-14");
+    assert_eq!(output("next workday after 2025-03-07"), "2025-03-10");
+    assert_eq!(
+        output("previous business day before 2025-03-10"),
+        "2025-03-07"
+    );
     assert_eq!(output("2 workdays * 3"), "6 workdays");
     assert_eq!(
         output("workdays_between(2025-03-10, 2025-03-17)"),
@@ -62,6 +67,14 @@ fn workday_arithmetic_skips_weekends_without_assuming_holidays() {
     );
     assert_eq!(
         output("workdays_between(2025-03-17, 2025-03-10)"),
+        "-5 workdays"
+    );
+    assert_eq!(
+        output("workdays from March 10, 2025 to March 17, 2025"),
+        "5 workdays"
+    );
+    assert_eq!(
+        output("weekdays from 2025-03-17 to 2025-03-10"),
         "-5 workdays"
     );
 }
@@ -127,6 +140,24 @@ fn injected_holidays_change_workday_rules_deterministically() {
             .output,
         "false"
     );
+    assert_eq!(
+        calculate_with_context("next workday after 2025-12-24", &context)
+            .unwrap()
+            .output,
+        "2025-12-26"
+    );
+    assert_eq!(
+        calculate_with_context("previous workday before 2025-12-26", &context)
+            .unwrap()
+            .output,
+        "2025-12-24"
+    );
+    assert_eq!(
+        calculate_with_context("business days from 2025-12-24 to 2025-12-30", &context,)
+            .unwrap()
+            .output,
+        "3 workdays"
+    );
 }
 
 #[test]
@@ -146,6 +177,10 @@ fn workday_functions_preserve_context_and_date_time_fields() {
     );
     assert_eq!(
         output("2025-03-07T14:30:00+02:00 + 1 workday"),
+        "2025-03-10T14:30+02:00"
+    );
+    assert_eq!(
+        output("next workday after 2025-03-07T14:30:00+02:00"),
         "2025-03-10T14:30+02:00"
     );
 }
@@ -263,6 +298,10 @@ fn invalid_and_ambiguous_temporal_input_is_not_guessed() {
     assert_eq!(
         calculate("1.5 workdays").unwrap_err().kind(),
         DiagnosticKind::InvalidCalendarDuration
+    );
+    assert_eq!(
+        calculate("workdays from 2025-03-10").unwrap_err().kind(),
+        DiagnosticKind::UnexpectedEnd
     );
     assert_eq!(output("2025 - 3 - 8"), "2014");
 }

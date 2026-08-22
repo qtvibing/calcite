@@ -84,6 +84,8 @@ pub enum Function {
     IsWorkday,
     AddWorkdays,
     WorkdaysBetween,
+    NextWorkday,
+    PreviousWorkday,
     Round,
     Floor,
     Ceiling,
@@ -170,6 +172,14 @@ impl Function {
             || name.eq_ignore_ascii_case("business_days_between")
         {
             Some(Self::WorkdaysBetween)
+        } else if name.eq_ignore_ascii_case("nextworkday")
+            || name.eq_ignore_ascii_case("next_workday")
+        {
+            Some(Self::NextWorkday)
+        } else if name.eq_ignore_ascii_case("previousworkday")
+            || name.eq_ignore_ascii_case("previous_workday")
+        {
+            Some(Self::PreviousWorkday)
         } else if name.eq_ignore_ascii_case("round") {
             Some(Self::Round)
         } else if name.eq_ignore_ascii_case("floor") {
@@ -525,6 +535,7 @@ impl Parser<'_> {
                 })
             }
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
+            LexemeKind::Word if self.workday_range_at().is_some() => self.parse_workday_range(),
             LexemeKind::Word if self.natural_function_at().is_some() => {
                 self.parse_natural_function()
             }
@@ -691,6 +702,28 @@ impl Parser<'_> {
                 Function::HyperbolicTangent
             };
             Some((function, 3))
+        } else if self.word_is(0, "next")
+            && (self.word_is(1, "workday") || self.word_is(1, "weekday"))
+            && self.word_is(2, "after")
+        {
+            Some((Function::NextWorkday, 3))
+        } else if self.word_is(0, "next")
+            && self.word_is(1, "business")
+            && self.word_is(2, "day")
+            && self.word_is(3, "after")
+        {
+            Some((Function::NextWorkday, 4))
+        } else if (self.word_is(0, "previous") || self.word_is(0, "last"))
+            && (self.word_is(1, "workday") || self.word_is(1, "weekday"))
+            && self.word_is(2, "before")
+        {
+            Some((Function::PreviousWorkday, 3))
+        } else if (self.word_is(0, "previous") || self.word_is(0, "last"))
+            && self.word_is(1, "business")
+            && self.word_is(2, "day")
+            && self.word_is(3, "before")
+        {
+            Some((Function::PreviousWorkday, 4))
         } else if self.word_is(0, "day")
             && self.word_is(1, "of")
             && self.word_is(2, "the")
@@ -711,6 +744,49 @@ impl Parser<'_> {
         } else {
             None
         }
+    }
+
+    fn workday_range_at(&self) -> Option<usize> {
+        if (self.word_is(0, "workdays") || self.word_is(0, "weekdays")) && self.word_is(1, "from") {
+            Some(2)
+        } else if self.word_is(0, "business") && self.word_is(1, "days") && self.word_is(2, "from")
+        {
+            Some(3)
+        } else {
+            None
+        }
+    }
+
+    fn parse_workday_range(&mut self) -> Result<Expression, Diagnostic> {
+        let consumed = self
+            .workday_range_at()
+            .expect("guard checked the workday range");
+        let function_span = self.phrase_span(consumed);
+        self.position += consumed;
+        let start = self.parse_expression(1)?;
+        let Some(separator) = self.current() else {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                "expected 'to' and an ending date",
+            ));
+        };
+        if !self.word_is(0, "to") {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedToken,
+                separator.span,
+                "expected 'to' between the dates",
+            ));
+        }
+        self.position += 1;
+        let end = self.parse_expression(0)?;
+        let span = function_span.join(end.span());
+        Ok(Expression::Call {
+            function: Function::WorkdaysBetween,
+            function_span,
+            arguments: vec![start, end],
+            span,
+        })
     }
 
     fn parse_function_call(&mut self) -> Result<Expression, Diagnostic> {

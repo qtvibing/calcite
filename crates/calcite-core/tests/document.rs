@@ -16,8 +16,10 @@ fn outputs(source: &str) -> Vec<String> {
 #[test]
 fn workday_values_flow_through_variables() {
     assert_eq!(
-        outputs("start = 2025-03-07\ndeadline = start + 5 workdays\nweekday(deadline)"),
-        ["2025-03-07", "2025-03-14", "Friday"]
+        outputs(
+            "start = 2025-03-07\ndeadline = start + 5 workdays\nweekday(deadline)\nworkdays from start to deadline",
+        ),
+        ["2025-03-07", "2025-03-14", "Friday", "5 workdays"]
     );
 }
 

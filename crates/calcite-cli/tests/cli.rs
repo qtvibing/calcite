@@ -98,6 +98,18 @@ fn evaluates_deterministic_workday_arithmetic() {
 }
 
 #[test]
+fn evaluates_natural_workday_ranges() {
+    let output = calcite()
+        .args(["workdays", "from", "2025-03-10", "to", "2025-03-17"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "5 workdays\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn relative_weekdays_require_explicit_temporal_context() {
     let output = calcite()
         .args(["next", "Monday"])
