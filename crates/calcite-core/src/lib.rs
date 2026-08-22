@@ -9,6 +9,7 @@ mod money;
 mod number;
 mod parser;
 mod percentage;
+mod radix;
 mod rate;
 mod span;
 mod temporal;
@@ -31,6 +32,7 @@ pub use parser::{
     TemporalKeyword, UnaryOperator, parse, parse_with_context,
 };
 pub use percentage::Percentage;
+pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
 pub use span::Span;
 pub use temporal::{

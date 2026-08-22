@@ -8,6 +8,7 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
     let decimal_separator = context.number_format.decimal_separator();
     match value {
         Value::Number(number) => number.formatted_with(decimal_separator),
+        Value::RadixInteger(value) => value.to_string(),
         Value::Percentage(percentage) => percentage.formatted_with(decimal_separator),
         Value::Fraction(fraction) => fraction.to_string(),
         Value::Unit(value) => format!(

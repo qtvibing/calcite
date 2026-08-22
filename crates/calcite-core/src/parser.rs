@@ -1,7 +1,7 @@
 use crate::{
     CalculationContext, CalendarDuration, ClockTime, Currency, Date, Diagnostic, DiagnosticKind,
-    Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Span, Unit,
-    UtcOffset, Weekday, WorkdayDuration, lex_with_number_format,
+    Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, OffsetDateTime, Radix,
+    RadixInteger, Span, Unit, UtcOffset, Weekday, WorkdayDuration, lex_with_number_format,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +106,10 @@ pub enum Function {
     Factorial,
     Permutation,
     Combination,
+    Binary,
+    Octal,
+    Hexadecimal,
+    Integer,
     Round,
     Floor,
     Ceiling,
@@ -125,6 +129,14 @@ impl Function {
             || name.eq_ignore_ascii_case("choose")
         {
             Some(Self::Combination)
+        } else if name.eq_ignore_ascii_case("bin") || name.eq_ignore_ascii_case("binary") {
+            Some(Self::Binary)
+        } else if name.eq_ignore_ascii_case("oct") || name.eq_ignore_ascii_case("octal") {
+            Some(Self::Octal)
+        } else if name.eq_ignore_ascii_case("hex") || name.eq_ignore_ascii_case("hexadecimal") {
+            Some(Self::Hexadecimal)
+        } else if name.eq_ignore_ascii_case("int") || name.eq_ignore_ascii_case("integer") {
+            Some(Self::Integer)
         } else if name.eq_ignore_ascii_case("sqrt") {
             Some(Self::SquareRoot)
         } else if name.eq_ignore_ascii_case("cbrt") {
@@ -251,6 +263,7 @@ pub enum ConversionTarget {
     Number,
     Percentage,
     Fraction,
+    Radix(Radix),
     Unit(Unit),
     Rate {
         numerator: Option<Unit>,
@@ -264,6 +277,10 @@ pub enum ConversionTarget {
 pub enum Expression {
     Number {
         value: Number,
+        span: Span,
+    },
+    RadixInteger {
+        value: RadixInteger,
         span: Span,
     },
     Boolean {
@@ -366,6 +383,7 @@ impl Expression {
     pub const fn span(&self) -> Span {
         match self {
             Self::Number { span, .. }
+            | Self::RadixInteger { span, .. }
             | Self::Boolean { span, .. }
             | Self::Constant { span, .. }
             | Self::Unit { span, .. }
@@ -522,7 +540,24 @@ impl Parser<'_> {
                     return self.parse_clock_time();
                 }
                 self.position += 1;
-                let value = self.parse_number_value(token)?;
+                let source = &self.source[token.span.start..token.span.end];
+                let radix_value = source
+                    .get(..2)
+                    .is_some_and(|prefix| matches!(prefix, "0b" | "0B" | "0o" | "0O" | "0x" | "0X"))
+                    .then(|| {
+                        RadixInteger::parse(source).map_err(|error| {
+                            let kind = match error {
+                                NumberParseError::Invalid => DiagnosticKind::InvalidNumber,
+                                NumberParseError::TooLarge => DiagnosticKind::NumberTooLarge,
+                            };
+                            Diagnostic::new(kind, token.span)
+                        })
+                    })
+                    .transpose()?;
+                let value = match &radix_value {
+                    Some(value) => value.value().clone(),
+                    None => self.parse_number_value(token)?,
+                };
                 let (value, span) = if let Some((factor, scalar)) = self.scalar() {
                     self.position += 1;
                     (
@@ -560,13 +595,17 @@ impl Parser<'_> {
                         value: CalendarDuration::months(months),
                         span: span.join(calendar_token.span),
                     })
-                } else if let Some((unit, consumed, unit_span)) = self.unit() {
+                } else if let Some((unit, consumed, unit_span)) =
+                    self.unit().filter(|_| !self.in_starts_conversion())
+                {
                     self.position += consumed;
                     Ok(Expression::Unit {
                         value,
                         unit,
                         span: span.join(unit_span),
                     })
+                } else if let Some(value) = radix_value {
+                    Ok(Expression::RadixInteger { value, span })
                 } else {
                     Ok(Expression::Number { value, span })
                 }
@@ -1307,6 +1346,30 @@ impl Parser<'_> {
         Ok(token)
     }
 
+    fn in_starts_conversion(&self) -> bool {
+        if !self.word_is(0, "in") {
+            return false;
+        }
+        if self.unit_at(1).is_some() || self.currency_at(1).is_some() {
+            return true;
+        }
+        self.word_text_at(1).is_some_and(|target| {
+            target.eq_ignore_ascii_case("binary")
+                || target.eq_ignore_ascii_case("bin")
+                || target.eq_ignore_ascii_case("octal")
+                || target.eq_ignore_ascii_case("oct")
+                || target.eq_ignore_ascii_case("hexadecimal")
+                || target.eq_ignore_ascii_case("hex")
+                || target.eq_ignore_ascii_case("decimal")
+                || target.eq_ignore_ascii_case("number")
+                || target.eq_ignore_ascii_case("base")
+                || target.eq_ignore_ascii_case("fraction")
+                || target.eq_ignore_ascii_case("percent")
+                || target.eq_ignore_ascii_case("percentage")
+                || target.eq_ignore_ascii_case("utc")
+        })
+    }
+
     fn is_conversion_operator(&self) -> bool {
         self.word_is(0, "as")
             || self.word_is(0, "in")
@@ -1388,6 +1451,42 @@ impl Parser<'_> {
                         || target.eq_ignore_ascii_case("decimal")
                     {
                         ConversionTarget::Number
+                    } else if target.eq_ignore_ascii_case("binary")
+                        || target.eq_ignore_ascii_case("bin")
+                    {
+                        ConversionTarget::Radix(Radix::Binary)
+                    } else if target.eq_ignore_ascii_case("octal")
+                        || target.eq_ignore_ascii_case("oct")
+                    {
+                        ConversionTarget::Radix(Radix::Octal)
+                    } else if target.eq_ignore_ascii_case("hexadecimal")
+                        || target.eq_ignore_ascii_case("hex")
+                    {
+                        ConversionTarget::Radix(Radix::Hexadecimal)
+                    } else if target.eq_ignore_ascii_case("base") {
+                        let radix_token = self.tokens.get(self.position + 2).ok_or_else(|| {
+                            Diagnostic::with_detail(
+                                DiagnosticKind::UnexpectedEnd,
+                                Span::empty(self.source.len()),
+                                "expected 2, 8, 10, or 16 after 'base'",
+                            )
+                        })?;
+                        let radix = &self.source[radix_token.span.start..radix_token.span.end];
+                        consumed = 3;
+                        target_span = target_span.join(radix_token.span);
+                        match radix {
+                            "2" => ConversionTarget::Radix(Radix::Binary),
+                            "8" => ConversionTarget::Radix(Radix::Octal),
+                            "10" => ConversionTarget::Number,
+                            "16" => ConversionTarget::Radix(Radix::Hexadecimal),
+                            _ => {
+                                return Err(Diagnostic::with_detail(
+                                    DiagnosticKind::UnexpectedToken,
+                                    radix_token.span,
+                                    "expected base 2, 8, 10, or 16",
+                                ));
+                            }
+                        }
                     } else if target.eq_ignore_ascii_case("percent")
                         || target.eq_ignore_ascii_case("percentage")
                     {

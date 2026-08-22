@@ -7,6 +7,8 @@ use dashu_float::{
 use dashu_int::IBig;
 use dashu_ratio::RBig;
 
+use crate::Radix;
+
 const WORKING_PRECISION: usize = 34;
 const DISPLAY_DECIMAL_PLACES: usize = 10;
 const MAX_LITERAL_DIGITS: usize = 10_000;
@@ -74,8 +76,39 @@ impl Number {
             .map_err(|_| NumberParseError::Invalid)
     }
 
+    pub(crate) fn parse_radix_integer(source: &str, radix: u8) -> Result<Self, NumberParseError> {
+        let digits = source.chars().filter(|character| *character != '_').count();
+        if digits == 0 {
+            return Err(NumberParseError::Invalid);
+        }
+        if digits > MAX_LITERAL_DIGITS {
+            return Err(NumberParseError::TooLarge);
+        }
+        let normalized = source.replace('_', "");
+        IBig::from_str_radix(&normalized, u32::from(radix))
+            .map(|value| Self(Representation::Exact(RBig::from(value))))
+            .map_err(|_| NumberParseError::Invalid)
+    }
+
     pub const fn is_exact(&self) -> bool {
         matches!(self.0, Representation::Exact(_))
+    }
+
+    pub(crate) fn is_integer(&self) -> bool {
+        match &self.0 {
+            Representation::Exact(value) => value.denominator() == &1u8.into(),
+            Representation::Approximate(_) => false,
+        }
+    }
+
+    pub(crate) fn formatted_radix(&self, radix: Radix) -> String {
+        let value = integer_value(self.0.clone()).expect("radix values are exact integers");
+        let digits = value.in_radix(radix.value()).to_string();
+        if let Some(digits) = digits.strip_prefix('-') {
+            format!("-{}{digits}", radix.prefix())
+        } else {
+            format!("{}{digits}", radix.prefix())
+        }
     }
 
     pub fn exact_fraction(&self) -> Option<String> {

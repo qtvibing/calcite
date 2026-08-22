@@ -5,14 +5,16 @@ use crate::unit::UnitError;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, ConversionTarget,
     Date, Diagnostic, DiagnosticKind, Expression, Fraction, Function, Money, Number, NumericError,
-    OffsetDateTime, Percentage, Rate, RelativeWeekdayDirection, Span, TemporalKeyword,
-    UnaryOperator, Unit, UnitValue, Weekday, WorkdayCalendar, WorkdayDuration, parse_with_context,
+    OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection, Span,
+    TemporalKeyword, UnaryOperator, Unit, UnitValue, Weekday, WorkdayCalendar, WorkdayDuration,
+    parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Value {
     Number(Number),
+    RadixInteger(RadixInteger),
     Percentage(Percentage),
     Fraction(Fraction),
     Unit(UnitValue),
@@ -31,6 +33,13 @@ impl Value {
     pub const fn as_number(&self) -> Option<&Number> {
         match self {
             Self::Number(number) => Some(number),
+            _ => None,
+        }
+    }
+
+    pub const fn as_radix_integer(&self) -> Option<&RadixInteger> {
+        match self {
+            Self::RadixInteger(value) => Some(value),
             _ => None,
         }
     }
@@ -124,6 +133,7 @@ impl fmt::Display for Value {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(number) => number.fmt(formatter),
+            Self::RadixInteger(value) => value.fmt(formatter),
             Self::Percentage(percentage) => percentage.fmt(formatter),
             Self::Fraction(fraction) => fraction.fmt(formatter),
             Self::Unit(value) => {
@@ -161,6 +171,7 @@ pub(crate) fn evaluate_expression(
 ) -> Result<Value, Diagnostic> {
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
+        Expression::RadixInteger { value, .. } => Ok(Value::RadixInteger(value.clone())),
         Expression::Boolean { value, .. } => Ok(Value::Boolean(*value)),
         Expression::Constant { constant, .. } => Ok(Value::Number(match constant {
             Constant::Pi => Number::pi(),
@@ -249,6 +260,12 @@ pub(crate) fn evaluate_expression(
             let operand = evaluate_expression(operand, context, variables)?;
             match (operator, operand) {
                 (UnaryOperator::Positive, Value::Number(number)) => Ok(Value::Number(number)),
+                (UnaryOperator::Positive, Value::RadixInteger(value)) => {
+                    Ok(Value::RadixInteger(value))
+                }
+                (UnaryOperator::Negative, Value::RadixInteger(value)) => {
+                    Ok(Value::RadixInteger(value.negated()))
+                }
                 (UnaryOperator::Positive, Value::Percentage(percentage)) => {
                     Ok(Value::Percentage(percentage))
                 }
@@ -294,6 +311,7 @@ pub(crate) fn evaluate_expression(
                 | (
                     UnaryOperator::Not,
                     Value::Number(_)
+                    | Value::RadixInteger(_)
                     | Value::Percentage(_)
                     | Value::Fraction(_)
                     | Value::Unit(_)
@@ -391,10 +409,39 @@ fn evaluate_call(
 ) -> Result<Value, Diagnostic> {
     let values = arguments
         .iter()
-        .map(|argument| evaluate_expression(argument, context, variables))
+        .map(|argument| {
+            evaluate_expression(argument, context, variables).map(|value| match value {
+                Value::RadixInteger(value) => Value::Number(value.into_number()),
+                value => value,
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     match function {
+        Function::Binary | Function::Octal | Function::Hexadecimal => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let radix = match function {
+                Function::Binary => crate::Radix::Binary,
+                Function::Octal => crate::Radix::Octal,
+                Function::Hexadecimal => crate::Radix::Hexadecimal,
+                _ => unreachable!(),
+            };
+            RadixInteger::new(number.clone(), radix)
+                .map(Value::RadixInteger)
+                .map_err(|_| Diagnostic::new(DiagnosticKind::IntegerRequired, span))
+        }
+        Function::Integer => {
+            let [Value::Number(number)] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            if number.is_integer() {
+                Ok(Value::Number(number.clone()))
+            } else {
+                Err(Diagnostic::new(DiagnosticKind::IntegerRequired, span))
+            }
+        }
         Function::Factorial => {
             let [Value::Number(number)] = values.as_slice() else {
                 return Err(invalid_function_arguments(span));
@@ -915,6 +962,14 @@ fn evaluate_binary(
     span: Span,
     context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
+    let left = match left {
+        Value::RadixInteger(value) => Value::Number(value.into_number()),
+        value => value,
+    };
+    let right = match right {
+        Value::RadixInteger(value) => Value::Number(value.into_number()),
+        value => value,
+    };
     match (left, right) {
         (Value::Number(left), Value::Number(right)) => number_pair(operator, left, right, span),
         (Value::Percentage(left), Value::Percentage(right)) => {
@@ -1955,6 +2010,7 @@ fn convert(
     match target {
         ConversionTarget::Number => match value {
             Value::Number(number) => Ok(Value::Number(number)),
+            Value::RadixInteger(value) => Ok(Value::Number(value.into_number())),
             Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
             Value::Unit(_)
@@ -1968,8 +2024,21 @@ fn convert(
             | Value::Weekday(_)
             | Value::Boolean(_) => Err(unsupported(span)),
         },
+        ConversionTarget::Radix(radix) => {
+            let number = match value {
+                Value::Number(number) => number,
+                Value::RadixInteger(value) => value.into_number(),
+                _ => return Err(unsupported(span)),
+            };
+            RadixInteger::new(number, radix)
+                .map(Value::RadixInteger)
+                .map_err(|_| Diagnostic::new(DiagnosticKind::IntegerRequired, span))
+        }
         ConversionTarget::Percentage => match value {
             Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(number))),
+            Value::RadixInteger(value) => Ok(Value::Percentage(Percentage::from_ratio(
+                value.into_number(),
+            ))),
             Value::Percentage(percentage) => Ok(Value::Percentage(percentage)),
             Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
                 fraction.into_number(),
@@ -1988,6 +2057,7 @@ fn convert(
         ConversionTarget::Fraction => {
             let number = match value {
                 Value::Number(number) => number,
+                Value::RadixInteger(value) => value.into_number(),
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
                 Value::Unit(_)

@@ -8,6 +8,21 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn converts_arbitrary_precision_integer_bases() {
+    let output = calcite()
+        .args(["0xffffffffffffffffffffffffffffffff", "in", "decimal"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "340282366920938463463374607431768211455\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_exact_combinatorics() {
     let output = calcite()
         .args(["3", "combinations", "of", "25"])

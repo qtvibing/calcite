@@ -157,6 +157,24 @@ fn scan_number(source: &str, start: usize, number_format: NumberFormat) -> usize
     let decimal = number_format.decimal_separator();
     let mut index = start;
 
+    if ["0b", "0B", "0o", "0O", "0x", "0X"]
+        .iter()
+        .any(|prefix| source[start..].starts_with(prefix))
+    {
+        index += 2;
+        while index < source.len() {
+            let character = source[index..]
+                .chars()
+                .next()
+                .expect("valid character boundary");
+            if !character.is_ascii_alphanumeric() && character != '_' {
+                break;
+            }
+            index += character.len_utf8();
+        }
+        return index;
+    }
+
     if source[index..].starts_with(decimal) {
         index += decimal.len_utf8();
         index = scan_digits(source, index, None);
@@ -244,6 +262,17 @@ mod tests {
         assert_eq!(tokens[2].kind, LexemeKind::Star);
         assert_eq!(tokens[2].span, Span::new(2, 4));
         assert_eq!(tokens[3].kind, LexemeKind::Whitespace);
+    }
+
+    #[test]
+    fn recognizes_prefixed_integer_literals_as_single_tokens() {
+        let tokens = lex("0xff 0B1010 0o755").unwrap();
+        assert_eq!(tokens[0].kind, LexemeKind::Number);
+        assert_eq!(tokens[0].span, Span::new(0, 4));
+        assert_eq!(tokens[2].kind, LexemeKind::Number);
+        assert_eq!(tokens[2].span, Span::new(5, 11));
+        assert_eq!(tokens[4].kind, LexemeKind::Number);
+        assert_eq!(tokens[4].span, Span::new(12, 17));
     }
 
     #[test]
