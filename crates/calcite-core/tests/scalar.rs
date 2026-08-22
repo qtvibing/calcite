@@ -190,6 +190,23 @@ fn explicit_representation_conversions_preserve_semantics() {
 }
 
 #[test]
+fn explicit_number_conversion_strips_typed_display_magnitudes() {
+    assert_eq!(output("$100 as number"), "100");
+    assert_eq!(output("40/day to decimal"), "40");
+    assert_eq!(output("90 km/h as dec"), "90");
+    assert_eq!(output("1 km as number"), "1");
+    assert_eq!(output("32 F as number"), "32");
+    assert_eq!(output("20% as number"), "0.2");
+
+    for source in ["true as number", "2025-01-01 as number"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::UnsupportedOperation
+        );
+    }
+}
+
+#[test]
 fn large_number_suffixes_and_words_are_exact() {
     assert_eq!(output("2.5k"), "2500");
     assert_eq!(output("5M"), "5000000");

@@ -67,6 +67,12 @@ fn exchange_rates_are_injected_snapshots_and_work_in_both_directions() {
             .output,
         "100 USD"
     );
+    assert_eq!(
+        calculate_with_context("100 USD in EUR as number", &context)
+            .unwrap()
+            .output,
+        "80"
+    );
 }
 
 #[test]

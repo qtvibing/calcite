@@ -2167,10 +2167,10 @@ fn convert(
             Value::RadixInteger(value) => Ok(Value::Number(value.into_number())),
             Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
-            Value::Unit(_)
-            | Value::Money(_)
-            | Value::Rate(_)
-            | Value::Date(_)
+            Value::Unit(value) => Ok(Value::Number(value.magnitude().clone())),
+            Value::Money(value) => Ok(Value::Number(value.amount().clone())),
+            Value::Rate(value) => Ok(Value::Number(value.magnitude().clone())),
+            Value::Date(_)
             | Value::Clock(_)
             | Value::OffsetDateTime(_)
             | Value::CalendarDuration(_)

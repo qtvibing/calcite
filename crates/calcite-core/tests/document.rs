@@ -14,6 +14,16 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn typed_magnitudes_can_be_stripped_through_variables() {
+    assert_eq!(
+        outputs(
+            "distance = 12 km\namount = $25\nspeed = 90 km/h\ndistance as number\namount as decimal\nspeed as dec"
+        ),
+        ["12 km", "25 USD", "90 km/h", "12", "25", "90"]
+    );
+}
+
+#[test]
 fn range_and_proportion_functions_flow_through_variables() {
     assert_eq!(
         outputs(

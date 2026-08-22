@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn strips_typed_magnitudes_explicitly() {
+    let output = calcite()
+        .args(["40/day", "to", "decimal"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "40\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_natural_rule_of_three_expressions() {
     let output = calcite()
         .args(["6", "is", "to", "60", "as", "8", "is", "to", "what"])

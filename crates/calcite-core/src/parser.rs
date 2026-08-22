@@ -1522,6 +1522,7 @@ impl Parser<'_> {
                 || target.eq_ignore_ascii_case("hexadecimal")
                 || target.eq_ignore_ascii_case("hex")
                 || target.eq_ignore_ascii_case("decimal")
+                || target.eq_ignore_ascii_case("dec")
                 || target.eq_ignore_ascii_case("number")
                 || target.eq_ignore_ascii_case("base")
                 || target.eq_ignore_ascii_case("fraction")
@@ -1610,6 +1611,7 @@ impl Parser<'_> {
                     let target = &self.source[target_token.span.start..target_token.span.end];
                     if target.eq_ignore_ascii_case("number")
                         || target.eq_ignore_ascii_case("decimal")
+                        || target.eq_ignore_ascii_case("dec")
                     {
                         ConversionTarget::Number
                     } else if target.eq_ignore_ascii_case("binary")
