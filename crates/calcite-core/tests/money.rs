@@ -8,6 +8,32 @@ fn output(source: &str) -> String {
 }
 
 #[test]
+fn iso_currency_snapshot_exposes_codes_and_minor_units() {
+    assert_eq!(Currency::all().len(), 178);
+    for currency in Currency::all() {
+        assert_eq!(Currency::from_code(currency.code()), Some(*currency));
+    }
+    assert_eq!(Currency::from_code("BHD").unwrap().minor_units(), Some(3));
+    assert_eq!(Currency::from_code("JPY").unwrap().minor_units(), Some(0));
+    assert_eq!(Currency::from_code("CLF").unwrap().minor_units(), Some(4));
+    assert_eq!(Currency::from_code("XAU").unwrap().minor_units(), None);
+    assert!(Currency::from_code("NOT").is_none());
+}
+
+#[test]
+fn expanded_currency_codes_create_typed_money() {
+    for (source, expected) in [
+        ("AED 100", "100 AED"),
+        ("1.2345 BHD", "1.2345 BHD"),
+        ("5000 CLP", "5000 CLP"),
+        ("BRL 20 + BRL 5", "25 BRL"),
+        ("XAU 2", "2 XAU"),
+    ] {
+        assert_eq!(output(source), expected);
+    }
+}
+
+#[test]
 fn symbols_and_codes_create_unambiguous_typed_money() {
     for (source, expected) in [
         ("$100", "100 USD"),
@@ -21,6 +47,32 @@ fn symbols_and_codes_create_unambiguous_typed_money() {
         assert_eq!(calculation.output, expected);
         assert!(calculation.value.as_money().is_some());
     }
+}
+
+#[test]
+fn ambiguous_yen_and_won_symbols_follow_compatible_context_defaults() {
+    let mut context = CalculationContext::default();
+    context.monetary.default_currency = Currency::Cny;
+    assert_eq!(
+        calculate_with_context("¥100", &context).unwrap().output,
+        "100 CNY"
+    );
+
+    context.monetary.default_currency = Currency::from_code("KPW").unwrap();
+    assert_eq!(
+        calculate_with_context("₩100", &context).unwrap().output,
+        "100 KPW"
+    );
+
+    context.monetary.default_currency = Currency::Eur;
+    assert_eq!(
+        calculate_with_context("¥100", &context).unwrap().output,
+        "100 JPY"
+    );
+    assert_eq!(
+        calculate_with_context("₩100", &context).unwrap().output,
+        "100 KRW"
+    );
 }
 
 #[test]
@@ -72,6 +124,25 @@ fn exchange_rates_are_injected_snapshots_and_work_in_both_directions() {
             .unwrap()
             .output,
         "80"
+    );
+}
+
+#[test]
+fn exchange_snapshots_accept_the_expanded_currency_set() {
+    let mut context = CalculationContext::default();
+    let brl = Currency::from_code("BRL").unwrap();
+    let mxn = Currency::from_code("MXN").unwrap();
+    context
+        .monetary
+        .exchange_rates
+        .set_rate(brl, mxn, Number::parse_decimal("3.5").unwrap())
+        .unwrap();
+
+    assert_eq!(
+        calculate_with_context("20 BRL in MXN", &context)
+            .unwrap()
+            .output,
+        "70 MXN"
     );
 }
 

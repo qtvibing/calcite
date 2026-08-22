@@ -1,4 +1,5 @@
 mod context;
+mod currency;
 mod diagnostic;
 mod document;
 mod evaluator;
@@ -16,6 +17,7 @@ mod temporal;
 mod unit;
 
 pub use context::{CalculationContext, NumberFormat};
+pub use currency::Currency;
 pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use document::{
     DocumentCalculation, DocumentDependency, DocumentEntry, DocumentEntryKind, DocumentLine,
@@ -25,7 +27,7 @@ pub use evaluator::{Value, evaluate, evaluate_with_context};
 pub use formatter::{format, format_with_context};
 pub use fraction::Fraction;
 pub use lexer::{Lexeme, LexemeKind, lex, lex_with_number_format};
-pub use money::{Currency, ExchangeRates, InvalidExchangeRate, MonetaryContext, Money};
+pub use money::{ExchangeRates, InvalidExchangeRate, MonetaryContext, Money};
 pub use number::{Number, NumberParseError};
 pub use parser::{
     BinaryOperator, Constant, ConversionTarget, Expression, Function, RelativeWeekdayDirection,

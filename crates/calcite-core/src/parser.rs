@@ -1188,16 +1188,12 @@ impl Parser<'_> {
         let token = *self.tokens.get(self.position + offset)?;
         let source = &self.source[token.span.start..token.span.end];
         let currency = match token.kind {
-            LexemeKind::CurrencySymbol => match source {
-                "$" => self.default_currency,
-                "€" => Currency::Eur,
-                "£" => Currency::Gbp,
-                "¥" => Currency::Jpy,
-                "₹" => Currency::Inr,
-                "₩" => Currency::Krw,
-                _ => return None,
-            },
-            LexemeKind::Word => Currency::from_code(source)?,
+            LexemeKind::CurrencySymbol => Currency::from_symbol(source, self.default_currency)?,
+            LexemeKind::Word
+                if source.len() == 3 && source.bytes().all(|byte| byte.is_ascii_uppercase()) =>
+            {
+                Currency::from_code(source)?
+            }
             _ => return None,
         };
         Some((currency, token))
