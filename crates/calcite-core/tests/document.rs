@@ -14,6 +14,14 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn natural_aggregate_lists_flow_through_variables() {
+    assert_eq!(
+        outputs("a = 10\nb = 20\nc = 30\nsum of a, b, and c\naverage of a and c"),
+        ["10", "20", "30", "60", "20"]
+    );
+}
+
+#[test]
 fn typed_magnitudes_can_be_stripped_through_variables() {
     assert_eq!(
         outputs(

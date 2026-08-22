@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_natural_aggregate_lists_with_final_and() {
+    let output = calcite()
+        .args(["sum", "of", "1,", "2,", "and", "3"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "6\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn strips_typed_magnitudes_explicitly() {
     let output = calcite()
         .args(["40/day", "to", "decimal"])

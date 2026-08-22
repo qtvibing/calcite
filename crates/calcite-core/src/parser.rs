@@ -1084,7 +1084,6 @@ impl Parser<'_> {
             .expect("guard checked the natural function");
         let function_span = self.phrase_span(consumed);
         self.position += consumed;
-        let mut arguments = vec![self.parse_expression(0)?];
         let accepts_list = matches!(
             function,
             Function::Sum
@@ -1097,13 +1096,31 @@ impl Parser<'_> {
                 | Function::Count
                 | Function::Product
         );
-        while accepts_list
-            && self
-                .current()
-                .is_some_and(|token| token.kind == LexemeKind::Comma)
-        {
-            self.position += 1;
-            arguments.push(self.parse_expression(0)?);
+        let argument_binding_power = if accepts_list { 4 } else { 0 };
+        let mut arguments = vec![self.parse_expression(argument_binding_power)?];
+        if accepts_list {
+            loop {
+                if self
+                    .current()
+                    .is_some_and(|token| token.kind == LexemeKind::Comma)
+                {
+                    self.position += 1;
+                    let has_final_and = self.word_is(0, "and");
+                    if has_final_and {
+                        self.position += 1;
+                    }
+                    arguments.push(self.parse_expression(argument_binding_power)?);
+                    if has_final_and {
+                        break;
+                    }
+                } else if self.word_is(0, "and") {
+                    self.position += 1;
+                    arguments.push(self.parse_expression(argument_binding_power)?);
+                    break;
+                } else {
+                    break;
+                }
+            }
         }
         let span = function_span.join(
             arguments

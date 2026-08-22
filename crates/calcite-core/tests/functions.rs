@@ -70,6 +70,29 @@ fn scalar_functions_preserve_exact_arithmetic_where_possible() {
 }
 
 #[test]
+fn natural_aggregate_lists_accept_a_final_and() {
+    assert_eq!(output("sum of 1, 2, and 3"), "6");
+    assert_eq!(output("sum of 1, 2 and 3"), "6");
+    assert_eq!(output("sum of 1 and 2"), "3");
+    assert_eq!(output("average of 10, 20, and 30"), "20");
+    assert_eq!(output("minimum of 1 km, 500 m, and 750 m"), "500 m");
+    assert_eq!(output("product of 2, 3, and 4"), "24");
+    assert_eq!(output("gcd of 20 and 30"), "10");
+    assert_eq!(output("lcm of 5, 8, and 10"), "40");
+}
+
+#[test]
+fn parenthesized_boolean_and_remains_an_aggregate_argument() {
+    assert_eq!(output("count of true and false"), "2");
+    assert_eq!(output("count of (true and false)"), "1");
+    assert_eq!(output("count of true, false, and (true and false)"), "3");
+    assert_eq!(
+        calculate("sum of 1, and").unwrap_err().kind(),
+        DiagnosticKind::UnexpectedEnd
+    );
+}
+
+#[test]
 fn aggregates_reuse_typed_arithmetic() {
     assert_eq!(output("average(1 km, 500 m)"), "0.75 km");
     assert_eq!(output("sum($10, $20, $30)"), "60 USD");
