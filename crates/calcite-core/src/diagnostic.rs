@@ -15,6 +15,7 @@ pub enum DiagnosticKind {
     UnknownVariable,
     InvalidAssignment,
     InvalidFunctionArguments,
+    InvalidFinanceArguments,
     InvalidRange,
     NumberTooLarge,
     DivisionByZero,
@@ -93,6 +94,9 @@ impl Diagnostic {
             DiagnosticKind::UnknownVariable => "unknown variable",
             DiagnosticKind::InvalidAssignment => "invalid variable assignment",
             DiagnosticKind::InvalidFunctionArguments => "invalid function arguments",
+            DiagnosticKind::InvalidFinanceArguments => {
+                "finance functions require positive periods and valid percentage rates"
+            }
             DiagnosticKind::InvalidRange => "lower bound cannot exceed upper bound",
             DiagnosticKind::NumberTooLarge => "number is too large",
             DiagnosticKind::DivisionByZero => "cannot divide by zero",

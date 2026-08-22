@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_deterministic_finance_functions() {
+    let output = calcite()
+        .args(["round(mortgage_payment($10000,", "6%,", "6),", "2)"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "165.73 USD\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_and_converts_compound_units() {
     let output = calcite()
         .args(["10", "m/s^2", "in", "km/h^2"])

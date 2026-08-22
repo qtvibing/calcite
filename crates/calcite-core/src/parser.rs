@@ -126,6 +126,20 @@ pub enum Function {
     Midpoint,
     ProportionDenominator,
     ProportionNumerator,
+    SalesTax,
+    AddTax,
+    RemoveTax,
+    TaxFromTotal,
+    FutureValue,
+    CompoundInterest,
+    PresentValue,
+    CompoundAnnualGrowthRate,
+    ReturnOnInvestment,
+    MortgagePayment,
+    TotalRepayment,
+    TotalInterest,
+    PurchasingPower,
+    BreakEven,
     Round,
     Floor,
     Ceiling,
@@ -133,7 +147,37 @@ pub enum Function {
 
 impl Function {
     fn from_name(name: &str) -> Option<Self> {
-        if name.eq_ignore_ascii_case("clamp") {
+        if name.eq_ignore_ascii_case("sales_tax") || name.eq_ignore_ascii_case("tax") {
+            Some(Self::SalesTax)
+        } else if name.eq_ignore_ascii_case("add_tax") {
+            Some(Self::AddTax)
+        } else if name.eq_ignore_ascii_case("remove_tax") {
+            Some(Self::RemoveTax)
+        } else if name.eq_ignore_ascii_case("tax_from_total") {
+            Some(Self::TaxFromTotal)
+        } else if name.eq_ignore_ascii_case("future_value") {
+            Some(Self::FutureValue)
+        } else if name.eq_ignore_ascii_case("compound_interest") {
+            Some(Self::CompoundInterest)
+        } else if name.eq_ignore_ascii_case("present_value") {
+            Some(Self::PresentValue)
+        } else if name.eq_ignore_ascii_case("cagr") {
+            Some(Self::CompoundAnnualGrowthRate)
+        } else if name.eq_ignore_ascii_case("roi") {
+            Some(Self::ReturnOnInvestment)
+        } else if name.eq_ignore_ascii_case("mortgage_payment")
+            || name.eq_ignore_ascii_case("loan_payment")
+        {
+            Some(Self::MortgagePayment)
+        } else if name.eq_ignore_ascii_case("total_repayment") {
+            Some(Self::TotalRepayment)
+        } else if name.eq_ignore_ascii_case("total_interest") {
+            Some(Self::TotalInterest)
+        } else if name.eq_ignore_ascii_case("purchasing_power") {
+            Some(Self::PurchasingPower)
+        } else if name.eq_ignore_ascii_case("break_even") {
+            Some(Self::BreakEven)
+        } else if name.eq_ignore_ascii_case("clamp") {
             Some(Self::Clamp)
         } else if name.eq_ignore_ascii_case("midpoint") {
             Some(Self::Midpoint)

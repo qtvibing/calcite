@@ -548,7 +548,7 @@ impl Number {
         Ok(Self(Representation::Approximate(base.powf(&exponent))))
     }
 
-    fn is_zero(&self) -> bool {
+    pub(crate) fn is_zero(&self) -> bool {
         match &self.0 {
             Representation::Exact(value) => value == &RBig::ZERO,
             Representation::Approximate(value) => value == &Real::ZERO,
