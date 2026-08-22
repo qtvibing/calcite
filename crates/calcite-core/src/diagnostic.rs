@@ -26,6 +26,8 @@ pub enum DiagnosticKind {
     IntegerRequired,
     InvalidCombinatorics,
     CombinatoricsTooLarge,
+    InvalidShift,
+    ShiftTooLarge,
     NonRealResult,
     UnsupportedOperation,
     UnitMismatch,
@@ -102,6 +104,8 @@ impl Diagnostic {
                 "factorial and combinatorics require non-negative integers, with selection no greater than population"
             }
             DiagnosticKind::CombinatoricsTooLarge => "combinatorics input is too large",
+            DiagnosticKind::InvalidShift => "shift count must be a non-negative exact integer",
+            DiagnosticKind::ShiftTooLarge => "shift count is too large",
             DiagnosticKind::NonRealResult => "result is not a real number",
             DiagnosticKind::UnsupportedOperation => "operation is not supported for these values",
             DiagnosticKind::UnitMismatch => "units have incompatible dimensions",

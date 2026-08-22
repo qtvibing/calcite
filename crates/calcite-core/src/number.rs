@@ -20,6 +20,7 @@ const MAX_EXPONENTIAL_ARGUMENT: i64 = 1_000;
 const MAX_FACTORIAL_INPUT: usize = 10_000;
 const MAX_COMBINATORIC_POPULATION: usize = 100_000;
 const MAX_COMBINATORIC_SELECTION: usize = 10_000;
+const MAX_SHIFT_COUNT: usize = 100_000;
 
 type Real = FBig<HalfAway, 10>;
 
@@ -61,6 +62,8 @@ pub(crate) enum NumericError {
     IntegerRequired,
     InvalidCombinatorics,
     CombinatoricsTooLarge,
+    InvalidShift,
+    ShiftTooLarge,
     NonRealResult,
 }
 
@@ -203,6 +206,33 @@ impl Number {
             remainder
         };
         Ok(Self(Representation::Exact(RBig::from(result))))
+    }
+
+    pub(crate) fn bitwise_and(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        Ok(Self(Representation::Exact(RBig::from(left & right))))
+    }
+
+    pub(crate) fn bitwise_or(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        Ok(Self(Representation::Exact(RBig::from(left | right))))
+    }
+
+    pub(crate) fn bitwise_xor(self, other: Self) -> Result<Self, NumericError> {
+        let (left, right) = integer_operands(self.0, other.0)?;
+        Ok(Self(Representation::Exact(RBig::from(left ^ right))))
+    }
+
+    pub(crate) fn shift_left(self, count: Self) -> Result<Self, NumericError> {
+        let value = integer_value(self.0)?;
+        let count = shift_count(count.0)?;
+        Ok(Self(Representation::Exact(RBig::from(value << count))))
+    }
+
+    pub(crate) fn shift_right(self, count: Self) -> Result<Self, NumericError> {
+        let value = integer_value(self.0)?;
+        let count = shift_count(count.0)?;
+        Ok(Self(Representation::Exact(RBig::from(value >> count))))
     }
 
     pub(crate) fn factorial(self) -> Result<Self, NumericError> {
@@ -566,6 +596,20 @@ fn integer_value(value: Representation) -> Result<IBig, NumericError> {
         return Err(NumericError::IntegerRequired);
     }
     Ok(numerator)
+}
+
+fn shift_count(value: Representation) -> Result<usize, NumericError> {
+    let value = integer_value(value)?;
+    if value < IBig::ZERO {
+        return Err(NumericError::InvalidShift);
+    }
+    if value > IBig::from(MAX_SHIFT_COUNT) {
+        return Err(NumericError::ShiftTooLarge);
+    }
+    value
+        .to_string()
+        .parse()
+        .map_err(|_| NumericError::ShiftTooLarge)
 }
 
 fn bounded_nonnegative_integer(

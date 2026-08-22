@@ -1168,6 +1168,26 @@ fn number_pair(
             .combination(left)
             .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::BitwiseAnd => left
+            .bitwise_and(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::BitwiseOr => left
+            .bitwise_or(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::BitwiseXor => left
+            .bitwise_xor(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::ShiftLeft => left
+            .shift_left(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::ShiftRight => left
+            .shift_right(right)
+            .map(Value::Number)
+            .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Power => left
             .pow(right)
             .map(Value::Number)
@@ -1217,7 +1237,12 @@ fn percentage_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &left, &right, span),
-        BinaryOperator::Modulo
+        BinaryOperator::BitwiseAnd
+        | BinaryOperator::BitwiseXor
+        | BinaryOperator::BitwiseOr
+        | BinaryOperator::ShiftLeft
+        | BinaryOperator::ShiftRight
+        | BinaryOperator::Modulo
         | BinaryOperator::Remainder
         | BinaryOperator::Permutation
         | BinaryOperator::Combination
@@ -1259,7 +1284,12 @@ fn number_percentage_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &number, &ratio, span),
-        BinaryOperator::Modulo
+        BinaryOperator::BitwiseAnd
+        | BinaryOperator::BitwiseXor
+        | BinaryOperator::BitwiseOr
+        | BinaryOperator::ShiftLeft
+        | BinaryOperator::ShiftRight
+        | BinaryOperator::Modulo
         | BinaryOperator::Remainder
         | BinaryOperator::Permutation
         | BinaryOperator::Combination
@@ -1305,7 +1335,12 @@ fn percentage_number_pair(
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual => compare_numbers(operator, &ratio, &number, span),
-        BinaryOperator::Modulo
+        BinaryOperator::BitwiseAnd
+        | BinaryOperator::BitwiseXor
+        | BinaryOperator::BitwiseOr
+        | BinaryOperator::ShiftLeft
+        | BinaryOperator::ShiftRight
+        | BinaryOperator::Modulo
         | BinaryOperator::Remainder
         | BinaryOperator::Permutation
         | BinaryOperator::Combination
@@ -2185,6 +2220,8 @@ fn numeric_diagnostic(error: NumericError, span: Span) -> Diagnostic {
         NumericError::IntegerRequired => DiagnosticKind::IntegerRequired,
         NumericError::InvalidCombinatorics => DiagnosticKind::InvalidCombinatorics,
         NumericError::CombinatoricsTooLarge => DiagnosticKind::CombinatoricsTooLarge,
+        NumericError::InvalidShift => DiagnosticKind::InvalidShift,
+        NumericError::ShiftTooLarge => DiagnosticKind::ShiftTooLarge,
         NumericError::NonRealResult => DiagnosticKind::NonRealResult,
     };
     Diagnostic::new(kind, span)

@@ -23,6 +23,10 @@ pub enum LexemeKind {
     LessEqual,
     LogicalAnd,
     LogicalOr,
+    BitwiseAnd,
+    BitwiseOr,
+    ShiftLeft,
+    ShiftRight,
     LogicalNot,
     LeftParenthesis,
     RightParenthesis,
@@ -118,20 +122,30 @@ pub fn lex_with_number_format(
                     index += 1;
                     LexemeKind::GreaterEqual
                 }
+                '>' if source[index..].starts_with('>') => {
+                    index += 1;
+                    LexemeKind::ShiftRight
+                }
                 '>' => LexemeKind::Greater,
                 '<' if source[index..].starts_with('=') => {
                     index += 1;
                     LexemeKind::LessEqual
+                }
+                '<' if source[index..].starts_with('<') => {
+                    index += 1;
+                    LexemeKind::ShiftLeft
                 }
                 '<' => LexemeKind::Less,
                 '&' if source[index..].starts_with('&') => {
                     index += 1;
                     LexemeKind::LogicalAnd
                 }
+                '&' => LexemeKind::BitwiseAnd,
                 '|' if source[index..].starts_with('|') => {
                     index += 1;
                     LexemeKind::LogicalOr
                 }
+                '|' => LexemeKind::BitwiseOr,
                 '(' => LexemeKind::LeftParenthesis,
                 ')' => LexemeKind::RightParenthesis,
                 _ => {
@@ -262,6 +276,31 @@ mod tests {
         assert_eq!(tokens[2].kind, LexemeKind::Star);
         assert_eq!(tokens[2].span, Span::new(2, 4));
         assert_eq!(tokens[3].kind, LexemeKind::Whitespace);
+    }
+
+    #[test]
+    fn recognizes_bitwise_symbols_and_shifts() {
+        let tokens = lex("1 & 2 | 3 << 4 >> 1").unwrap();
+        assert!(
+            tokens
+                .iter()
+                .any(|token| token.kind == LexemeKind::BitwiseAnd)
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|token| token.kind == LexemeKind::BitwiseOr)
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|token| token.kind == LexemeKind::ShiftLeft)
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|token| token.kind == LexemeKind::ShiftRight)
+        );
     }
 
     #[test]

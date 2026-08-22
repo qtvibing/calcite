@@ -34,6 +34,11 @@ pub enum BinaryOperator {
     GreaterEqual,
     Less,
     LessEqual,
+    BitwiseAnd,
+    BitwiseXor,
+    BitwiseOr,
+    ShiftLeft,
+    ShiftRight,
     And,
     Or,
 }
@@ -43,13 +48,17 @@ impl BinaryOperator {
         match self {
             Self::Or => (1, 2),
             Self::And => (3, 4),
+            Self::BitwiseOr => (5, 6),
+            Self::BitwiseXor => (7, 8),
+            Self::BitwiseAnd => (9, 10),
             Self::Equal
             | Self::NotEqual
             | Self::Greater
             | Self::GreaterEqual
             | Self::Less
-            | Self::LessEqual => (5, 6),
-            Self::Add | Self::Subtract => (7, 8),
+            | Self::LessEqual => (11, 12),
+            Self::ShiftLeft | Self::ShiftRight => (13, 14),
+            Self::Add | Self::Subtract => (15, 16),
             Self::Multiply
             | Self::Divide
             | Self::Modulo
@@ -61,8 +70,8 @@ impl BinaryOperator {
             | Self::Of
             | Self::On
             | Self::Off
-            | Self::At => (9, 10),
-            Self::Power => (11, 11),
+            | Self::At => (17, 18),
+            Self::Power => (19, 19),
         }
     }
 }
@@ -668,9 +677,9 @@ impl Parser<'_> {
             LexemeKind::Plus | LexemeKind::Minus | LexemeKind::LogicalNot => {
                 self.position += 1;
                 let (operator, binding_power) = match token.kind {
-                    LexemeKind::Plus => (UnaryOperator::Positive, 11),
-                    LexemeKind::Minus => (UnaryOperator::Negative, 11),
-                    LexemeKind::LogicalNot => (UnaryOperator::Not, 5),
+                    LexemeKind::Plus => (UnaryOperator::Positive, 19),
+                    LexemeKind::Minus => (UnaryOperator::Negative, 19),
+                    LexemeKind::LogicalNot => (UnaryOperator::Not, 11),
                     _ => unreachable!(),
                 };
                 let operand = self.parse_expression(binding_power)?;
@@ -684,7 +693,7 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.word_is(0, "not") => {
                 self.position += 1;
-                let operand = self.parse_expression(5)?;
+                let operand = self.parse_expression(11)?;
                 let span = token.span.join(operand.span());
                 Ok(Expression::Unary {
                     operator: UnaryOperator::Not,
@@ -1720,6 +1729,10 @@ impl Parser<'_> {
             LexemeKind::LessEqual => (BinaryOperator::LessEqual, current.span, 1),
             LexemeKind::LogicalAnd => (BinaryOperator::And, current.span, 1),
             LexemeKind::LogicalOr => (BinaryOperator::Or, current.span, 1),
+            LexemeKind::BitwiseAnd => (BinaryOperator::BitwiseAnd, current.span, 1),
+            LexemeKind::BitwiseOr => (BinaryOperator::BitwiseOr, current.span, 1),
+            LexemeKind::ShiftLeft => (BinaryOperator::ShiftLeft, current.span, 1),
+            LexemeKind::ShiftRight => (BinaryOperator::ShiftRight, current.span, 1),
             LexemeKind::Word if self.word_is(0, "plus") => (BinaryOperator::Add, current.span, 1),
             LexemeKind::Word if self.word_is(0, "minus") => {
                 (BinaryOperator::Subtract, current.span, 1)
@@ -1780,8 +1793,17 @@ impl Parser<'_> {
             {
                 (BinaryOperator::At, current.span, 1)
             }
+            LexemeKind::Word if &self.source[current.span.start..current.span.end] == "AND" => {
+                (BinaryOperator::BitwiseAnd, current.span, 1)
+            }
+            LexemeKind::Word if &self.source[current.span.start..current.span.end] == "OR" => {
+                (BinaryOperator::BitwiseOr, current.span, 1)
+            }
             LexemeKind::Word if self.word_is(0, "and") => (BinaryOperator::And, current.span, 1),
             LexemeKind::Word if self.word_is(0, "or") => (BinaryOperator::Or, current.span, 1),
+            LexemeKind::Word if self.word_is(0, "xor") => {
+                (BinaryOperator::BitwiseXor, current.span, 1)
+            }
             LexemeKind::Word
                 if self.word_is(0, "not") && self.word_is(1, "equal") && self.word_is(2, "to") =>
             {

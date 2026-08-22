@@ -44,6 +44,37 @@ fn based_integers_coerce_to_exact_numbers_for_calculation() {
 }
 
 #[test]
+fn bitwise_operators_use_arbitrary_precision_signed_integers() {
+    assert_eq!(output("0b1100 & 0b1010"), "8");
+    assert_eq!(output("0b1100 | 0b0011"), "15");
+    assert_eq!(output("0b1100 xor 0b1010"), "6");
+    assert_eq!(output("0xff & 0x0f in hex"), "0xf");
+    assert_eq!(output("12 AND 10"), "8");
+    assert_eq!(output("12 OR 3"), "15");
+    assert_eq!(output("1 << 100"), "1267650600228229401496703205376");
+    assert_eq!(output("0x100 >> 4"), "16");
+    assert_eq!(output("-8 >> 2"), "-2");
+    assert_eq!(output("1 << 2 + 1"), "8");
+    assert_eq!(output("1 + 2 << 1"), "6");
+}
+
+#[test]
+fn bitwise_operators_validate_operands_and_shift_bounds() {
+    assert_eq!(
+        calculate("1.5 & 1").unwrap_err().kind(),
+        DiagnosticKind::IntegerRequired
+    );
+    assert_eq!(
+        calculate("1 << -1").unwrap_err().kind(),
+        DiagnosticKind::InvalidShift
+    );
+    assert_eq!(
+        calculate("1 << 100001").unwrap_err().kind(),
+        DiagnosticKind::ShiftTooLarge
+    );
+}
+
+#[test]
 fn invalid_literals_and_non_integer_conversions_are_diagnostic() {
     for source in ["0x", "0b102", "0o9", "0xnope"] {
         assert_eq!(
@@ -65,8 +96,13 @@ fn invalid_literals_and_non_integer_conversions_are_diagnostic() {
 
 #[test]
 fn based_values_flow_through_document_variables() {
-    let document = calculate_document("mask = 0xff\nvalue = mask + 1\nvalue in binary").unwrap();
+    let document = calculate_document(
+        "mask = 0xff\nvalue = mask + 1\nvalue in binary\nflag = 1 << 8\nmask | flag",
+    )
+    .unwrap();
     assert_eq!(document.lines[0].output, "0xff");
     assert_eq!(document.lines[1].output, "256");
     assert_eq!(document.lines[2].output, "0b100000000");
+    assert_eq!(document.lines[3].output, "256");
+    assert_eq!(document.lines[4].output, "511");
 }

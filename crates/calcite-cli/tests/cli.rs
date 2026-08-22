@@ -8,6 +8,21 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_arbitrary_precision_bitwise_shifts() {
+    let output = calcite()
+        .args(["1", "<<", "100"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "1267650600228229401496703205376\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn converts_arbitrary_precision_integer_bases() {
     let output = calcite()
         .args(["0xffffffffffffffffffffffffffffffff", "in", "decimal"])
