@@ -315,6 +315,11 @@ impl OffsetDateTime {
         self.offset
     }
 
+    pub fn parse_iso(source: &str) -> Option<Self> {
+        let (value, consumed) = Self::parse_iso_prefix(source)?;
+        (consumed == source.len()).then_some(value)
+    }
+
     pub fn add_seconds(self, seconds: i64) -> Option<Self> {
         let local = self.local_seconds().checked_add(seconds)?;
         Self::from_local_seconds(local, self.offset)

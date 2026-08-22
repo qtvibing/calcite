@@ -171,6 +171,10 @@ impl Number {
         }
     }
 
+    pub fn checked_divide(self, other: Self) -> Option<Self> {
+        self.divide(other).ok()
+    }
+
     pub(crate) fn divide(self, other: Self) -> Result<Self, NumericError> {
         if other.is_zero() {
             return Err(NumericError::DivisionByZero);

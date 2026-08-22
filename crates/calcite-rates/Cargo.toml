@@ -1,0 +1,22 @@
+[package]
+name = "calcite-rates"
+version.workspace = true
+edition.workspace = true
+readme = "README.md"
+
+[features]
+default = ["file"]
+file = ["dep:serde", "dep:serde_json"]
+http = ["dep:reqwest"]
+ecb = ["http", "dep:quick-xml"]
+frankfurter = ["http", "dep:serde_json"]
+
+[dependencies]
+calcite-core = { path = "../calcite-core" }
+quick-xml = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio.workspace = true

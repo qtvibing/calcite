@@ -71,6 +71,12 @@ impl ExchangeRateSnapshot {
     pub fn is_empty(&self) -> bool {
         self.rates.is_empty()
     }
+
+    pub fn rates(&self) -> impl Iterator<Item = (Currency, Currency, &Number)> {
+        self.rates
+            .iter()
+            .map(|(&(source, target), rate)| (source, target, rate))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
