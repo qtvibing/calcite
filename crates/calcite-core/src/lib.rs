@@ -3,6 +3,7 @@ mod currency;
 mod diagnostic;
 mod document;
 mod evaluator;
+mod finance;
 mod formatter;
 mod fraction;
 mod lexer;
