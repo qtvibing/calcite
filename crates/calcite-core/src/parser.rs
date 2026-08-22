@@ -122,6 +122,10 @@ pub enum Function {
     GreatestCommonDivisor,
     LeastCommonMultiple,
     IsPrime,
+    Clamp,
+    Midpoint,
+    ProportionDenominator,
+    ProportionNumerator,
     Round,
     Floor,
     Ceiling,
@@ -129,7 +133,14 @@ pub enum Function {
 
 impl Function {
     fn from_name(name: &str) -> Option<Self> {
-        if name.eq_ignore_ascii_case("gcd") || name.eq_ignore_ascii_case("greatest_common_divisor")
+        if name.eq_ignore_ascii_case("clamp") {
+            Some(Self::Clamp)
+        } else if name.eq_ignore_ascii_case("midpoint") {
+            Some(Self::Midpoint)
+        } else if name.eq_ignore_ascii_case("proportion") {
+            Some(Self::ProportionDenominator)
+        } else if name.eq_ignore_ascii_case("gcd")
+            || name.eq_ignore_ascii_case("greatest_common_divisor")
         {
             Some(Self::GreatestCommonDivisor)
         } else if name.eq_ignore_ascii_case("lcm")
@@ -474,6 +485,10 @@ impl Parser<'_> {
         let mut left = self.parse_prefix()?;
 
         loop {
+            if minimum_binding_power == 0 && self.word_is(0, "is") && self.word_is(1, "to") {
+                left = self.parse_proportion(left)?;
+                continue;
+            }
             if let Some(percent) = self
                 .current()
                 .filter(|token| token.kind == LexemeKind::Percent)
@@ -647,6 +662,10 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
             LexemeKind::Word if self.workday_range_at().is_some() => self.parse_workday_range(),
+            LexemeKind::Word if self.word_is(0, "clamp") => self.parse_natural_clamp(),
+            LexemeKind::Word if self.word_is(0, "midpoint") && self.word_is(1, "between") => {
+                self.parse_natural_midpoint()
+            }
             LexemeKind::Word if self.natural_function_at().is_some() => {
                 self.parse_natural_function()
             }
@@ -955,6 +974,107 @@ impl Parser<'_> {
             function_span: function_token.span,
             arguments,
             span: function_token.span.join(closing.span),
+        })
+    }
+
+    fn consume_word(&mut self, word: &str, detail: &str) -> Result<Lexeme, Diagnostic> {
+        let token = self.current().ok_or_else(|| {
+            Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                detail,
+            )
+        })?;
+        if !self.word_is(0, word) {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedToken,
+                token.span,
+                detail,
+            ));
+        }
+        self.position += 1;
+        Ok(token)
+    }
+
+    fn parse_natural_clamp(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.consume_word("clamp", "expected 'clamp'")?.span;
+        let value = self.parse_expression(0)?;
+        let separator = self.current().ok_or_else(|| {
+            Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                "expected 'between' or 'from'",
+            )
+        })?;
+        let uses_between = self.word_is(0, "between");
+        if !uses_between && !self.word_is(0, "from") {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedToken,
+                separator.span,
+                "expected 'between' or 'from'",
+            ));
+        }
+        self.position += 1;
+        let lower = self.parse_expression(4)?;
+        self.consume_word(
+            if uses_between { "and" } else { "to" },
+            if uses_between {
+                "expected 'and'"
+            } else {
+                "expected 'to'"
+            },
+        )?;
+        let upper = self.parse_expression(0)?;
+        let span = start.join(upper.span());
+        Ok(Expression::Call {
+            function: Function::Clamp,
+            function_span: start,
+            arguments: vec![value, lower, upper],
+            span,
+        })
+    }
+
+    fn parse_natural_midpoint(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.consume_word("midpoint", "expected 'midpoint'")?.span;
+        self.consume_word("between", "expected 'between'")?;
+        let first = self.parse_expression(4)?;
+        self.consume_word("and", "expected 'and'")?;
+        let second = self.parse_expression(0)?;
+        let span = start.join(second.span());
+        Ok(Expression::Call {
+            function: Function::Midpoint,
+            function_span: start,
+            arguments: vec![first, second],
+            span,
+        })
+    }
+
+    fn parse_proportion(&mut self, first: Expression) -> Result<Expression, Diagnostic> {
+        let start = first.span();
+        self.consume_word("is", "expected 'is'")?;
+        self.consume_word("to", "expected 'to'")?;
+        let second = self.parse_expression(1)?;
+        self.consume_word("as", "expected 'as'")?;
+        let (function, third, end) = if self.word_is(0, "what") {
+            self.position += 1;
+            self.consume_word("is", "expected 'is'")?;
+            self.consume_word("to", "expected 'to'")?;
+            let third = self.parse_expression(0)?;
+            let end = third.span();
+            (Function::ProportionNumerator, third, end)
+        } else {
+            let third = self.parse_expression(1)?;
+            self.consume_word("is", "expected 'is'")?;
+            self.consume_word("to", "expected 'to'")?;
+            let what = self.consume_word("what", "expected 'what'")?;
+            (Function::ProportionDenominator, third, what.span)
+        };
+        let span = start.join(end);
+        Ok(Expression::Call {
+            function,
+            function_span: start,
+            arguments: vec![first, second, third],
+            span,
         })
     }
 

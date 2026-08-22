@@ -20,6 +20,46 @@ fn factorial_and_combinatorics_are_exact_and_bounded() {
 }
 
 #[test]
+fn clamp_and_midpoint_reuse_typed_arithmetic() {
+    assert_eq!(output("clamp(26, 5, 25)"), "25");
+    assert_eq!(output("clamp 4 from 5 to 25"), "5");
+    assert_eq!(output("clamp 18 between 5 and 25"), "18");
+    assert_eq!(output("midpoint(150, 300)"), "225");
+    assert_eq!(output("midpoint between 150 and 300"), "225");
+    assert_eq!(output("midpoint(1 km, 500 m)"), "0.75 km");
+    assert_eq!(output("midpoint($100, $200)"), "150 USD");
+    assert_eq!(output("clamp(120 cm, 1 m, 2 m)"), "120 cm");
+}
+
+#[test]
+fn proportions_solve_both_rule_of_three_forms_exactly() {
+    assert_eq!(output("proportion(6, 60, 8)"), "80");
+    assert_eq!(output("6 is to 60 as 8 is to what"), "80");
+    assert_eq!(output("5 is to 10 as what is to 80"), "40");
+    assert_eq!(output("5 km is to 500 m as 5 cm is to what"), "0.5 cm");
+    assert_eq!(
+        output("30 minutes is to 3 hours as what is to 60 seconds"),
+        "10 s"
+    );
+}
+
+#[test]
+fn range_and_proportion_errors_remain_structured() {
+    assert_eq!(
+        calculate("clamp(1, 10, 5)").unwrap_err().kind(),
+        DiagnosticKind::InvalidRange
+    );
+    assert_eq!(
+        calculate("clamp(1 m, 2 s, 3 s)").unwrap_err().kind(),
+        DiagnosticKind::UnitMismatch
+    );
+    assert_eq!(
+        calculate("6 is to 0 as what is to 80").unwrap_err().kind(),
+        DiagnosticKind::DivisionByZero
+    );
+}
+
+#[test]
 fn scalar_functions_preserve_exact_arithmetic_where_possible() {
     assert_eq!(output("sqrt(9)"), "3");
     assert_eq!(output("square root of 2"), "1.4142135624");

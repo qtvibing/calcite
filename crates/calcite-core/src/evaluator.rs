@@ -749,6 +749,91 @@ fn evaluate_call(
             };
             round_value(value.clone(), 0, rounding, span)
         }
+        Function::Clamp => {
+            let [value, lower, upper] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let Value::Boolean(invalid_bounds) = evaluate_binary(
+                BinaryOperator::Greater,
+                lower.clone(),
+                upper.clone(),
+                span,
+                context,
+            )?
+            else {
+                return Err(invalid_function_arguments(span));
+            };
+            if invalid_bounds {
+                return Err(Diagnostic::new(DiagnosticKind::InvalidRange, span));
+            }
+            let Value::Boolean(below) = evaluate_binary(
+                BinaryOperator::Less,
+                value.clone(),
+                lower.clone(),
+                span,
+                context,
+            )?
+            else {
+                return Err(invalid_function_arguments(span));
+            };
+            if below {
+                return Ok(lower.clone());
+            }
+            let Value::Boolean(above) = evaluate_binary(
+                BinaryOperator::Greater,
+                value.clone(),
+                upper.clone(),
+                span,
+                context,
+            )?
+            else {
+                return Err(invalid_function_arguments(span));
+            };
+            Ok(if above { upper.clone() } else { value.clone() })
+        }
+        Function::Midpoint => {
+            let [first, second] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let sum = evaluate_binary(
+                BinaryOperator::Add,
+                first.clone(),
+                second.clone(),
+                span,
+                context,
+            )?;
+            evaluate_binary(
+                BinaryOperator::Divide,
+                sum,
+                Value::Number(Number::from_i64(2)),
+                span,
+                context,
+            )
+        }
+        Function::ProportionDenominator | Function::ProportionNumerator => {
+            let [first, second, third] = values.as_slice() else {
+                return Err(invalid_function_arguments(span));
+            };
+            let (numerator, denominator) = if function == Function::ProportionDenominator {
+                (second, first)
+            } else {
+                (first, second)
+            };
+            let ratio = evaluate_binary(
+                BinaryOperator::Divide,
+                numerator.clone(),
+                denominator.clone(),
+                span,
+                context,
+            )?;
+            evaluate_binary(
+                BinaryOperator::Multiply,
+                ratio,
+                third.clone(),
+                span,
+                context,
+            )
+        }
         Function::Sum | Function::Average => {
             let count = values.len();
             let mut values = values.into_iter();

@@ -8,6 +8,18 @@ fn calcite() -> Command {
 }
 
 #[test]
+fn evaluates_natural_rule_of_three_expressions() {
+    let output = calcite()
+        .args(["6", "is", "to", "60", "as", "8", "is", "to", "what"])
+        .output()
+        .expect("calcite should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "80\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn distinguishes_spaced_remainder_from_attached_percentage() {
     let remainder = calcite()
         .args(["17", "%", "5"])

@@ -14,6 +14,16 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn range_and_proportion_functions_flow_through_variables() {
+    assert_eq!(
+        outputs(
+            "low = 5\nhigh = 25\nvalue = clamp 30 between low and high\n6 is to 60 as value is to what",
+        ),
+        ["5", "25", "25", "250"]
+    );
+}
+
+#[test]
 fn combinatorics_flow_through_variables() {
     assert_eq!(
         outputs(
