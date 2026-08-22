@@ -2318,13 +2318,17 @@ fn convert(
                 let rate = context
                     .monetary
                     .exchange_rates
-                    .rate(source, target)
-                    .ok_or_else(|| {
-                        Diagnostic::with_detail(
-                            DiagnosticKind::MissingExchangeRate,
-                            span,
-                            format!("{source} to {target}"),
-                        )
+                    .rate(source, target, context.monetary.exchange_rate_freshness)
+                    .map_err(|error| {
+                        let kind = match error {
+                            crate::ExchangeRateLookupError::Missing => {
+                                DiagnosticKind::MissingExchangeRate
+                            }
+                            crate::ExchangeRateLookupError::Stale => {
+                                DiagnosticKind::StaleExchangeRate
+                            }
+                        };
+                        Diagnostic::with_detail(kind, span, format!("{source} to {target}"))
                     })?;
                 Ok(Value::Money(Money::new(
                     money.amount().clone().multiply(rate),

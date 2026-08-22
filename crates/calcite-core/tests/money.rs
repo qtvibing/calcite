@@ -1,5 +1,6 @@
 use calcite_core::{
-    CalculationContext, Currency, DiagnosticKind, Number, calculate, calculate_document,
+    CalculationContext, ClockTime, Currency, Date, DiagnosticKind, ExchangeRateFreshness,
+    ExchangeRateSnapshot, Number, OffsetDateTime, UtcOffset, calculate, calculate_document,
     calculate_with_context,
 };
 
@@ -97,15 +98,17 @@ fn money_arithmetic_and_percentages_preserve_currency() {
 #[test]
 fn exchange_rates_are_injected_snapshots_and_work_in_both_directions() {
     let mut context = CalculationContext::default();
-    context
-        .monetary
-        .exchange_rates
-        .set_rate(
-            Currency::Usd,
-            Currency::Eur,
-            Number::parse_decimal("0.8").unwrap(),
+    context.monetary.exchange_rates.reload(
+        ExchangeRateSnapshot::new(
+            None,
+            [(
+                Currency::Usd,
+                Currency::Eur,
+                Number::parse_decimal("0.8").unwrap(),
+            )],
         )
-        .unwrap();
+        .unwrap(),
+    );
 
     assert_eq!(
         calculate_with_context("100 USD in EUR", &context)
@@ -128,15 +131,95 @@ fn exchange_rates_are_injected_snapshots_and_work_in_both_directions() {
 }
 
 #[test]
+fn exchange_snapshots_reload_as_whole_validated_values() {
+    let first = ExchangeRateSnapshot::new(
+        None,
+        [(
+            Currency::Usd,
+            Currency::Eur,
+            Number::parse_decimal("0.8").unwrap(),
+        )],
+    )
+    .unwrap();
+    let second = ExchangeRateSnapshot::new(
+        None,
+        [(
+            Currency::Usd,
+            Currency::Eur,
+            Number::parse_decimal("0.9").unwrap(),
+        )],
+    )
+    .unwrap();
+    let mut rates = calcite_core::ExchangeRates::default();
+    assert!(rates.reload(first).is_empty());
+    let replaced = rates.reload(second);
+    assert_eq!(replaced.len(), 1);
+    assert_eq!(rates.snapshot().len(), 1);
+
+    assert!(
+        ExchangeRateSnapshot::new(
+            None,
+            [(
+                Currency::Usd,
+                Currency::Usd,
+                Number::parse_decimal("1").unwrap(),
+            )],
+        )
+        .is_err()
+    );
+    assert_eq!(rates.snapshot().len(), 1);
+}
+
+#[test]
+fn exchange_snapshot_freshness_is_an_explicit_policy() {
+    let as_of = OffsetDateTime::new(
+        Date::new(2025, 1, 10).unwrap(),
+        ClockTime::new(0, 0, 0).unwrap(),
+        UtcOffset::UTC,
+    );
+    let mut context = CalculationContext::default();
+    context.monetary.exchange_rates.reload(
+        ExchangeRateSnapshot::new(
+            Some(as_of),
+            [(
+                Currency::Usd,
+                Currency::Eur,
+                Number::parse_decimal("0.8").unwrap(),
+            )],
+        )
+        .unwrap(),
+    );
+    context.monetary.exchange_rate_freshness =
+        ExchangeRateFreshness::NotBefore(OffsetDateTime::new(
+            Date::new(2025, 1, 11).unwrap(),
+            ClockTime::new(0, 0, 0).unwrap(),
+            UtcOffset::UTC,
+        ));
+    assert_eq!(
+        calculate_with_context("100 USD in EUR", &context)
+            .unwrap_err()
+            .kind(),
+        DiagnosticKind::StaleExchangeRate
+    );
+
+    context.monetary.exchange_rate_freshness = ExchangeRateFreshness::NotBefore(as_of);
+    assert_eq!(
+        calculate_with_context("100 USD in EUR", &context)
+            .unwrap()
+            .output,
+        "80 EUR"
+    );
+}
+
+#[test]
 fn exchange_snapshots_accept_the_expanded_currency_set() {
     let mut context = CalculationContext::default();
     let brl = Currency::from_code("BRL").unwrap();
     let mxn = Currency::from_code("MXN").unwrap();
-    context
-        .monetary
-        .exchange_rates
-        .set_rate(brl, mxn, Number::parse_decimal("3.5").unwrap())
-        .unwrap();
+    context.monetary.exchange_rates.reload(
+        ExchangeRateSnapshot::new(None, [(brl, mxn, Number::parse_decimal("3.5").unwrap())])
+            .unwrap(),
+    );
 
     assert_eq!(
         calculate_with_context("20 BRL in MXN", &context)

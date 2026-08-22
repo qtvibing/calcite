@@ -36,6 +36,7 @@ pub enum DiagnosticKind {
     InvalidUnitExponent,
     CurrencyMismatch,
     MissingExchangeRate,
+    StaleExchangeRate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +122,7 @@ impl Diagnostic {
             }
             DiagnosticKind::CurrencyMismatch => "currencies differ; convert one explicitly",
             DiagnosticKind::MissingExchangeRate => "no exchange rate was provided",
+            DiagnosticKind::StaleExchangeRate => "the exchange-rate snapshot is stale",
         }
     }
 }
