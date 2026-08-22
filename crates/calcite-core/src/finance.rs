@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-use crate::evaluator::{Value, evaluate_binary};
+use crate::evaluator::Value;
+use crate::operations::evaluate_binary;
 use crate::{
     BinaryOperator, CalculationContext, Diagnostic, DiagnosticKind, Function, Number, Percentage,
     Span,

@@ -6,14 +6,17 @@ mod evaluator;
 mod finance;
 mod formatter;
 mod fraction;
+mod functions;
 mod lexer;
 mod money;
 mod number;
+mod operations;
 mod parser;
 mod percentage;
 mod radix;
 mod rate;
 mod span;
+mod syntax;
 mod temporal;
 mod unit;
 
@@ -33,14 +36,15 @@ pub use money::{
     InvalidExchangeRate, MonetaryContext, Money,
 };
 pub use number::{Number, NumberParseError};
-pub use parser::{
-    BinaryOperator, Constant, ConversionTarget, Expression, Function, RelativeWeekdayDirection,
-    TemporalKeyword, UnaryOperator, parse, parse_with_context,
-};
+pub use parser::{parse, parse_with_context};
 pub use percentage::Percentage;
 pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
 pub use span::Span;
+pub use syntax::{
+    BinaryOperator, Constant, ConversionTarget, Expression, Function, RelativeWeekdayDirection,
+    TemporalKeyword, UnaryOperator,
+};
 pub use temporal::{
     CalendarDuration, ClockTime, Date, OffsetDateTime, TemporalContext, UtcOffset, Weekday,
     WorkdayCalendar, WorkdayDuration,
