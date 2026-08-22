@@ -14,7 +14,7 @@ mod frankfurter;
 #[cfg(feature = "ecb")]
 pub use ecb::EcbProvider;
 #[cfg(feature = "file")]
-pub use file::load_json_snapshot;
+pub use file::{load_json_snapshot, save_json_snapshot};
 #[cfg(feature = "frankfurter")]
 pub use frankfurter::FrankfurterProvider;
 

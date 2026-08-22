@@ -77,6 +77,18 @@ fn timestamped_json_files_load_exact_rates() {
             .to_string(),
         "0.8123456789"
     );
+    let serialized = calcite_rates::save_json_snapshot(rates.snapshot()).unwrap();
+    let reloaded = calcite_rates::load_json_snapshot(&serialized).unwrap();
+    assert_eq!(
+        reloaded
+            .rates()
+            .next()
+            .unwrap()
+            .2
+            .exact_fraction()
+            .as_deref(),
+        Some("81234567890123456789/100000000000000000000")
+    );
 }
 
 #[cfg(feature = "file")]
