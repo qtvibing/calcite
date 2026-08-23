@@ -367,95 +367,73 @@ impl Parser<'_> {
     }
 
     fn natural_function_at(&self) -> Option<(Function, usize)> {
-        if self.word_is(0, "greatest")
-            && self.word_is(1, "common")
-            && self.word_is(2, "divisor")
-            && self.word_is(3, "of")
-        {
-            Some((Function::GreatestCommonDivisor, 4))
-        } else if self.word_is(0, "least")
-            && self.word_is(1, "common")
-            && self.word_is(2, "multiple")
-            && self.word_is(3, "of")
-        {
-            Some((Function::LeastCommonMultiple, 4))
-        } else if self.word_is(0, "is") && self.word_is(1, "prime") {
-            Some((Function::IsPrime, 2))
-        } else if self.word_is(0, "square") && self.word_is(1, "root") && self.word_is(2, "of") {
-            Some((Function::SquareRoot, 3))
-        } else if self.word_is(0, "cube") && self.word_is(1, "root") && self.word_is(2, "of") {
-            Some((Function::CubicRoot, 3))
-        } else if self.word_is(0, "natural")
-            && (self.word_is(1, "log") || self.word_is(1, "logarithm"))
-            && self.word_is(2, "of")
-        {
-            Some((Function::NaturalLogarithm, 3))
-        } else if self.word_is(0, "common")
-            && (self.word_is(1, "log") || self.word_is(1, "logarithm"))
-            && self.word_is(2, "of")
-        {
-            Some((Function::CommonLogarithm, 3))
-        } else if self.word_is(0, "binary")
-            && (self.word_is(1, "log") || self.word_is(1, "logarithm"))
-            && self.word_is(2, "of")
-        {
-            Some((Function::BinaryLogarithm, 3))
-        } else if self.word_is(0, "exponential") && self.word_is(1, "of") {
-            Some((Function::Exponential, 2))
-        } else if self.word_is(0, "hyperbolic")
-            && self.word_is(2, "of")
-            && (self.word_is(1, "sine") || self.word_is(1, "cosine") || self.word_is(1, "tangent"))
-        {
-            let function = if self.word_is(1, "sine") {
-                Function::HyperbolicSine
-            } else if self.word_is(1, "cosine") {
-                Function::HyperbolicCosine
-            } else {
-                Function::HyperbolicTangent
-            };
-            Some((function, 3))
-        } else if self.word_is(0, "next")
-            && (self.word_is(1, "workday") || self.word_is(1, "weekday"))
-            && self.word_is(2, "after")
-        {
-            Some((Function::NextWorkday, 3))
-        } else if self.word_is(0, "next")
-            && self.word_is(1, "business")
-            && self.word_is(2, "day")
-            && self.word_is(3, "after")
-        {
-            Some((Function::NextWorkday, 4))
-        } else if (self.word_is(0, "previous") || self.word_is(0, "last"))
-            && (self.word_is(1, "workday") || self.word_is(1, "weekday"))
-            && self.word_is(2, "before")
-        {
-            Some((Function::PreviousWorkday, 3))
-        } else if (self.word_is(0, "previous") || self.word_is(0, "last"))
-            && self.word_is(1, "business")
-            && self.word_is(2, "day")
-            && self.word_is(3, "before")
-        {
-            Some((Function::PreviousWorkday, 4))
-        } else if self.word_is(0, "day")
-            && self.word_is(1, "of")
-            && self.word_is(2, "the")
-            && self.word_is(3, "week")
-            && self.word_is(4, "on")
-        {
-            Some((Function::Weekday, 5))
-        } else if self.word_is(0, "weekday") && self.word_is(1, "on") {
-            Some((Function::Weekday, 2))
-        } else if self.word_is(0, "absolute") && self.word_is(1, "value") && self.word_is(2, "of") {
-            Some((Function::AbsoluteValue, 3))
-        } else if self.word_is(1, "of") {
-            let token = self.current()?;
-            Function::from_name(&self.source[token.span.start..token.span.end])
-                .map(|function| (function, 2))
-        } else if self.word_is(0, "round") {
-            Some((Function::Round, 1))
-        } else {
-            None
+        const PHRASES: &[(Function, &[&str])] = &[
+            (
+                Function::GreatestCommonDivisor,
+                &["greatest", "common", "divisor", "of"],
+            ),
+            (
+                Function::LeastCommonMultiple,
+                &["least", "common", "multiple", "of"],
+            ),
+            (Function::SquareRoot, &["square", "root", "of"]),
+            (Function::CubicRoot, &["cube", "root", "of"]),
+            (Function::NaturalLogarithm, &["natural", "log", "of"]),
+            (Function::NaturalLogarithm, &["natural", "logarithm", "of"]),
+            (Function::CommonLogarithm, &["common", "log", "of"]),
+            (Function::CommonLogarithm, &["common", "logarithm", "of"]),
+            (Function::BinaryLogarithm, &["binary", "log", "of"]),
+            (Function::BinaryLogarithm, &["binary", "logarithm", "of"]),
+            (Function::HyperbolicSine, &["hyperbolic", "sine", "of"]),
+            (Function::HyperbolicCosine, &["hyperbolic", "cosine", "of"]),
+            (
+                Function::HyperbolicTangent,
+                &["hyperbolic", "tangent", "of"],
+            ),
+            (Function::NextWorkday, &["next", "business", "day", "after"]),
+            (Function::NextWorkday, &["next", "workday", "after"]),
+            (Function::NextWorkday, &["next", "weekday", "after"]),
+            (
+                Function::PreviousWorkday,
+                &["previous", "business", "day", "before"],
+            ),
+            (
+                Function::PreviousWorkday,
+                &["last", "business", "day", "before"],
+            ),
+            (
+                Function::PreviousWorkday,
+                &["previous", "workday", "before"],
+            ),
+            (
+                Function::PreviousWorkday,
+                &["previous", "weekday", "before"],
+            ),
+            (Function::PreviousWorkday, &["last", "workday", "before"]),
+            (Function::PreviousWorkday, &["last", "weekday", "before"]),
+            (Function::Weekday, &["day", "of", "the", "week", "on"]),
+            (Function::Weekday, &["weekday", "on"]),
+            (Function::AbsoluteValue, &["absolute", "value", "of"]),
+            (Function::Exponential, &["exponential", "of"]),
+            (Function::IsPrime, &["is", "prime"]),
+        ];
+
+        if let Some((function, words)) = PHRASES.iter().find(|(_, words)| self.phrase_is(words)) {
+            return Some((*function, words.len()));
         }
+        if self.word_is(1, "of") {
+            let token = self.current()?;
+            return Function::from_name(&self.source[token.span.start..token.span.end])
+                .map(|function| (function, 2));
+        }
+        self.word_is(0, "round").then_some((Function::Round, 1))
+    }
+
+    fn phrase_is(&self, words: &[&str]) -> bool {
+        words
+            .iter()
+            .enumerate()
+            .all(|(offset, word)| self.word_is(offset, word))
     }
 
     fn workday_range_at(&self) -> Option<usize> {
