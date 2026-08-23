@@ -211,8 +211,12 @@ fn fractional_powers_are_precision_aware_reals() {
 #[test]
 fn unicode_operator_symbols_are_accepted() {
     assert_eq!(output("6 × 7"), "42");
+    assert_eq!(output("6 ⋅ 7"), "42");
     assert_eq!(output("84 ÷ 2"), "42");
+    assert_eq!(output("84 ∕ 2"), "42");
     assert_eq!(output("50 − 8"), "42");
+    assert_eq!(output("2½ + ¼"), "2.75");
+    assert_eq!(output("2 ≤ 3 ∧ 4 ≠ 5"), "true");
 }
 
 #[test]

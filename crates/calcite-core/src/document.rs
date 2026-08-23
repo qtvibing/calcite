@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use crate::assignment::parse_assignment;
 use crate::evaluator::evaluate_expression;
 use crate::syntax::identifier_key;
 use crate::{
-    CalculationContext, Diagnostic, DiagnosticKind, Expression, LexemeKind, Span, Value,
-    format_with_context, lex_with_number_format, parse_with_context,
+    CalculationContext, Diagnostic, Expression, LexemeKind, Span, Value, format_with_context,
+    lex_with_number_format, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,7 +116,7 @@ fn evaluate_line(
         return Ok(());
     }
 
-    let (content_before_comment, comment) = match raw_content.find("//") {
+    let (content_before_comment, comment) = match comment_separator(raw_content) {
         Some(position) => (
             raw_content[..position].trim_end(),
             Some(raw_content[position + 2..].trim().to_owned()),
@@ -148,55 +149,22 @@ fn evaluate_line(
         .filter(|token| token.kind != LexemeKind::Whitespace)
         .collect();
 
-    let assignment = tokens
-        .iter()
-        .position(|token| token.kind == LexemeKind::Equal);
-    let (name, expression_source, expression_offset) = match assignment {
-        None => (None, content, content_offset),
-        Some(1)
-            if tokens
-                .first()
-                .is_some_and(|token| token.kind == LexemeKind::Word) =>
-        {
-            let name_token = tokens[0];
-            let name = &content[name_token.span.start..name_token.span.end];
-            let valid_name = matches!(
-                parse_with_context(name, context),
-                Ok(Expression::Variable { .. })
-            );
-            if !valid_name {
-                return Err(Diagnostic::with_detail(
-                    DiagnosticKind::InvalidAssignment,
-                    name_token.span.shifted(content_offset),
-                    "the name conflicts with calculator syntax",
-                ));
-            }
-
-            let equals = tokens[1];
-            let remainder = &content[equals.span.end..];
-            let expression_source = remainder.trim_start();
-            if expression_source.is_empty() {
-                return Err(Diagnostic::with_detail(
-                    DiagnosticKind::InvalidAssignment,
-                    equals.span.shifted(content_offset),
-                    "expected an expression after '='",
-                ));
-            }
-            let expression_offset =
-                content_offset + equals.span.end + remainder.find(expression_source).unwrap();
-            (Some(name.to_owned()), expression_source, expression_offset)
-        }
-        Some(position) => {
-            return Err(Diagnostic::with_detail(
-                DiagnosticKind::InvalidAssignment,
-                tokens[position].span.shifted(content_offset),
-                "expected a variable name before '='",
-            ));
-        }
-    };
-
-    let expression = parse_with_context(expression_source, context)
+    let assignment = parse_assignment(content, &tokens, context)
+        .map_err(|error| error.shifted(content_offset))?;
+    let name = assignment.name.map(str::to_owned);
+    let expression_offset = content_offset + assignment.expression_offset;
+    let expression = parse_with_context(assignment.expression_source, context)
         .map_err(|error| error.shifted(expression_offset))?;
+    let expression = if let Some(parameters) = assignment.parameters {
+        let span = expression.span();
+        Expression::Lambda {
+            parameters,
+            body: Box::new(expression),
+            span,
+        }
+    } else {
+        expression
+    };
     let mut references = Vec::new();
     collect_variable_references(&expression, &mut references);
     let dependencies = references
@@ -245,6 +213,41 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
                 collect_variable_references(argument, references);
             }
         }
+        Expression::UserCall {
+            name, arguments, ..
+        } => {
+            if !references.contains(name) {
+                references.push(name.clone());
+            }
+            for argument in arguments {
+                collect_variable_references(argument, references);
+            }
+        }
+        Expression::Lambda {
+            parameters, body, ..
+        } => {
+            let mut body_references = Vec::new();
+            collect_variable_references(body, &mut body_references);
+            for reference in body_references {
+                if !parameters
+                    .iter()
+                    .any(|parameter| identifier_key(parameter) == identifier_key(&reference))
+                    && !references.contains(&reference)
+                {
+                    references.push(reference);
+                }
+            }
+        }
+        Expression::Invoke {
+            function,
+            arguments,
+            ..
+        } => {
+            collect_variable_references(function, references);
+            for argument in arguments {
+                collect_variable_references(argument, references);
+            }
+        }
         Expression::Unary { operand, .. }
         | Expression::Group {
             expression: operand,
@@ -273,6 +276,7 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
             collect_variable_references(right, references);
         }
         Expression::Number { .. }
+        | Expression::String { .. }
         | Expression::RadixInteger { .. }
         | Expression::RomanInteger { .. }
         | Expression::Complex { .. }
@@ -292,6 +296,37 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
         | Expression::TemporalKeyword { .. }
         | Expression::RelativeWeekday { .. } => {}
     }
+}
+
+fn comment_separator(content: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut characters = content.char_indices().peekable();
+    while let Some((position, character)) = characters.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if quote.is_some() && character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            if quote == Some(character) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(character);
+            }
+            continue;
+        }
+        if quote.is_none()
+            && character == '/'
+            && characters.peek().is_some_and(|(_, next)| *next == '/')
+        {
+            return Some(position);
+        }
+    }
+    None
 }
 
 fn label_separator(content: &str) -> Option<usize> {

@@ -9,7 +9,7 @@ use std::{
 
 use calcite_core::{
     CalculationContext, CalculationSession, ClockTime, Date, DateOrder, Diagnostic, DiagnosticKind,
-    DocumentCalculation, NumberOutputMode, OffsetDateTime, UtcOffset,
+    DocumentCalculation, Number, NumberOutputMode, OffsetDateTime, UtcOffset, Value,
     calculate_document_with_context,
 };
 use jiff::{Timestamp, tz::TimeZone};
@@ -251,7 +251,13 @@ async fn run_repl(
         match result {
             Ok(calculation) if matches!(output, OutputMode::Json) => println!(
                 "{}",
-                serde_json::json!({ "ok": true, "result": { "output": calculation.output } })
+                serde_json::json!({
+                    "ok": true,
+                    "result": {
+                        "output": calculation.output,
+                        "value": typed_json_value(&calculation.value),
+                    }
+                })
             ),
             Ok(calculation) => println!("{}", calculation.output),
             Err(error) if matches!(output, OutputMode::Json) => print_json_error(&error),
@@ -566,6 +572,7 @@ fn print_result(document: &DocumentCalculation, output: OutputMode) {
                     serde_json::json!({
                         "name": line.name,
                         "output": line.output,
+                        "value": typed_json_value(&line.value),
                         "span": { "start": line.span.start, "end": line.span.end },
                     })
                 })
@@ -573,6 +580,98 @@ fn print_result(document: &DocumentCalculation, output: OutputMode) {
             println!("{}", serde_json::json!({ "ok": true, "results": results }));
         }
     }
+}
+
+fn typed_json_value(value: &Value) -> serde_json::Value {
+    match value {
+        Value::Number(value) => number_json("number", value),
+        Value::String(value) => serde_json::json!({ "type": "string", "value": value }),
+        Value::RadixInteger(value) => serde_json::json!({
+            "type": "radix_integer",
+            "value": value.value().exact_fraction(),
+            "radix": value.radix().value(),
+        }),
+        Value::RomanInteger(value) => serde_json::json!({
+            "type": "roman_integer",
+            "value": value.value().exact_fraction(),
+            "roman": value.to_string(),
+        }),
+        Value::Complex(value) => serde_json::json!({
+            "type": "complex",
+            "real": number_json("number", value.real()),
+            "imaginary": number_json("number", value.imaginary()),
+        }),
+        Value::Function(value) => serde_json::json!({
+            "type": "function",
+            "parameters": value.parameters(),
+        }),
+        Value::Percentage(value) => serde_json::json!({
+            "type": "percentage",
+            "ratio": canonical_number(value.ratio()),
+        }),
+        Value::Fraction(value) => serde_json::json!({
+            "type": "fraction",
+            "value": canonical_number(value.number()),
+        }),
+        Value::Unit(value) => serde_json::json!({
+            "type": "unit",
+            "magnitude": canonical_number(value.magnitude()),
+            "unit": value.compound_unit().to_string(),
+        }),
+        Value::Money(value) => serde_json::json!({
+            "type": "money",
+            "amount": canonical_number(value.amount()),
+            "currency": value.currency().to_string(),
+        }),
+        Value::MoneyRate(value) => serde_json::json!({
+            "type": "money_rate",
+            "amount": canonical_number(value.amount()),
+            "currency": value.currency().to_string(),
+            "denominator": value.denominator().to_string(),
+        }),
+        Value::Rate(value) => serde_json::json!({
+            "type": "rate",
+            "magnitude": canonical_number(value.magnitude()),
+            "unit": value.compound_unit().to_string(),
+        }),
+        Value::Dice(value) => serde_json::json!({
+            "type": "dice_distribution",
+            "count": value.count(),
+            "sides": value.sides(),
+            "modifier": value.modifier(),
+            "minimum": value.minimum(),
+            "maximum": value.maximum(),
+        }),
+        Value::Date(value) => textual_json("date", value),
+        Value::Clock(value) => textual_json("clock_time", value),
+        Value::OffsetClock(value) => textual_json("offset_clock_time", value),
+        Value::ZonedClock(value) => textual_json("zoned_clock_time", value),
+        Value::OffsetDateTime(value) => textual_json("offset_date_time", value),
+        Value::ZonedDateTime(value) => textual_json("zoned_date_time", value),
+        Value::TimeSpan(value) => textual_json("time_span", value),
+        Value::CalendarDuration(value) => textual_json("calendar_duration", value),
+        Value::CalendarSpan(value) => textual_json("calendar_span", value),
+        Value::WorkdayDuration(value) => textual_json("workday_duration", value),
+        Value::Weekday(value) => textual_json("weekday", value),
+        Value::Boolean(value) => serde_json::json!({ "type": "boolean", "value": value }),
+        _ => serde_json::json!({ "type": "unknown" }),
+    }
+}
+
+fn number_json(kind: &str, value: &Number) -> serde_json::Value {
+    serde_json::json!({
+        "type": kind,
+        "value": canonical_number(value),
+        "exact": value.is_exact(),
+    })
+}
+
+fn canonical_number(value: &Number) -> String {
+    value.exact_fraction().unwrap_or_else(|| value.to_string())
+}
+
+fn textual_json(kind: &str, value: &impl ToString) -> serde_json::Value {
+    serde_json::json!({ "type": kind, "value": value.to_string() })
 }
 
 fn print_json_error(diagnostic: &Diagnostic) {

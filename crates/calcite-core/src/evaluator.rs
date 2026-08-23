@@ -7,17 +7,20 @@ use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, ComplexNumber,
     Constant, Date, Diagnostic, DiagnosticKind, DiceDistribution, Expression, Fraction, Money,
     MoneyRate, Number, OffsetClockTime, OffsetDateTime, Percentage, RadixInteger, Rate,
-    RelativeWeekdayDirection, RomanInteger, TemporalKeyword, TimeSpan, UnaryOperator, UnitValue,
-    Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime, parse_with_context,
+    RelativeWeekdayDirection, RomanInteger, Span, TemporalKeyword, TimeSpan, UnaryOperator,
+    UnitValue, UserFunction, Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime,
+    parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Value {
     Number(Number),
+    String(String),
     RadixInteger(RadixInteger),
     RomanInteger(RomanInteger),
     Complex(ComplexNumber),
+    Function(UserFunction),
     Percentage(Percentage),
     Fraction(Fraction),
     Unit(UnitValue),
@@ -40,6 +43,20 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            Self::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub const fn as_function(&self) -> Option<&UserFunction> {
+        match self {
+            Self::Function(value) => Some(value),
+            _ => None,
+        }
+    }
+
     pub const fn as_number(&self) -> Option<&Number> {
         match self {
             Self::Number(number) => Some(number),
@@ -206,9 +223,15 @@ impl fmt::Display for Value {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(number) => number.fmt(formatter),
+            Self::String(value) => value.fmt(formatter),
             Self::RadixInteger(value) => value.fmt(formatter),
             Self::RomanInteger(value) => value.fmt(formatter),
             Self::Complex(value) => value.fmt(formatter),
+            Self::Function(function) => write!(
+                formatter,
+                "<function({})>",
+                function.parameters().join(", ")
+            ),
             Self::Percentage(percentage) => percentage.fmt(formatter),
             Self::Fraction(fraction) => fraction.fmt(formatter),
             Self::Unit(value) => {
@@ -253,6 +276,7 @@ pub(crate) fn evaluate_expression(
 ) -> Result<Value, Diagnostic> {
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
+        Expression::String { value, .. } => Ok(Value::String(value.clone())),
         Expression::RadixInteger { value, .. } => Ok(Value::RadixInteger(value.clone())),
         Expression::RomanInteger { value, .. } => Ok(Value::RomanInteger(value.clone())),
         Expression::Complex { value, .. } => Ok(Value::Complex(value.clone())),
@@ -373,13 +397,52 @@ pub(crate) fn evaluate_expression(
         Expression::Variable { name, span } => variables
             .get(&identifier_key(name))
             .cloned()
-            .ok_or_else(|| Diagnostic::with_detail(DiagnosticKind::UnknownVariable, *span, name)),
+            .ok_or_else(|| unknown_variable(name, *span, variables)),
         Expression::Call {
             function,
             function_span,
             arguments,
             ..
         } => evaluate_call(*function, *function_span, arguments, context, variables),
+        Expression::UserCall {
+            name,
+            name_span,
+            arguments,
+            ..
+        } => {
+            let function = variables
+                .get(&identifier_key(name))
+                .and_then(Value::as_function)
+                .ok_or_else(|| unknown_variable(name, *name_span, variables))?;
+            invoke_user_function(
+                function,
+                Some(identifier_key(name)),
+                arguments,
+                *name_span,
+                context,
+                variables,
+            )
+        }
+        Expression::Lambda {
+            parameters, body, ..
+        } => Ok(Value::Function(UserFunction::new(
+            parameters.clone(),
+            body.as_ref().clone(),
+        ))),
+        Expression::Invoke {
+            function,
+            arguments,
+            span,
+        } => {
+            let function = evaluate_expression(function, context, variables)?;
+            let Value::Function(function) = function else {
+                return Err(Diagnostic::new(
+                    DiagnosticKind::InvalidFunctionArguments,
+                    *span,
+                ));
+            };
+            invoke_user_function(&function, None, arguments, *span, context, variables)
+        }
         Expression::Unary {
             operator,
             operator_span,
@@ -461,7 +524,9 @@ pub(crate) fn evaluate_expression(
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                 (
                     UnaryOperator::Positive | UnaryOperator::Negative,
-                    Value::Dice(_)
+                    Value::String(_)
+                    | Value::Function(_)
+                    | Value::Dice(_)
                     | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)
@@ -474,6 +539,8 @@ pub(crate) fn evaluate_expression(
                 | (
                     UnaryOperator::Not,
                     Value::Number(_)
+                    | Value::String(_)
+                    | Value::Function(_)
                     | Value::RadixInteger(_)
                     | Value::RomanInteger(_)
                     | Value::Complex(_)
@@ -570,4 +637,75 @@ pub(crate) fn evaluate_expression(
             evaluate_binary(*operator, left, right, *operator_span, context)
         }
     }
+}
+
+fn unknown_variable(name: &str, span: Span, variables: &HashMap<String, Value>) -> Diagnostic {
+    let normalized = identifier_key(name);
+    let suggestion = variables
+        .keys()
+        .filter_map(|candidate| {
+            let distance = edit_distance(&normalized, candidate);
+            (distance <= 2).then_some((distance, candidate))
+        })
+        .min_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(right.1)))
+        .map(|(_, candidate)| candidate.as_str());
+    let detail = suggestion
+        .map(|candidate| format!("{name}; did you mean '{candidate}'?"))
+        .unwrap_or_else(|| name.to_owned());
+    Diagnostic::with_detail(DiagnosticKind::UnknownVariable, span, detail)
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let mut previous: Vec<usize> = (0..=right.chars().count()).collect();
+    let mut current = vec![0; previous.len()];
+    for (left_index, left_character) in left.chars().enumerate() {
+        current[0] = left_index + 1;
+        for (right_index, right_character) in right.chars().enumerate() {
+            current[right_index + 1] = if left_character == right_character {
+                previous[right_index]
+            } else {
+                1 + previous[right_index]
+                    .min(previous[right_index + 1])
+                    .min(current[right_index])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[right.chars().count()]
+}
+
+fn invoke_user_function(
+    function: &UserFunction,
+    name: Option<String>,
+    arguments: &[Expression],
+    span: Span,
+    context: &CalculationContext,
+    variables: &HashMap<String, Value>,
+) -> Result<Value, Diagnostic> {
+    if function.is_active() {
+        return Err(Diagnostic::new(DiagnosticKind::RecursiveFunction, span));
+    }
+    if arguments.len() != function.parameters().len() {
+        return Err(Diagnostic::with_detail(
+            DiagnosticKind::InvalidFunctionArguments,
+            span,
+            format!(
+                "expected {} argument(s), received {}",
+                function.parameters().len(),
+                arguments.len()
+            ),
+        ));
+    }
+    let argument_values = arguments
+        .iter()
+        .map(|argument| evaluate_expression(argument, context, variables))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut local_variables = variables.clone();
+    if let Some(name) = name {
+        local_variables.insert(name, Value::Function(function.activated()));
+    }
+    for (parameter, value) in function.parameters().iter().zip(argument_values) {
+        local_variables.insert(identifier_key(parameter), value);
+    }
+    evaluate_expression(function.body(), context, &local_variables)
 }

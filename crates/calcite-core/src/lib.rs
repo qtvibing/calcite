@@ -1,3 +1,4 @@
+mod assignment;
 mod complex;
 mod context;
 mod crypto;
@@ -27,6 +28,7 @@ mod syntax;
 mod temporal;
 mod timezone;
 mod unit;
+mod user_function;
 
 pub use complex::ComplexNumber;
 pub use context::{CalculationContext, NumberFormat, NumberOutputMode, OutputFormat};
@@ -73,6 +75,7 @@ pub use timezone::{
     ZonedClockTime, ZonedDateTime,
 };
 pub use unit::{CompoundUnit, Dimension, Unit, UnitValue};
+pub use user_function::UserFunction;
 
 pub(crate) use number::NumericError;
 

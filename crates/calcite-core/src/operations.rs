@@ -37,6 +37,7 @@ pub(super) fn evaluate_binary(
         value => value,
     };
     match (left, right) {
+        (Value::String(left), Value::String(right)) => string_pair(operator, left, right, span),
         (Value::Complex(left), Value::Complex(right)) => complex_pair(operator, left, right, span),
         (Value::Complex(left), Value::Number(right)) => {
             complex_pair(operator, left, ComplexNumber::from_real(right), span)
@@ -274,6 +275,24 @@ pub(super) fn evaluate_binary(
             compare_ordering(operator, left.cmp(&right), span)
         }
         (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn string_pair(
+    operator: BinaryOperator,
+    left: String,
+    right: String,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => Ok(Value::String(left + &right)),
+        BinaryOperator::Equal => Ok(Value::Boolean(left == right)),
+        BinaryOperator::NotEqual => Ok(Value::Boolean(left != right)),
+        BinaryOperator::Less => Ok(Value::Boolean(left < right)),
+        BinaryOperator::LessEqual => Ok(Value::Boolean(left <= right)),
+        BinaryOperator::Greater => Ok(Value::Boolean(left > right)),
+        BinaryOperator::GreaterEqual => Ok(Value::Boolean(left >= right)),
         _ => Err(unsupported(span)),
     }
 }

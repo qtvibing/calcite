@@ -294,6 +294,10 @@ pub enum Expression {
         value: Number,
         span: Span,
     },
+    String {
+        value: String,
+        span: Span,
+    },
     RadixInteger {
         value: RadixInteger,
         span: Span,
@@ -380,6 +384,22 @@ pub enum Expression {
         arguments: Vec<Expression>,
         span: Span,
     },
+    UserCall {
+        name: String,
+        name_span: Span,
+        arguments: Vec<Expression>,
+        span: Span,
+    },
+    Lambda {
+        parameters: Vec<String>,
+        body: Box<Expression>,
+        span: Span,
+    },
+    Invoke {
+        function: Box<Expression>,
+        arguments: Vec<Expression>,
+        span: Span,
+    },
     Unary {
         operator: UnaryOperator,
         operator_span: Span,
@@ -423,6 +443,7 @@ impl Expression {
     pub const fn span(&self) -> Span {
         match self {
             Self::Number { span, .. }
+            | Self::String { span, .. }
             | Self::RadixInteger { span, .. }
             | Self::RomanInteger { span, .. }
             | Self::Complex { span, .. }
@@ -443,6 +464,9 @@ impl Expression {
             | Self::RelativeWeekday { span, .. }
             | Self::Variable { span, .. }
             | Self::Call { span, .. }
+            | Self::UserCall { span, .. }
+            | Self::Lambda { span, .. }
+            | Self::Invoke { span, .. }
             | Self::Unary { span, .. }
             | Self::Group { span, .. }
             | Self::Percentage { span, .. }

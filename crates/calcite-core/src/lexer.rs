@@ -3,6 +3,8 @@ use crate::{Diagnostic, DiagnosticKind, NumberFormat, Span};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LexemeKind {
     Number,
+    String,
+    VulgarFraction,
     Word,
     CurrencySymbol,
     Whitespace,
@@ -27,6 +29,7 @@ pub enum LexemeKind {
     BitwiseOr,
     ShiftLeft,
     ShiftRight,
+    Arrow,
     SuperscriptNumber,
     LogicalNot,
     LeftParenthesis,
@@ -57,7 +60,34 @@ pub fn lex_with_number_format(
             .expect("valid character boundary");
         let start = index;
 
-        let kind = if character.is_whitespace() {
+        let kind = if character == '"' || character == '\'' {
+            let quote = character;
+            index += character.len_utf8();
+            let mut escaped = false;
+            let mut terminated = false;
+            while index < source.len() {
+                let next = source[index..]
+                    .chars()
+                    .next()
+                    .expect("valid character boundary");
+                index += next.len_utf8();
+                if escaped {
+                    escaped = false;
+                } else if next == '\\' {
+                    escaped = true;
+                } else if next == quote {
+                    terminated = true;
+                    break;
+                }
+            }
+            if !terminated {
+                return Err(Diagnostic::new(
+                    DiagnosticKind::InvalidString,
+                    Span::new(start, source.len()),
+                ));
+            }
+            LexemeKind::String
+        } else if character.is_whitespace() {
             index += character.len_utf8();
             while index < source.len() {
                 let next = source[index..]
@@ -70,6 +100,25 @@ pub fn lex_with_number_format(
                 index += next.len_utf8();
             }
             LexemeKind::Whitespace
+        } else if matches!(
+            character,
+            '½' | '⅓'
+                | '⅔'
+                | '¼'
+                | '¾'
+                | '⅕'
+                | '⅖'
+                | '⅗'
+                | '⅘'
+                | '⅙'
+                | '⅚'
+                | '⅛'
+                | '⅜'
+                | '⅝'
+                | '⅞'
+        ) {
+            index += character.len_utf8();
+            LexemeKind::VulgarFraction
         } else if character.is_ascii_digit()
             || (character == number_format.decimal_separator()
                 && next_character_is_digit(source, index + character.len_utf8()))
@@ -105,8 +154,13 @@ pub fn lex_with_number_format(
         } else {
             index += character.len_utf8();
             match character {
-                '+' => LexemeKind::Plus,
-                '-' | '−' | '–' => LexemeKind::Minus,
+                '+' | '＋' => LexemeKind::Plus,
+                '-' if source[index..].starts_with('>') => {
+                    index += 1;
+                    LexemeKind::Arrow
+                }
+                '→' => LexemeKind::Arrow,
+                '-' | '−' | '–' | '—' | '－' => LexemeKind::Minus,
                 '*' => {
                     if source[index..].starts_with('*') {
                         index += 1;
@@ -115,8 +169,8 @@ pub fn lex_with_number_format(
                         LexemeKind::Star
                     }
                 }
-                '×' | '·' => LexemeKind::Star,
-                '/' | '÷' | '.' => LexemeKind::Slash,
+                '×' | '·' | '∙' | '⋅' => LexemeKind::Star,
+                '/' | '÷' | '∕' | '.' => LexemeKind::Slash,
                 '^' => LexemeKind::Caret,
                 ':' => LexemeKind::Colon,
                 ',' => LexemeKind::Comma,
@@ -126,7 +180,8 @@ pub fn lex_with_number_format(
                     index += 1;
                     LexemeKind::EqualEqual
                 }
-                '=' => LexemeKind::Equal,
+                '=' | '＝' => LexemeKind::Equal,
+                '≠' => LexemeKind::NotEqual,
                 '!' if source[index..].starts_with('=') => {
                     index += 1;
                     LexemeKind::NotEqual
@@ -141,6 +196,8 @@ pub fn lex_with_number_format(
                     LexemeKind::ShiftRight
                 }
                 '>' => LexemeKind::Greater,
+                '≥' => LexemeKind::GreaterEqual,
+                '≤' => LexemeKind::LessEqual,
                 '<' if source[index..].starts_with('=') => {
                     index += 1;
                     LexemeKind::LessEqual
@@ -155,6 +212,9 @@ pub fn lex_with_number_format(
                     LexemeKind::LogicalAnd
                 }
                 '&' => LexemeKind::BitwiseAnd,
+                '∧' => LexemeKind::LogicalAnd,
+                '∨' => LexemeKind::LogicalOr,
+                '¬' => LexemeKind::LogicalNot,
                 '|' if source[index..].starts_with('|') => {
                     index += 1;
                     LexemeKind::LogicalOr

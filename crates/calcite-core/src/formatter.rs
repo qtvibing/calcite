@@ -17,9 +17,11 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
     };
     match value {
         Value::Number(number) => render(number),
+        Value::String(value) => value.clone(),
         Value::RadixInteger(value) => value.to_string(),
         Value::RomanInteger(value) => value.to_string(),
         Value::Complex(value) => format_complex(value, &render),
+        Value::Function(function) => format!("<function({})>", function.parameters().join(", ")),
         Value::Percentage(percentage) => {
             let value = percentage
                 .ratio()

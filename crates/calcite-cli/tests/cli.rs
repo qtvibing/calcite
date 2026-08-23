@@ -263,6 +263,9 @@ fn supports_plain_and_json_output_modes() {
     let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(value["ok"], true);
     assert_eq!(value["results"][0]["output"], "5");
+    assert_eq!(value["results"][0]["value"]["type"], "number");
+    assert_eq!(value["results"][0]["value"]["value"], "5");
+    assert_eq!(value["results"][0]["value"]["exact"], true);
 
     let error = calcite()
         .args(["--json", "1", "/", "0"])

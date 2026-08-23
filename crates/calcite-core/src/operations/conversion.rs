@@ -23,7 +23,9 @@ pub(crate) fn convert(
             Value::Money(value) => Ok(Value::Number(value.amount().clone())),
             Value::MoneyRate(value) => Ok(Value::Number(value.amount().clone())),
             Value::Rate(value) => Ok(Value::Number(value.magnitude().clone())),
-            Value::Complex(_)
+            Value::String(_)
+            | Value::Function(_)
+            | Value::Complex(_)
             | Value::Dice(_)
             | Value::Date(_)
             | Value::Clock(_)
@@ -72,7 +74,9 @@ pub(crate) fn convert(
             Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
                 fraction.into_number(),
             ))),
-            Value::Complex(_)
+            Value::String(_)
+            | Value::Function(_)
+            | Value::Complex(_)
             | Value::Unit(_)
             | Value::Money(_)
             | Value::MoneyRate(_)
@@ -98,7 +102,9 @@ pub(crate) fn convert(
                 Value::RomanInteger(value) => value.into_number(),
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
-                Value::Complex(_)
+                Value::String(_)
+                | Value::Function(_)
+                | Value::Complex(_)
                 | Value::Unit(_)
                 | Value::Money(_)
                 | Value::MoneyRate(_)

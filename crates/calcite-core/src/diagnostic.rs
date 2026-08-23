@@ -8,6 +8,7 @@ pub enum DiagnosticKind {
     UnexpectedToken,
     UnexpectedEnd,
     InvalidNumber,
+    InvalidString,
     InvalidDate,
     InvalidTime,
     InvalidCalendarDuration,
@@ -21,6 +22,7 @@ pub enum DiagnosticKind {
     UnknownVariable,
     InvalidAssignment,
     InvalidFunctionArguments,
+    RecursiveFunction,
     InvalidFinanceArguments,
     InvalidRange,
     NumberTooLarge,
@@ -94,6 +96,7 @@ impl Diagnostic {
             DiagnosticKind::UnexpectedToken => "unexpected input",
             DiagnosticKind::UnexpectedEnd => "expected more input",
             DiagnosticKind::InvalidNumber => "invalid number",
+            DiagnosticKind::InvalidString => "invalid string literal",
             DiagnosticKind::InvalidDate => "invalid date",
             DiagnosticKind::InvalidTime => "invalid time",
             DiagnosticKind::InvalidCalendarDuration => "invalid calendar duration",
@@ -111,6 +114,7 @@ impl Diagnostic {
             DiagnosticKind::UnknownVariable => "unknown variable",
             DiagnosticKind::InvalidAssignment => "invalid variable assignment",
             DiagnosticKind::InvalidFunctionArguments => "invalid function arguments",
+            DiagnosticKind::RecursiveFunction => "recursive user functions are not supported",
             DiagnosticKind::InvalidFinanceArguments => {
                 "finance functions require positive periods and valid percentage rates"
             }

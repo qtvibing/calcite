@@ -54,6 +54,20 @@ impl Parser<'_> {
         let mut left = self.parse_prefix()?;
 
         loop {
+            if self
+                .current()
+                .is_some_and(|token| token.kind == LexemeKind::LeftParenthesis)
+                && expression_can_be_invoked(&left)
+            {
+                let (arguments, closing) = self.parse_call_arguments()?;
+                let span = left.span().join(closing.span);
+                left = Expression::Invoke {
+                    function: Box::new(left),
+                    arguments,
+                    span,
+                };
+                continue;
+            }
             if minimum_binding_power == 0 && self.word_is(0, "is") && self.word_is(1, "to") {
                 left = self.parse_proportion(left)?;
                 continue;
@@ -220,7 +234,7 @@ impl Parser<'_> {
                         ordinal_suffix.map_or(token.span, |suffix| token.span.join(suffix.span));
                     (value, span, radix_value)
                 };
-                let (value, span) = if let Some((factor, scalar)) = self.scalar() {
+                let (mut value, mut span) = if let Some((factor, scalar)) = self.scalar() {
                     self.position += 1;
                     (
                         value.multiply(Number::from_i64(factor)),
@@ -229,6 +243,22 @@ impl Parser<'_> {
                 } else {
                     (value, base_span)
                 };
+                if radix_value.is_none()
+                    && self.current().is_some_and(|fraction| {
+                        fraction.kind == LexemeKind::VulgarFraction
+                            && span.end == fraction.span.start
+                    })
+                {
+                    let fraction = self.current().expect("vulgar fraction is present");
+                    value = value.add(vulgar_fraction(
+                        self.source[fraction.span.start..fraction.span.end]
+                            .chars()
+                            .next()
+                            .expect("fraction token is nonempty"),
+                    ));
+                    span = span.join(fraction.span);
+                    self.position += 1;
+                }
                 if let Some((currency, currency_token)) =
                     self.currency_at(0).filter(|_| self.unit().is_none())
                 {
@@ -283,7 +313,28 @@ impl Parser<'_> {
                     Ok(Expression::Number { value, span })
                 }
             }
+            LexemeKind::VulgarFraction => {
+                self.position += 1;
+                Ok(Expression::Number {
+                    value: vulgar_fraction(
+                        self.source[token.span.start..token.span.end]
+                            .chars()
+                            .next()
+                            .expect("fraction token is nonempty"),
+                    ),
+                    span: token.span,
+                })
+            }
+            LexemeKind::String => {
+                self.position += 1;
+                Ok(Expression::String {
+                    value: parse_string_literal(&self.source[token.span.start..token.span.end])
+                        .map_err(|_| Diagnostic::new(DiagnosticKind::InvalidString, token.span))?,
+                    span: token.span,
+                })
+            }
             LexemeKind::CurrencySymbol => self.parse_prefixed_money(),
+            LexemeKind::Word if self.word_lambda_at() => self.parse_single_parameter_lambda(),
             LexemeKind::Word if self.word_is(0, "roman") => self.parse_roman_integer(),
             LexemeKind::Word if self.word_is(0, "i") => {
                 self.position += 1;
@@ -305,6 +356,14 @@ impl Parser<'_> {
                 })
             }
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
+            LexemeKind::Word
+                if self
+                    .tokens
+                    .get(self.position + 1)
+                    .is_some_and(|token| token.kind == LexemeKind::LeftParenthesis) =>
+            {
+                self.parse_user_function_call()
+            }
             LexemeKind::Word if self.workday_range_at().is_some() => self.parse_workday_range(),
             LexemeKind::Word if self.word_is(0, "remainder") && self.word_is(1, "of") => {
                 self.parse_natural_remainder()
@@ -395,6 +454,9 @@ impl Parser<'_> {
                     span: token.span,
                 })
             }
+            LexemeKind::LeftParenthesis if self.parenthesized_lambda_at() => {
+                self.parse_parenthesized_lambda()
+            }
             LexemeKind::LeftParenthesis => {
                 self.position += 1;
                 let expression = self.parse_expression(0)?;
@@ -420,6 +482,169 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn word_lambda_at(&self) -> bool {
+        self.current()
+            .is_some_and(|token| token.kind == LexemeKind::Word)
+            && self
+                .tokens
+                .get(self.position + 1)
+                .is_some_and(|token| token.kind == LexemeKind::Arrow)
+    }
+
+    fn parenthesized_lambda_at(&self) -> bool {
+        let mut offset = 1;
+        if self
+            .tokens
+            .get(self.position + offset)
+            .is_some_and(|token| token.kind == LexemeKind::RightParenthesis)
+        {
+            offset += 1;
+            return self
+                .tokens
+                .get(self.position + offset)
+                .is_some_and(|token| token.kind == LexemeKind::Arrow);
+        }
+        loop {
+            if !self
+                .tokens
+                .get(self.position + offset)
+                .is_some_and(|token| token.kind == LexemeKind::Word)
+            {
+                return false;
+            }
+            offset += 1;
+            match self
+                .tokens
+                .get(self.position + offset)
+                .map(|token| token.kind)
+            {
+                Some(LexemeKind::Comma) => offset += 1,
+                Some(LexemeKind::RightParenthesis) => {
+                    offset += 1;
+                    return self
+                        .tokens
+                        .get(self.position + offset)
+                        .is_some_and(|token| token.kind == LexemeKind::Arrow);
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    fn parse_single_parameter_lambda(&mut self) -> Result<Expression, Diagnostic> {
+        let parameter = self.current().expect("lambda parameter is present");
+        let name = self.source[parameter.span.start..parameter.span.end].to_owned();
+        if !matches!(parse(&name), Ok(Expression::Variable { .. })) {
+            return Err(Diagnostic::with_detail(
+                DiagnosticKind::InvalidFunctionArguments,
+                parameter.span,
+                "lambda parameters must be variable names",
+            ));
+        }
+        self.position += 2;
+        let body = self.parse_expression(0)?;
+        let span = parameter.span.join(body.span());
+        Ok(Expression::Lambda {
+            parameters: vec![name],
+            body: Box::new(body),
+            span,
+        })
+    }
+
+    fn parse_parenthesized_lambda(&mut self) -> Result<Expression, Diagnostic> {
+        let opening = self
+            .current()
+            .expect("lambda opening parenthesis is present");
+        self.position += 1;
+        let mut parameters = Vec::new();
+        while !self
+            .current()
+            .is_some_and(|token| token.kind == LexemeKind::RightParenthesis)
+        {
+            let parameter = self.current().expect("lambda parameter is present");
+            let name = self.source[parameter.span.start..parameter.span.end].to_owned();
+            if !matches!(parse(&name), Ok(Expression::Variable { .. }))
+                || parameters
+                    .iter()
+                    .any(|existing: &String| existing.eq_ignore_ascii_case(&name))
+            {
+                return Err(Diagnostic::with_detail(
+                    DiagnosticKind::InvalidFunctionArguments,
+                    parameter.span,
+                    "lambda parameters must be unique variable names",
+                ));
+            }
+            parameters.push(name);
+            self.position += 1;
+            if self
+                .current()
+                .is_some_and(|token| token.kind == LexemeKind::Comma)
+            {
+                self.position += 1;
+            }
+        }
+        self.position += 2;
+        let body = self.parse_expression(0)?;
+        let span = opening.span.join(body.span());
+        Ok(Expression::Lambda {
+            parameters,
+            body: Box::new(body),
+            span,
+        })
+    }
+
+    fn parse_user_function_call(&mut self) -> Result<Expression, Diagnostic> {
+        let name_token = self.current().expect("function name is present");
+        let name = self.source[name_token.span.start..name_token.span.end].to_owned();
+        self.position += 1;
+        let (arguments, closing) = self.parse_call_arguments()?;
+        Ok(Expression::UserCall {
+            name,
+            name_span: name_token.span,
+            arguments,
+            span: name_token.span.join(closing.span),
+        })
+    }
+
+    pub(super) fn parse_call_arguments(&mut self) -> Result<(Vec<Expression>, Lexeme), Diagnostic> {
+        debug_assert!(
+            self.current()
+                .is_some_and(|token| token.kind == LexemeKind::LeftParenthesis)
+        );
+        self.position += 1;
+        let mut arguments = Vec::new();
+        if !self
+            .current()
+            .is_some_and(|token| token.kind == LexemeKind::RightParenthesis)
+        {
+            loop {
+                arguments.push(self.parse_expression(0)?);
+                let separator = self.current().ok_or_else(|| {
+                    Diagnostic::with_detail(
+                        DiagnosticKind::UnexpectedEnd,
+                        Span::empty(self.source.len()),
+                        "expected ')'",
+                    )
+                })?;
+                if separator.kind == LexemeKind::Comma {
+                    self.position += 1;
+                    continue;
+                }
+                if separator.kind != LexemeKind::RightParenthesis {
+                    return Err(Diagnostic::with_detail(
+                        DiagnosticKind::UnexpectedToken,
+                        separator.span,
+                        "expected ',' or ')'",
+                    ));
+                }
+                break;
+            }
+        }
+        let closing = self.current().expect("closing parenthesis was checked");
+        self.position += 1;
+        Ok((arguments, closing))
     }
 
     fn starts_number_words(&self) -> bool {
@@ -1014,6 +1239,62 @@ impl Parser<'_> {
             &self.source[token.span.start..token.span.end],
         )
     }
+}
+
+fn vulgar_fraction(character: char) -> Number {
+    let (numerator, denominator) = match character {
+        '½' => (1, 2),
+        '⅓' => (1, 3),
+        '⅔' => (2, 3),
+        '¼' => (1, 4),
+        '¾' => (3, 4),
+        '⅕' => (1, 5),
+        '⅖' => (2, 5),
+        '⅗' => (3, 5),
+        '⅘' => (4, 5),
+        '⅙' => (1, 6),
+        '⅚' => (5, 6),
+        '⅛' => (1, 8),
+        '⅜' => (3, 8),
+        '⅝' => (5, 8),
+        '⅞' => (7, 8),
+        _ => unreachable!("lexer only emits supported vulgar fractions"),
+    };
+    Number::from_i64(numerator)
+        .checked_divide(Number::from_i64(denominator))
+        .expect("fraction denominator is nonzero")
+}
+
+fn expression_can_be_invoked(expression: &Expression) -> bool {
+    match expression {
+        Expression::Variable { .. }
+        | Expression::Lambda { .. }
+        | Expression::UserCall { .. }
+        | Expression::Invoke { .. } => true,
+        Expression::Group { expression, .. } => expression_can_be_invoked(expression),
+        _ => false,
+    }
+}
+
+fn parse_string_literal(source: &str) -> Result<String, ()> {
+    let mut characters = source[1..source.len() - 1].chars();
+    let mut value = String::new();
+    while let Some(character) = characters.next() {
+        if character != '\\' {
+            value.push(character);
+            continue;
+        }
+        value.push(match characters.next().ok_or(())? {
+            '\\' => '\\',
+            '"' => '"',
+            '\'' => '\'',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            _ => return Err(()),
+        });
+    }
+    Ok(value)
 }
 
 enum NumberWord {
