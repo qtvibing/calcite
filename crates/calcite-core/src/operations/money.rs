@@ -1,7 +1,10 @@
 use crate::evaluator::Value;
-use crate::{BinaryOperator, Diagnostic, DiagnosticKind, Money, Number, Percentage, Span};
+use crate::{
+    BinaryOperator, Diagnostic, DiagnosticKind, Money, MoneyRate, Number, Percentage, Span,
+    UnitValue,
+};
 
-use super::{compare_numbers, numeric_diagnostic, unsupported};
+use super::{compare_numbers, numeric_diagnostic, unit_diagnostic, unsupported};
 
 pub(super) fn money_pair(
     operator: BinaryOperator,
@@ -36,6 +39,111 @@ pub(super) fn money_pair(
         | BinaryOperator::LessEqual => {
             compare_numbers(operator, left.amount(), right.amount(), span)
         }
+        _ => Err(unsupported(span)),
+    }
+}
+
+pub(super) fn money_unit_pair(
+    operator: BinaryOperator,
+    money: Money,
+    unit: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if operator != BinaryOperator::Divide {
+        return Err(unsupported(span));
+    }
+    let (magnitude, denominator) = unit.into_parts();
+    money
+        .amount()
+        .clone()
+        .divide(magnitude)
+        .map(|amount| Value::MoneyRate(MoneyRate::new(amount, money.currency(), denominator)))
+        .map_err(|error| numeric_diagnostic(error, span))
+}
+
+pub(super) fn money_rate_pair(
+    operator: BinaryOperator,
+    left: MoneyRate,
+    right: MoneyRate,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if left.currency() != right.currency() {
+        return Err(Diagnostic::new(DiagnosticKind::CurrencyMismatch, span));
+    }
+    let right = right
+        .converted_denominator(left.denominator())
+        .map_err(|error| unit_diagnostic(error, span))?;
+    let amount = match operator {
+        BinaryOperator::Add => left.amount().clone().add(right.amount().clone()),
+        BinaryOperator::Subtract => left.amount().clone().subtract(right.amount().clone()),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => {
+            return compare_numbers(operator, left.amount(), right.amount(), span);
+        }
+        _ => return Err(unsupported(span)),
+    };
+    Ok(Value::MoneyRate(MoneyRate::new(
+        amount,
+        left.currency(),
+        left.denominator().clone(),
+    )))
+}
+
+pub(super) fn money_rate_unit_pair(
+    operator: BinaryOperator,
+    rate: MoneyRate,
+    quantity: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if operator != BinaryOperator::Multiply {
+        return Err(unsupported(span));
+    }
+    rate.apply_to(quantity)
+        .map(Value::Money)
+        .map_err(|error| unit_diagnostic(error, span))
+}
+
+pub(super) fn money_money_rate_pair(
+    operator: BinaryOperator,
+    money: Money,
+    rate: MoneyRate,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    if !matches!(operator, BinaryOperator::Divide | BinaryOperator::At) {
+        return Err(unsupported(span));
+    }
+    if money.currency() != rate.currency() {
+        return Err(Diagnostic::new(DiagnosticKind::CurrencyMismatch, span));
+    }
+    rate.solve_quantity(money)
+        .map(Value::Unit)
+        .map_err(|error| unit_diagnostic(error, span))
+}
+
+pub(super) fn money_rate_number_pair(
+    operator: BinaryOperator,
+    rate: MoneyRate,
+    number: Number,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Multiply => Ok(Value::MoneyRate(rate.scaled(number))),
+        BinaryOperator::Divide => rate
+            .amount()
+            .clone()
+            .divide(number)
+            .map(|amount| {
+                Value::MoneyRate(MoneyRate::new(
+                    amount,
+                    rate.currency(),
+                    rate.denominator().clone(),
+                ))
+            })
+            .map_err(|error| numeric_diagnostic(error, span)),
         _ => Err(unsupported(span)),
     }
 }

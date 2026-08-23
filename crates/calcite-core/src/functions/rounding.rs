@@ -101,7 +101,7 @@ fn round_value(
     }
 }
 
-fn absolute_value(value: Value, span: Span) -> Result<Value, Diagnostic> {
+pub(super) fn absolute_value(value: Value, span: Span) -> Result<Value, Diagnostic> {
     let negative = |number: &Number| {
         number
             .compare(&Number::from_i64(0))
@@ -122,6 +122,10 @@ fn absolute_value(value: Value, span: Span) -> Result<Value, Diagnostic> {
         Value::CalendarDuration(duration) if duration.total_months() < 0 => {
             Ok(Value::CalendarDuration(duration.negated()))
         }
+        Value::TimeSpan(duration) if duration.nanoseconds() < 0 => duration
+            .checked_negated()
+            .map(Value::TimeSpan)
+            .ok_or_else(|| invalid_function_arguments(span)),
         Value::WorkdayDuration(duration) if duration.days() < 0 => {
             Ok(Value::WorkdayDuration(duration.negated()))
         }
@@ -131,6 +135,7 @@ fn absolute_value(value: Value, span: Span) -> Result<Value, Diagnostic> {
         | Value::Unit(_)
         | Value::Money(_)
         | Value::Rate(_)
+        | Value::TimeSpan(_)
         | Value::CalendarDuration(_)
         | Value::WorkdayDuration(_) => Ok(value),
         _ => Err(invalid_function_arguments(span)),

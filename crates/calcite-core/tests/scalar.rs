@@ -48,6 +48,7 @@ fn exact_integer_modulo_and_remainder_have_distinct_sign_rules() {
     assert_eq!(output("17 mod -5"), "2");
     assert_eq!(output("-17 remainder 5"), "-2");
     assert_eq!(output("17 remainder -5"), "2");
+    assert_eq!(output("remainder of 21 divided by 5"), "1");
     assert_eq!(output("2 + 10 mod 4 * 3"), "8");
     assert_eq!(output("123456789012345678901234567890 mod 97"), "52");
 }
@@ -226,11 +227,27 @@ fn explicit_number_conversion_strips_typed_display_magnitudes() {
 }
 
 #[test]
+fn ordinal_suffixes_do_not_change_numeric_values() {
+    assert_eq!(output("1st + 2ND + 3rd + 4TH"), "10");
+    assert_eq!(output("21st day in hours"), "504 h");
+}
+
+#[test]
 fn large_number_suffixes_and_words_are_exact() {
     assert_eq!(output("2.5k"), "2500");
-    assert_eq!(output("5M"), "5000000");
+    assert_eq!(output("5 million"), "5000000");
     assert_eq!(output("2B"), "2000000000");
+    assert_eq!(output("2b"), "2000000000");
+    assert_eq!(output("5M"), output("5m"));
     assert_eq!(output("3 million + 10%"), "3300000");
+}
+
+#[test]
+fn subsecond_duration_units_convert_exactly() {
+    assert_eq!(output("1 second in milliseconds"), "1000 ms");
+    assert_eq!(output("1 ms in microseconds"), "1000 μs");
+    assert_eq!(output("1 μs in nanoseconds"), "1000 ns");
+    assert_eq!(output("500 us + 500 US"), "1000 μs");
 }
 
 #[test]
@@ -297,6 +314,7 @@ fn multiword_units_work_in_values_conversions_and_rates() {
 #[test]
 fn affine_temperature_units_convert_without_losing_precision() {
     assert_eq!(output("32 F to C"), "0 °C");
+    assert_eq!(output("32 f to c"), "0 °C");
     assert_eq!(output("0 C in F"), "32 °F");
     assert_eq!(output("273.15 K in C"), "0 °C");
 }

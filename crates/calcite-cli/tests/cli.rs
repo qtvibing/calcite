@@ -197,6 +197,84 @@ fn evaluates_exact_integer_modulo() {
 }
 
 #[test]
+fn supports_help_version_and_explicit_eval_modes() {
+    let help = calcite()
+        .arg("--help")
+        .output()
+        .expect("calcite should run");
+    assert!(help.status.success());
+    assert!(
+        String::from_utf8(help.stdout)
+            .unwrap()
+            .starts_with("Usage: calcite")
+    );
+
+    let version = calcite()
+        .arg("--version")
+        .output()
+        .expect("calcite should run");
+    assert!(version.status.success());
+    assert_eq!(
+        String::from_utf8(version.stdout).unwrap(),
+        format!("calcite {}\n", env!("CARGO_PKG_VERSION"))
+    );
+
+    let evaluation = calcite()
+        .args(["--eval", "2 + 3 * 4"])
+        .output()
+        .expect("calcite should run");
+    assert!(evaluation.status.success());
+    assert_eq!(String::from_utf8(evaluation.stdout).unwrap(), "14\n");
+}
+
+#[test]
+fn evaluates_a_document_from_a_file() {
+    let path = std::env::temp_dir().join(format!(
+        "calcite-test-{}-document.calcite",
+        std::process::id()
+    ));
+    std::fs::write(&path, "subtotal = 10\nsubtotal * 2\n").unwrap();
+    let output = calcite()
+        .arg("--file")
+        .arg(&path)
+        .output()
+        .expect("calcite should run");
+    let _ = std::fs::remove_file(path);
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "10\n20\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn supports_plain_and_json_output_modes() {
+    let plain = calcite()
+        .args(["--plain", "first", "=", "2", "\n", "first", "+", "3"])
+        .output()
+        .expect("calcite should run");
+    assert!(plain.status.success());
+    assert_eq!(String::from_utf8(plain.stdout).unwrap(), "5\n");
+
+    let json = calcite()
+        .args(["--json", "2", "+", "3"])
+        .output()
+        .expect("calcite should run");
+    assert!(json.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["results"][0]["output"], "5");
+
+    let error = calcite()
+        .args(["--json", "1", "/", "0"])
+        .output()
+        .expect("calcite should run");
+    assert!(!error.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&error.stdout).unwrap();
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["error"]["kind"], "DivisionByZero");
+}
+
+#[test]
 fn evaluates_an_expression_from_arguments() {
     let output = calcite()
         .args(["10%", "of", "50", "km"])
@@ -205,6 +283,31 @@ fn evaluates_an_expression_from_arguments() {
 
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "5 km\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn repl_preserves_variables_answers_and_session_history() {
+    let mut child = calcite()
+        .arg("--repl")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("calcite should run");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"2 + 2\nans * 3\nx = 5\nX + ans\n:history\n:quit\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "4\n12\n5\n10\n1  2 + 2\n2  ans * 3\n3  x = 5\n4  X + ans\n"
+    );
     assert!(output.stderr.is_empty());
 }
 
@@ -299,18 +402,35 @@ fn evaluates_natural_workday_ranges() {
 }
 
 #[test]
-fn relative_weekdays_require_explicit_temporal_context() {
+fn cli_supplies_the_current_system_time() {
     let output = calcite()
-        .args(["next", "Monday"])
+        .env("TZ", "UTC")
+        .args(["now", "in", "UTC"])
         .output()
         .expect("calcite should run");
 
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        "error: current date or time was not provided\n  next Monday\n  ^^^^^^^^^^^\n"
-    );
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains('T'));
+    assert!(stdout.ends_with("Z\n"));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn configures_numeric_date_order_explicitly() {
+    let mdy = calcite()
+        .args(["--date-order", "mdy", "3/8/2025"])
+        .output()
+        .expect("calcite should run");
+    assert!(mdy.status.success());
+    assert_eq!(String::from_utf8(mdy.stdout).unwrap(), "2025-03-08\n");
+
+    let dmy = calcite()
+        .args(["--date-order", "DMY", "3.8.2025"])
+        .output()
+        .expect("calcite should run");
+    assert!(dmy.status.success());
+    assert_eq!(String::from_utf8(dmy.stdout).unwrap(), "2025-08-03\n");
 }
 
 #[test]
@@ -489,8 +609,9 @@ fn empty_input_prints_usage_and_uses_a_distinct_exit_code() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        "usage: calcite [--refresh-rates] <expression>\n"
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .starts_with("Usage: calcite")
     );
 }

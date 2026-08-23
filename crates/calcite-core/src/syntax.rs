@@ -1,7 +1,11 @@
 use crate::{
-    CalendarDuration, ClockTime, CompoundUnit, Currency, Date, Number, OffsetDateTime, Radix,
-    RadixInteger, Span, UtcOffset, Weekday, WorkdayDuration,
+    CalendarDuration, ClockTime, CompoundUnit, Currency, Date, Number, OffsetClockTime,
+    OffsetDateTime, Radix, RadixInteger, Span, UtcOffset, Weekday, WorkdayDuration,
 };
+
+pub(crate) fn identifier_key(name: &str) -> String {
+    name.to_lowercase()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnaryOperator {
@@ -56,7 +60,7 @@ impl BinaryOperator {
             | Self::GreaterEqual
             | Self::Less
             | Self::LessEqual => (11, 12),
-            Self::ShiftLeft | Self::ShiftRight => (13, 14),
+            Self::ShiftLeft | Self::ShiftRight | Self::At => (13, 14),
             Self::Add | Self::Subtract => (15, 16),
             Self::Multiply
             | Self::Divide
@@ -68,8 +72,7 @@ impl BinaryOperator {
             | Self::CombinationsOf
             | Self::Of
             | Self::On
-            | Self::Off
-            | Self::At => (17, 18),
+            | Self::Off => (17, 18),
             Self::Power => (19, 19),
         }
     }
@@ -111,6 +114,10 @@ pub enum Function {
     WorkdaysBetween,
     NextWorkday,
     PreviousWorkday,
+    TimeBetween,
+    TimeFrom,
+    TimeSince,
+    TimeUntil,
     Factorial,
     Permutation,
     Combination,
@@ -213,6 +220,10 @@ impl Function {
             | "business_days_between" => Self::WorkdaysBetween,
             "nextworkday" | "next_workday" => Self::NextWorkday,
             "previousworkday" | "previous_workday" => Self::PreviousWorkday,
+            "timebetween" | "time_between" => Self::TimeBetween,
+            "timefrom" | "time_from" => Self::TimeFrom,
+            "timesince" | "time_since" => Self::TimeSince,
+            "timeuntil" | "time_until" => Self::TimeUntil,
             "round" => Self::Round,
             "floor" => Self::Floor,
             "ceiling" | "ceil" => Self::Ceiling,
@@ -234,6 +245,14 @@ pub enum TemporalKeyword {
     Tomorrow,
     Yesterday,
     Now,
+    NextMonth,
+    PreviousMonth,
+    NextYear,
+    PreviousYear,
+    StartOfMonth,
+    EndOfMonth,
+    StartOfYear,
+    EndOfYear,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -286,8 +305,17 @@ pub enum Expression {
         value: Date,
         span: Span,
     },
+    PartialDate {
+        month: u8,
+        day: u8,
+        span: Span,
+    },
     Clock {
         value: ClockTime,
+        span: Span,
+    },
+    OffsetClock {
+        value: OffsetClockTime,
         span: Span,
     },
     OffsetDateTime {
@@ -370,7 +398,9 @@ impl Expression {
             | Self::Unit { span, .. }
             | Self::Money { span, .. }
             | Self::Date { span, .. }
+            | Self::PartialDate { span, .. }
             | Self::Clock { span, .. }
+            | Self::OffsetClock { span, .. }
             | Self::OffsetDateTime { span, .. }
             | Self::CalendarDuration { span, .. }
             | Self::WorkdayDuration { span, .. }

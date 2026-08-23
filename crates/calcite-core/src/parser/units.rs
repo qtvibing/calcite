@@ -9,7 +9,10 @@ impl Parser<'_> {
         if !self.word_is(0, "in") {
             return false;
         }
-        if self.unit_at(1).is_some() || self.currency_at(1).is_some() {
+        if self.unit_at(1).is_some()
+            || self.currency_at(1).is_some()
+            || self.utc_offset_at(1).is_some()
+        {
             return true;
         }
         self.word_text_at(1).is_some_and(|target| {
@@ -26,7 +29,6 @@ impl Parser<'_> {
                 || target.eq_ignore_ascii_case("fraction")
                 || target.eq_ignore_ascii_case("percent")
                 || target.eq_ignore_ascii_case("percentage")
-                || target.eq_ignore_ascii_case("utc")
         })
     }
 
@@ -236,22 +238,28 @@ impl Parser<'_> {
                             Diagnostic::with_detail(
                                 DiagnosticKind::UnexpectedEnd,
                                 Span::empty(self.source.len()),
-                                "expected 2, 8, 10, or 16 after 'base'",
+                                "expected an integer from 2 through 36 after 'base'",
                             )
                         })?;
                         let radix = &self.source[radix_token.span.start..radix_token.span.end];
                         consumed = 3;
                         target_span = target_span.join(radix_token.span);
-                        match radix {
-                            "2" => ConversionTarget::Radix(Radix::Binary),
-                            "8" => ConversionTarget::Radix(Radix::Octal),
-                            "10" => ConversionTarget::Number,
-                            "16" => ConversionTarget::Radix(Radix::Hexadecimal),
-                            _ => {
+                        match radix.parse::<u8>().ok() {
+                            Some(10) => ConversionTarget::Number,
+                            Some(radix) => {
+                                ConversionTarget::Radix(Radix::new(radix).ok_or_else(|| {
+                                    Diagnostic::with_detail(
+                                        DiagnosticKind::UnexpectedToken,
+                                        radix_token.span,
+                                        "expected a base from 2 through 36",
+                                    )
+                                })?)
+                            }
+                            None => {
                                 return Err(Diagnostic::with_detail(
                                     DiagnosticKind::UnexpectedToken,
                                     radix_token.span,
-                                    "expected base 2, 8, 10, or 16",
+                                    "expected a base from 2 through 36",
                                 ));
                             }
                         }
@@ -294,30 +302,61 @@ impl Parser<'_> {
         let token = *self.tokens.get(self.position + offset)?;
         if token.kind == LexemeKind::Word {
             let word = &self.source[token.span.start..token.span.end];
-            if word.eq_ignore_ascii_case("utc") || word.eq_ignore_ascii_case("z") {
-                return Some((UtcOffset::UTC, 1, token.span));
+            let fixed_seconds = if word.eq_ignore_ascii_case("utc")
+                || word.eq_ignore_ascii_case("gmt")
+                || word.eq_ignore_ascii_case("z")
+            {
+                0
+            } else if word.eq_ignore_ascii_case("cet") {
+                3600
+            } else if word.eq_ignore_ascii_case("cest") {
+                7200
+            } else {
+                return None;
+            };
+
+            if (word.eq_ignore_ascii_case("utc") || word.eq_ignore_ascii_case("gmt"))
+                && self
+                    .tokens
+                    .get(self.position + offset + 1)
+                    .is_some_and(|token| matches!(token.kind, LexemeKind::Plus | LexemeKind::Minus))
+            {
+                let (value, consumed, span) = self.signed_utc_offset_at(offset + 1)?;
+                return Some((value, consumed + 1, token.span.join(span)));
             }
+            return Some((UtcOffset::from_seconds(fixed_seconds)?, 1, token.span));
         }
 
-        let direction = match token.kind {
+        self.signed_utc_offset_at(offset)
+    }
+
+    fn signed_utc_offset_at(&self, offset: usize) -> Option<(UtcOffset, usize, Span)> {
+        let sign = *self.tokens.get(self.position + offset)?;
+        let direction = match sign.kind {
             LexemeKind::Plus => 1,
             LexemeKind::Minus => -1,
             _ => return None,
         };
         let hours = self.token_u8(offset + 1)?;
-        if self.tokens.get(self.position + offset + 2)?.kind != LexemeKind::Colon {
-            return None;
+        let mut consumed = 2;
+        let mut minutes = 0;
+        if self
+            .tokens
+            .get(self.position + offset + 2)
+            .is_some_and(|token| token.kind == LexemeKind::Colon)
+        {
+            minutes = self.token_u8(offset + 3)?;
+            consumed = 4;
         }
-        let minutes = self.token_u8(offset + 3)?;
         if hours > 23 || minutes > 59 {
             return None;
         }
-        let end = self.tokens[self.position + offset + 3];
+        let end = self.tokens[self.position + offset + consumed - 1];
         let seconds = direction * (i32::from(hours) * 3600 + i32::from(minutes) * 60);
         Some((
             UtcOffset::from_seconds(seconds)?,
-            4,
-            token.span.join(end.span),
+            consumed,
+            sign.span.join(end.span),
         ))
     }
 
@@ -355,54 +394,60 @@ impl Parser<'_> {
             return Some((unit, 2, first_token.span.join(second_token.span)));
         }
 
-        if first.eq_ignore_ascii_case("us") {
-            let second_token = *self.tokens.get(self.position + offset + 1)?;
-            let second = self.word_text_at(offset + 1)?;
-            if second.eq_ignore_ascii_case("fluid") || second.eq_ignore_ascii_case("fl") {
-                let third_token = *self.tokens.get(self.position + offset + 2)?;
-                let third = self.word_text_at(offset + 2)?;
-                if third.eq_ignore_ascii_case("ounce")
+        if first.eq_ignore_ascii_case("us")
+            && let (Some(second_token), Some(second)) = (
+                self.tokens.get(self.position + offset + 1).copied(),
+                self.word_text_at(offset + 1),
+            )
+        {
+            if (second.eq_ignore_ascii_case("fluid") || second.eq_ignore_ascii_case("fl"))
+                && let (Some(third_token), Some(third)) = (
+                    self.tokens.get(self.position + offset + 2).copied(),
+                    self.word_text_at(offset + 2),
+                )
+                && (third.eq_ignore_ascii_case("ounce")
                     || third.eq_ignore_ascii_case("ounces")
-                    || third.eq_ignore_ascii_case("oz")
-                {
-                    return Some((
-                        Unit::UsFluidOunce,
-                        3,
-                        first_token.span.join(third_token.span),
-                    ));
-                }
+                    || third.eq_ignore_ascii_case("oz"))
+            {
+                return Some((
+                    Unit::UsFluidOunce,
+                    3,
+                    first_token.span.join(third_token.span),
+                ));
             }
             let unit = if second.eq_ignore_ascii_case("gallon")
                 || second.eq_ignore_ascii_case("gallons")
                 || second.eq_ignore_ascii_case("gal")
             {
-                Unit::UsGallon
+                Some(Unit::UsGallon)
             } else if second.eq_ignore_ascii_case("quart")
                 || second.eq_ignore_ascii_case("quarts")
                 || second.eq_ignore_ascii_case("qt")
             {
-                Unit::UsQuart
+                Some(Unit::UsQuart)
             } else if second.eq_ignore_ascii_case("pint")
                 || second.eq_ignore_ascii_case("pints")
                 || second.eq_ignore_ascii_case("pt")
             {
-                Unit::UsPint
+                Some(Unit::UsPint)
             } else if second.eq_ignore_ascii_case("cup") || second.eq_ignore_ascii_case("cups") {
-                Unit::UsCup
+                Some(Unit::UsCup)
             } else if second.eq_ignore_ascii_case("tablespoon")
                 || second.eq_ignore_ascii_case("tablespoons")
                 || second.eq_ignore_ascii_case("tbsp")
             {
-                Unit::UsTablespoon
+                Some(Unit::UsTablespoon)
             } else if second.eq_ignore_ascii_case("teaspoon")
                 || second.eq_ignore_ascii_case("teaspoons")
                 || second.eq_ignore_ascii_case("tsp")
             {
-                Unit::UsTeaspoon
+                Some(Unit::UsTeaspoon)
             } else {
-                return None;
+                None
             };
-            return Some((unit, 2, first_token.span.join(second_token.span)));
+            if let Some(unit) = unit {
+                return Some((unit, 2, first_token.span.join(second_token.span)));
+            }
         }
 
         if first.eq_ignore_ascii_case("metric") {

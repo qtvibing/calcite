@@ -180,59 +180,98 @@ impl fmt::Display for Date {
     }
 }
 
+const NANOS_PER_SECOND: u64 = 1_000_000_000;
+const NANOS_PER_DAY: u64 = 86_400 * NANOS_PER_SECOND;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeapSecondPolicy {
+    Reject,
+}
+
+pub const LEAP_SECOND_POLICY: LeapSecondPolicy = LeapSecondPolicy::Reject;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ClockTime {
-    seconds: u32,
+    nanoseconds: u64,
 }
 
 impl ClockTime {
     pub fn new(hour: u8, minute: u8, second: u8) -> Option<Self> {
-        if hour > 23 || minute > 59 || second > 59 {
+        Self::with_nanosecond(hour, minute, second, 0)
+    }
+
+    pub fn with_nanosecond(hour: u8, minute: u8, second: u8, nanosecond: u32) -> Option<Self> {
+        if hour > 23 || minute > 59 || second > 59 || nanosecond >= NANOS_PER_SECOND as u32 {
             return None;
         }
         Some(Self {
-            seconds: u32::from(hour) * 3600 + u32::from(minute) * 60 + u32::from(second),
+            nanoseconds: (u64::from(hour) * 3600 + u64::from(minute) * 60 + u64::from(second))
+                * NANOS_PER_SECOND
+                + u64::from(nanosecond),
         })
     }
 
     pub const fn hour(self) -> u8 {
-        (self.seconds / 3600) as u8
+        (self.nanoseconds / NANOS_PER_SECOND / 3600) as u8
     }
 
     pub const fn minute(self) -> u8 {
-        ((self.seconds % 3600) / 60) as u8
+        ((self.nanoseconds / NANOS_PER_SECOND % 3600) / 60) as u8
     }
 
     pub const fn second(self) -> u8 {
-        (self.seconds % 60) as u8
+        (self.nanoseconds / NANOS_PER_SECOND % 60) as u8
+    }
+
+    pub const fn nanosecond(self) -> u32 {
+        (self.nanoseconds % NANOS_PER_SECOND) as u32
     }
 
     pub fn add_seconds(self, seconds: i64) -> Self {
-        let wrapped = (i64::from(self.seconds) + seconds).rem_euclid(86_400);
+        self.add_nanoseconds(i128::from(seconds) * i128::from(NANOS_PER_SECOND))
+    }
+
+    pub fn add_nanoseconds(self, nanoseconds: i128) -> Self {
+        let wrapped =
+            (i128::from(self.nanoseconds) + nanoseconds).rem_euclid(i128::from(NANOS_PER_DAY));
         Self {
-            seconds: wrapped as u32,
+            nanoseconds: wrapped as u64,
         }
     }
 
     pub fn seconds_since(self, earlier: Self) -> i64 {
-        i64::from(self.seconds) - i64::from(earlier.seconds)
+        (self.nanoseconds_since(earlier) / i128::from(NANOS_PER_SECOND)) as i64
     }
 
-    pub(crate) const fn seconds_after_midnight(self) -> u32 {
-        self.seconds
+    pub fn nanoseconds_since(self, earlier: Self) -> i128 {
+        i128::from(self.nanoseconds) - i128::from(earlier.nanoseconds)
     }
 
-    pub(crate) fn from_seconds_after_midnight(seconds: u32) -> Option<Self> {
-        if seconds >= 86_400 {
+    pub(crate) const fn nanoseconds_after_midnight(self) -> u64 {
+        self.nanoseconds
+    }
+
+    pub(crate) fn from_nanoseconds_after_midnight(nanoseconds: u64) -> Option<Self> {
+        if nanoseconds >= NANOS_PER_DAY {
             return None;
         }
-        Some(Self { seconds })
+        Some(Self { nanoseconds })
     }
 }
 
 impl fmt::Display for ClockTime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.second() == 0 {
+        if self.nanosecond() != 0 {
+            let fraction = format!("{:09}", self.nanosecond());
+            write!(
+                formatter,
+                "{:02}:{:02}:{:02}.{}",
+                self.hour(),
+                self.minute(),
+                self.second(),
+                fraction.trim_end_matches('0')
+            )
+        } else if self.second() == 0 {
             write!(formatter, "{:02}:{:02}", self.hour(), self.minute())
         } else {
             write!(
@@ -243,6 +282,118 @@ impl fmt::Display for ClockTime {
                 self.second()
             )
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OffsetClockTime {
+    time: ClockTime,
+    offset: UtcOffset,
+}
+
+impl OffsetClockTime {
+    pub const fn new(time: ClockTime, offset: UtcOffset) -> Self {
+        Self { time, offset }
+    }
+
+    pub const fn time(self) -> ClockTime {
+        self.time
+    }
+
+    pub const fn offset(self) -> UtcOffset {
+        self.offset
+    }
+
+    pub fn converted_to(self, offset: UtcOffset) -> Self {
+        let adjustment = i64::from(offset.seconds()) - i64::from(self.offset.seconds());
+        Self::new(self.time.add_seconds(adjustment), offset)
+    }
+
+    pub fn nanoseconds_since(self, earlier: Self) -> i128 {
+        let self_utc = self.time.nanoseconds_after_midnight() as i128
+            - i128::from(self.offset.seconds()) * i128::from(NANOS_PER_SECOND);
+        let earlier_utc = earlier.time.nanoseconds_after_midnight() as i128
+            - i128::from(earlier.offset.seconds()) * i128::from(NANOS_PER_SECOND);
+        self_utc - earlier_utc
+    }
+}
+
+impl fmt::Display for OffsetClockTime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}{}", self.time, self.offset)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimeSpan {
+    nanoseconds: i128,
+}
+
+impl TimeSpan {
+    pub const fn from_nanoseconds(nanoseconds: i128) -> Self {
+        Self { nanoseconds }
+    }
+
+    pub const fn nanoseconds(self) -> i128 {
+        self.nanoseconds
+    }
+
+    pub const fn checked_add(self, other: Self) -> Option<Self> {
+        match self.nanoseconds.checked_add(other.nanoseconds) {
+            Some(nanoseconds) => Some(Self { nanoseconds }),
+            None => None,
+        }
+    }
+
+    pub const fn checked_subtract(self, other: Self) -> Option<Self> {
+        match self.nanoseconds.checked_sub(other.nanoseconds) {
+            Some(nanoseconds) => Some(Self { nanoseconds }),
+            None => None,
+        }
+    }
+
+    pub const fn checked_negated(self) -> Option<Self> {
+        match self.nanoseconds.checked_neg() {
+            Some(nanoseconds) => Some(Self { nanoseconds }),
+            None => None,
+        }
+    }
+}
+
+impl fmt::Display for TimeSpan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.nanoseconds == 0 {
+            return formatter.write_str("0 s");
+        }
+        if self.nanoseconds < 0 {
+            formatter.write_str("-")?;
+        }
+
+        let mut remaining = self.nanoseconds.unsigned_abs();
+        let units = [
+            (86_400_000_000_000_u128, "day", "days"),
+            (3_600_000_000_000, "h", "h"),
+            (60_000_000_000, "min", "min"),
+            (1_000_000_000, "s", "s"),
+            (1_000_000, "ms", "ms"),
+            (1_000, "μs", "μs"),
+            (1, "ns", "ns"),
+        ];
+        let mut first = true;
+        for (scale, singular, plural) in units {
+            let amount = remaining / scale;
+            if amount == 0 {
+                continue;
+            }
+            if !first {
+                formatter.write_str(" ")?;
+            }
+            let label = if amount == 1 { singular } else { plural };
+            write!(formatter, "{amount} {label}")?;
+            remaining %= scale;
+            first = false;
+        }
+        Ok(())
     }
 }
 
@@ -321,8 +472,12 @@ impl OffsetDateTime {
     }
 
     pub fn add_seconds(self, seconds: i64) -> Option<Self> {
-        let local = self.local_seconds().checked_add(seconds)?;
-        Self::from_local_seconds(local, self.offset)
+        self.add_nanoseconds(i128::from(seconds) * i128::from(NANOS_PER_SECOND))
+    }
+
+    pub fn add_nanoseconds(self, nanoseconds: i128) -> Option<Self> {
+        let local = self.local_nanoseconds().checked_add(nanoseconds)?;
+        Self::from_local_nanoseconds(local, self.offset)
     }
 
     pub fn add_months(self, months: i64) -> Option<Self> {
@@ -332,13 +487,18 @@ impl OffsetDateTime {
     }
 
     pub fn converted_to(self, offset: UtcOffset) -> Option<Self> {
-        let utc = self.utc_seconds();
-        let local = utc.checked_add(i64::from(offset.seconds))?;
-        Self::from_local_seconds(local, offset)
+        let utc = self.utc_nanoseconds();
+        let offset_nanoseconds = i128::from(offset.seconds) * i128::from(NANOS_PER_SECOND);
+        let local = utc.checked_add(offset_nanoseconds)?;
+        Self::from_local_nanoseconds(local, offset)
     }
 
     pub fn seconds_since(self, earlier: Self) -> i64 {
-        self.utc_seconds() - earlier.utc_seconds()
+        (self.nanoseconds_since(earlier) / i128::from(NANOS_PER_SECOND)) as i64
+    }
+
+    pub fn nanoseconds_since(self, earlier: Self) -> i128 {
+        self.utc_nanoseconds() - earlier.utc_nanoseconds()
     }
 
     pub(crate) fn parse_iso_prefix(source: &str) -> Option<(Self, usize)> {
@@ -367,7 +527,22 @@ impl OffsetDateTime {
         } else {
             0
         };
-        let time = ClockTime::new(hour, minute, second)?;
+        let nanosecond = if bytes.get(end) == Some(&b'.') {
+            let start = end + 1;
+            let length = source[start..]
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .count();
+            if !(1..=9).contains(&length) {
+                return None;
+            }
+            end = start + length;
+            let fraction = parse_ascii::<u32>(source, start, end)?;
+            fraction.checked_mul(10_u32.pow(9 - length as u32))?
+        } else {
+            0
+        };
+        let time = ClockTime::with_nanosecond(hour, minute, second, nanosecond)?;
 
         let offset = match bytes.get(end) {
             Some(b'Z' | b'z') => {
@@ -391,20 +566,21 @@ impl OffsetDateTime {
         Some((Self::new(date, time, offset), end))
     }
 
-    fn local_seconds(self) -> i64 {
-        self.date.epoch_days() * 86_400 + i64::from(self.time.seconds_after_midnight())
+    fn local_nanoseconds(self) -> i128 {
+        i128::from(self.date.epoch_days()) * i128::from(NANOS_PER_DAY)
+            + i128::from(self.time.nanoseconds_after_midnight())
     }
 
-    fn utc_seconds(self) -> i64 {
-        self.local_seconds() - i64::from(self.offset.seconds)
+    fn utc_nanoseconds(self) -> i128 {
+        self.local_nanoseconds() - i128::from(self.offset.seconds) * i128::from(NANOS_PER_SECOND)
     }
 
-    fn from_local_seconds(seconds: i64, offset: UtcOffset) -> Option<Self> {
-        let days = seconds.div_euclid(86_400);
-        let seconds = u32::try_from(seconds.rem_euclid(86_400)).ok()?;
+    fn from_local_nanoseconds(nanoseconds: i128, offset: UtcOffset) -> Option<Self> {
+        let days = i64::try_from(nanoseconds.div_euclid(i128::from(NANOS_PER_DAY))).ok()?;
+        let nanoseconds = u64::try_from(nanoseconds.rem_euclid(i128::from(NANOS_PER_DAY))).ok()?;
         Some(Self::new(
             Date::from_epoch_days(days)?,
-            ClockTime::from_seconds_after_midnight(seconds)?,
+            ClockTime::from_nanoseconds_after_midnight(nanoseconds)?,
             offset,
         ))
     }
@@ -468,18 +644,39 @@ impl fmt::Display for WorkdayDuration {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CalendarDurationUnit {
+    Month,
+    Year,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct CalendarDuration {
     months: i64,
+    unit: CalendarDurationUnit,
 }
+
+impl PartialEq for CalendarDuration {
+    fn eq(&self, other: &Self) -> bool {
+        self.months == other.months
+    }
+}
+
+impl Eq for CalendarDuration {}
 
 impl CalendarDuration {
     pub const fn months(months: i64) -> Self {
-        Self { months }
+        Self {
+            months,
+            unit: CalendarDurationUnit::Month,
+        }
     }
 
     pub const fn years(years: i64) -> Option<Self> {
         match years.checked_mul(12) {
-            Some(months) => Some(Self { months }),
+            Some(months) => Some(Self {
+                months,
+                unit: CalendarDurationUnit::Year,
+            }),
             None => None,
         }
     }
@@ -490,21 +687,42 @@ impl CalendarDuration {
 
     pub const fn checked_add(self, other: Self) -> Option<Self> {
         match self.months.checked_add(other.months) {
-            Some(months) => Some(Self { months }),
+            Some(months) => Some(Self {
+                months,
+                unit: if matches!(self.unit, CalendarDurationUnit::Year)
+                    && matches!(other.unit, CalendarDurationUnit::Year)
+                {
+                    CalendarDurationUnit::Year
+                } else {
+                    CalendarDurationUnit::Month
+                },
+            }),
             None => None,
         }
     }
 
     pub const fn checked_subtract(self, other: Self) -> Option<Self> {
         match self.months.checked_sub(other.months) {
-            Some(months) => Some(Self { months }),
+            Some(months) => Some(Self {
+                months,
+                unit: if matches!(self.unit, CalendarDurationUnit::Year)
+                    && matches!(other.unit, CalendarDurationUnit::Year)
+                {
+                    CalendarDurationUnit::Year
+                } else {
+                    CalendarDurationUnit::Month
+                },
+            }),
             None => None,
         }
     }
 
     pub const fn checked_multiply(self, factor: i64) -> Option<Self> {
         match self.months.checked_mul(factor) {
-            Some(months) => Some(Self { months }),
+            Some(months) => Some(Self {
+                months,
+                unit: self.unit,
+            }),
             None => None,
         }
     }
@@ -512,13 +730,14 @@ impl CalendarDuration {
     pub const fn negated(self) -> Self {
         Self {
             months: -self.months,
+            unit: self.unit,
         }
     }
 }
 
 impl fmt::Display for CalendarDuration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.months % 12 == 0 {
+        if matches!(self.unit, CalendarDurationUnit::Year) {
             let years = self.months / 12;
             write!(
                 formatter,
@@ -611,10 +830,18 @@ impl WorkdayCalendar {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DateOrder {
+    DayMonthYear,
+    MonthDayYear,
+    YearMonthDay,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemporalContext {
     pub current_datetime: Option<OffsetDateTime>,
     pub default_offset: UtcOffset,
+    pub date_order: Option<DateOrder>,
     pub workday_calendar: WorkdayCalendar,
 }
 
@@ -623,6 +850,7 @@ impl Default for TemporalContext {
         Self {
             current_datetime: None,
             default_offset: UtcOffset::UTC,
+            date_order: None,
             workday_calendar: WorkdayCalendar::default(),
         }
     }

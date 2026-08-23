@@ -9,12 +9,14 @@ mod fraction;
 mod functions;
 mod lexer;
 mod money;
+mod money_rate;
 mod number;
 mod operations;
 mod parser;
 mod percentage;
 mod radix;
 mod rate;
+mod session;
 mod span;
 mod syntax;
 mod temporal;
@@ -35,18 +37,21 @@ pub use money::{
     ExchangeRateFreshness, ExchangeRateLookupError, ExchangeRateSnapshot, ExchangeRates,
     InvalidExchangeRate, MonetaryContext, Money,
 };
+pub use money_rate::MoneyRate;
 pub use number::{Number, NumberParseError};
 pub use parser::{parse, parse_with_context};
 pub use percentage::Percentage;
 pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
+pub use session::CalculationSession;
 pub use span::Span;
 pub use syntax::{
     BinaryOperator, Constant, ConversionTarget, Expression, Function, RelativeWeekdayDirection,
     TemporalKeyword, UnaryOperator,
 };
 pub use temporal::{
-    CalendarDuration, ClockTime, Date, OffsetDateTime, TemporalContext, UtcOffset, Weekday,
+    CalendarDuration, ClockTime, Date, DateOrder, LEAP_SECOND_POLICY, LeapSecondPolicy,
+    OffsetClockTime, OffsetDateTime, TemporalContext, TimeSpan, UtcOffset, Weekday,
     WorkdayCalendar, WorkdayDuration,
 };
 pub use unit::{CompoundUnit, Dimension, Unit, UnitValue};

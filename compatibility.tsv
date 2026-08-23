@@ -7,7 +7,7 @@ word-subtract	supported	Natural subtraction.
 word-multiply	supported	Natural multiplication.
 word-divide	supported	Natural division.
 power-word	supported	Natural exponentiation.
-remainder-word	missing	Equivalent remainder operator exists, but this prefix phrase does not.
+remainder-word	supported	Prefix and infix remainder forms are supported.
 unary-power	supported	Conventional unary and power precedence agrees.
 signed-exponent	supported	Signed exponents agree.
 unary-signed-exponent	supported	Conventional unary and power precedence agrees.
@@ -34,9 +34,9 @@ hex-to-decimal	supported	Exact hexadecimal-to-decimal conversion.
 binary-to-octal	supported	Exact binary-to-octal conversion.
 rate-forming-unit	supported	Typed unit rate formation.
 compatible-duration-cancellation	supported	Compatible dimensions cancel exactly; display rounds to configured precision.
-explicit-rate-retention	missing	Dimensionless cancellation currently occurs before an explicit rate target can retain units.
-currency-rate-application	missing	Currency-per-unit values are not yet represented.
-solve-duration-from-rate	missing	Money-per-unit rate solving is deferred until currency semantics are expanded.
+explicit-rate-retention	supported	Explicit dimensionless rate targets retain their requested units.
+currency-rate-application	supported	Money-per-unit rates preserve currency and denominator units.
+solve-duration-from-rate	supported	Money divided by a compatible monetary rate returns the corresponding quantity.
 explicit-conversion-inner-first	supported	Chained conversions evaluate from the inside out.
 terminal-error-priority	intentionally-divergent	Calcite has structured values and errors, not pending or failed token states.
 terminal-pending-priority	intentionally-divergent	Calcite has no asynchronous pending value in the deterministic evaluator.

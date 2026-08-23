@@ -1,7 +1,7 @@
 use calcite_core::{
-    CalculationContext, ClockTime, Date, DiagnosticKind, DocumentDependency, DocumentEntryKind,
-    OffsetDateTime, TemporalContext, UtcOffset, WorkdayCalendar, calculate_document,
-    calculate_document_with_context,
+    CalculationContext, CalculationSession, ClockTime, Date, DiagnosticKind, DocumentDependency,
+    DocumentEntryKind, OffsetDateTime, TemporalContext, UtcOffset, WorkdayCalendar,
+    calculate_document, calculate_document_with_context,
 };
 
 fn outputs(source: &str) -> Vec<String> {
@@ -14,10 +14,38 @@ fn outputs(source: &str) -> Vec<String> {
 }
 
 #[test]
+fn sessions_preserve_variables_and_previous_answers() {
+    let context = CalculationContext::default();
+    let mut session = CalculationSession::new();
+    assert_eq!(
+        session
+            .calculate("principal = 10", &context)
+            .unwrap()
+            .output,
+        "10"
+    );
+    assert_eq!(
+        session.calculate("PRINCIPAL + 5", &context).unwrap().output,
+        "15"
+    );
+    assert_eq!(session.calculate("ans * 2", &context).unwrap().output, "30");
+    assert_eq!(session.calculate("_ + 1", &context).unwrap().output, "31");
+    assert_eq!(session.get("principal").unwrap().to_string(), "10");
+}
+
+#[test]
 fn natural_aggregate_lists_flow_through_variables() {
     assert_eq!(
-        outputs("a = 10\nb = 20\nc = 30\nsum of a, b, and c\naverage of a and c"),
+        outputs("a = 10\nb = 20\nthird = 30\nsum of a, b, and third\naverage of a and third"),
         ["10", "20", "30", "60", "20"]
+    );
+}
+
+#[test]
+fn variable_names_are_case_insensitive() {
+    assert_eq!(
+        outputs("Principal = 10\nPRINCIPAL + 5\nprincipal = 20\nPrincipal"),
+        ["10", "15", "20", "20"]
     );
 }
 

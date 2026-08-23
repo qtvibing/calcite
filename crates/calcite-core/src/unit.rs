@@ -29,6 +29,9 @@ pub enum Unit {
     Kilogram,
     Ounce,
     Pound,
+    Nanosecond,
+    Microsecond,
+    Millisecond,
     Second,
     Minute,
     Hour,
@@ -77,9 +80,14 @@ impl Unit {
             | Self::Yard
             | Self::Mile => Dimension::Length,
             Self::Gram | Self::Kilogram | Self::Ounce | Self::Pound => Dimension::Mass,
-            Self::Second | Self::Minute | Self::Hour | Self::Day | Self::Week => {
-                Dimension::Duration
-            }
+            Self::Nanosecond
+            | Self::Microsecond
+            | Self::Millisecond
+            | Self::Second
+            | Self::Minute
+            | Self::Hour
+            | Self::Day
+            | Self::Week => Dimension::Duration,
             Self::Celsius | Self::Fahrenheit | Self::Kelvin => Dimension::Temperature,
             Self::Radian | Self::Degree => Dimension::Angle,
             Self::SquareMeter
@@ -110,12 +118,6 @@ impl Unit {
     }
 
     pub fn from_alias(alias: &str) -> Option<Self> {
-        match alias {
-            "C" => return Some(Self::Celsius),
-            "F" => return Some(Self::Fahrenheit),
-            "K" => return Some(Self::Kelvin),
-            _ => {}
-        }
         match alias.to_ascii_lowercase().as_str() {
             "m" | "meter" | "meters" | "metre" | "metres" => Some(Self::Meter),
             "km" | "kilometer" | "kilometers" | "kilometre" | "kilometres" => Some(Self::Kilometer),
@@ -133,14 +135,17 @@ impl Unit {
             "kg" | "kilogram" | "kilograms" => Some(Self::Kilogram),
             "oz" | "ounce" | "ounces" => Some(Self::Ounce),
             "lb" | "lbs" | "pound" | "pounds" => Some(Self::Pound),
+            "ns" | "nanosecond" | "nanoseconds" => Some(Self::Nanosecond),
+            "us" | "μs" | "µs" | "microsecond" | "microseconds" => Some(Self::Microsecond),
+            "ms" | "millisecond" | "milliseconds" => Some(Self::Millisecond),
             "s" | "sec" | "second" | "seconds" => Some(Self::Second),
             "min" | "minute" | "minutes" => Some(Self::Minute),
             "h" | "hr" | "hour" | "hours" => Some(Self::Hour),
             "day" | "days" => Some(Self::Day),
             "wk" | "week" | "weeks" => Some(Self::Week),
-            "celsius" => Some(Self::Celsius),
-            "fahrenheit" => Some(Self::Fahrenheit),
-            "kelvin" => Some(Self::Kelvin),
+            "c" | "celsius" => Some(Self::Celsius),
+            "f" | "fahrenheit" => Some(Self::Fahrenheit),
+            "k" | "kelvin" => Some(Self::Kelvin),
             "rad" | "radian" | "radians" => Some(Self::Radian),
             "deg" | "degree" | "degrees" => Some(Self::Degree),
             "m2" | "m²" | "sqm" | "squaremeter" | "squaremeters" | "squaremetre"
@@ -194,6 +199,9 @@ impl Unit {
             Self::Kilogram => "kg",
             Self::Ounce => "oz",
             Self::Pound => "lb",
+            Self::Nanosecond => "ns",
+            Self::Microsecond => "μs",
+            Self::Millisecond => "ms",
             Self::Second => "s",
             Self::Minute => "min",
             Self::Hour => "h",
@@ -272,6 +280,9 @@ impl Unit {
             Self::Kilogram => ("1000", "0"),
             Self::Ounce => ("28.349523125", "0"),
             Self::Pound => ("453.59237", "0"),
+            Self::Nanosecond => ("0.000000001", "0"),
+            Self::Microsecond => ("0.000001", "0"),
+            Self::Millisecond => ("0.001", "0"),
             Self::Minute => ("60", "0"),
             Self::Hour => ("3600", "0"),
             Self::Day => ("86400", "0"),

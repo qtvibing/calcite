@@ -145,10 +145,14 @@ impl Number {
     pub(crate) fn formatted_radix(&self, radix: Radix) -> String {
         let value = integer_value(self.0.clone()).expect("radix values are exact integers");
         let digits = value.in_radix(radix.value()).to_string();
+        let prefix = radix
+            .prefix()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{}#", radix.value()));
         if let Some(digits) = digits.strip_prefix('-') {
-            format!("-{}{digits}", radix.prefix())
+            format!("-{prefix}{digits}")
         } else {
-            format!("{}{digits}", radix.prefix())
+            format!("{prefix}{digits}")
         }
     }
 

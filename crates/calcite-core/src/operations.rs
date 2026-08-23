@@ -56,6 +56,15 @@ pub(super) fn evaluate_binary(
         (Value::Percentage(left), Value::Fraction(right)) => {
             percentage_number_pair(operator, left, right.into_number(), span)
         }
+        (Value::TimeSpan(left), Value::TimeSpan(right)) => {
+            time_span_pair(operator, left, right, span)
+        }
+        (Value::TimeSpan(left), Value::Unit(right)) => {
+            time_span_unit_pair(operator, left, right, span)
+        }
+        (Value::Unit(left), Value::TimeSpan(right)) if operator == BinaryOperator::Add => {
+            time_span_unit_pair(operator, right, left, span)
+        }
         (Value::Unit(left), Value::Unit(right)) => unit_pair(operator, left, right, span),
         (Value::Unit(left), Value::Number(right)) => unit_number_pair(operator, left, right, span),
         (Value::Number(left), Value::Unit(right)) => number_unit_pair(operator, left, right, span),
@@ -66,11 +75,30 @@ pub(super) fn evaluate_binary(
             percentage_unit_pair(operator, left, right, span)
         }
         (Value::Money(left), Value::Money(right)) => money_pair(operator, left, right, span),
+        (Value::Money(left), Value::MoneyRate(right)) => {
+            money_money_rate_pair(operator, left, right, span)
+        }
+        (Value::Money(left), Value::Unit(right)) => money_unit_pair(operator, left, right, span),
         (Value::Money(left), Value::Number(right)) => {
             money_number_pair(operator, left, right, span)
         }
         (Value::Number(left), Value::Money(right)) => {
             number_money_pair(operator, left, right, span)
+        }
+        (Value::MoneyRate(left), Value::MoneyRate(right)) => {
+            money_rate_pair(operator, left, right, span)
+        }
+        (Value::MoneyRate(rate), Value::Unit(quantity)) => {
+            money_rate_unit_pair(operator, rate, quantity, span)
+        }
+        (Value::Unit(quantity), Value::MoneyRate(rate)) if operator == BinaryOperator::Multiply => {
+            money_rate_unit_pair(operator, rate, quantity, span)
+        }
+        (Value::MoneyRate(rate), Value::Number(number)) => {
+            money_rate_number_pair(operator, rate, number, span)
+        }
+        (Value::Number(number), Value::MoneyRate(rate)) if operator == BinaryOperator::Multiply => {
+            money_rate_number_pair(operator, rate, number, span)
         }
         (Value::Money(left), Value::Percentage(right)) => {
             money_percentage_pair(operator, left, right, span)
@@ -91,6 +119,15 @@ pub(super) fn evaluate_binary(
             Ok(Value::OffsetDateTime(OffsetDateTime::new(
                 date, time, offset,
             )))
+        }
+        (Value::Date(date), Value::OffsetClock(time)) if operator == BinaryOperator::At => Ok(
+            Value::OffsetDateTime(OffsetDateTime::new(date, time.time(), time.offset())),
+        ),
+        (Value::OffsetClock(left), Value::OffsetClock(right)) => {
+            offset_clock_pair(operator, left, right, span)
+        }
+        (Value::OffsetClock(time), Value::Unit(duration)) => {
+            offset_clock_duration_pair(operator, time, duration, span)
         }
         (Value::OffsetDateTime(left), Value::OffsetDateTime(right)) => {
             datetime_pair(operator, left, right, span)

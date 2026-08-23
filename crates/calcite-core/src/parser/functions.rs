@@ -12,7 +12,7 @@ impl Parser<'_> {
             Some(Constant::Pi)
         } else if name.eq_ignore_ascii_case("tau") {
             Some(Constant::Tau)
-        } else if name == "e" {
+        } else if name.eq_ignore_ascii_case("e") {
             Some(Constant::E)
         } else {
             None
@@ -203,6 +203,23 @@ impl Parser<'_> {
         }
         self.position += 1;
         Ok(token)
+    }
+
+    pub(super) fn parse_natural_remainder(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.consume_word("remainder", "expected 'remainder'")?.span;
+        self.consume_word("of", "expected 'of'")?;
+        let dividend = self.parse_expression(18)?;
+        let operator = self.consume_word("divided", "expected 'divided by'")?;
+        self.consume_word("by", "expected 'divided by'")?;
+        let divisor = self.parse_expression(0)?;
+        let span = start.join(divisor.span());
+        Ok(Expression::Binary {
+            left: Box::new(dividend),
+            operator: crate::BinaryOperator::Remainder,
+            operator_span: operator.span,
+            right: Box::new(divisor),
+            span,
+        })
     }
 
     pub(super) fn parse_natural_clamp(&mut self) -> Result<Expression, Diagnostic> {

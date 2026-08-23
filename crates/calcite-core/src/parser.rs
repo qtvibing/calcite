@@ -3,9 +3,9 @@ mod temporal;
 mod units;
 
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, Currency, Diagnostic, DiagnosticKind,
-    Expression, Function, Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, RadixInteger,
-    Span, UnaryOperator, WorkdayDuration, lex_with_number_format,
+    BinaryOperator, CalculationContext, CalendarDuration, Currency, DateOrder, Diagnostic,
+    DiagnosticKind, Expression, Function, Lexeme, LexemeKind, Number, NumberFormat,
+    NumberParseError, RadixInteger, Span, UnaryOperator, WorkdayDuration, lex_with_number_format,
 };
 
 pub fn parse(source: &str) -> Result<Expression, Diagnostic> {
@@ -26,6 +26,7 @@ pub fn parse_with_context(
         position: 0,
         number_format: context.number_format,
         default_currency: context.monetary.default_currency,
+        date_order: context.temporal.date_order,
     };
 
     let expression = parser.parse_expression(0)?;
@@ -44,6 +45,7 @@ struct Parser<'a> {
     position: usize,
     number_format: NumberFormat,
     default_currency: Currency,
+    date_order: Option<DateOrder>,
 }
 
 impl Parser<'_> {
@@ -123,6 +125,9 @@ impl Parser<'_> {
 
         match token.kind {
             LexemeKind::Number => {
+                if let Some(expression) = self.parse_configured_numeric_date() {
+                    return expression;
+                }
                 if let Some(expression) = self.parse_iso_offset_datetime() {
                     return Ok(expression);
                 }
@@ -145,35 +150,41 @@ impl Parser<'_> {
                 if self.is_clock_time() {
                     return self.parse_clock_time();
                 }
-                self.position += 1;
+                let ordinal_suffix = self.ordinal_suffix_at(1);
+                self.position += 1 + usize::from(ordinal_suffix.is_some());
                 let source = &self.source[token.span.start..token.span.end];
-                let radix_value = source
-                    .get(..2)
-                    .is_some_and(|prefix| matches!(prefix, "0b" | "0B" | "0o" | "0O" | "0x" | "0X"))
-                    .then(|| {
-                        RadixInteger::parse(source).map_err(|error| {
-                            let kind = match error {
-                                NumberParseError::Invalid => DiagnosticKind::InvalidNumber,
-                                NumberParseError::TooLarge => DiagnosticKind::NumberTooLarge,
-                            };
-                            Diagnostic::new(kind, token.span)
-                        })
+                let radix_value = (source.contains('#')
+                    || source.get(..2).is_some_and(|prefix| {
+                        matches!(prefix, "0b" | "0B" | "0o" | "0O" | "0x" | "0X")
+                    }))
+                .then(|| {
+                    RadixInteger::parse(source).map_err(|error| {
+                        let kind = match error {
+                            NumberParseError::Invalid => DiagnosticKind::InvalidNumber,
+                            NumberParseError::TooLarge => DiagnosticKind::NumberTooLarge,
+                        };
+                        Diagnostic::new(kind, token.span)
                     })
-                    .transpose()?;
+                })
+                .transpose()?;
                 let value = match &radix_value {
                     Some(value) => value.value().clone(),
                     None => self.parse_number_value(token)?,
                 };
+                let base_span =
+                    ordinal_suffix.map_or(token.span, |suffix| token.span.join(suffix.span));
                 let (value, span) = if let Some((factor, scalar)) = self.scalar() {
                     self.position += 1;
                     (
                         value.multiply(Number::from_i64(factor)),
-                        token.span.join(scalar.span),
+                        base_span.join(scalar.span),
                     )
                 } else {
-                    (value, token.span)
+                    (value, base_span)
                 };
-                if let Some((currency, currency_token)) = self.currency_at(0) {
+                if let Some((currency, currency_token)) =
+                    self.currency_at(0).filter(|_| self.unit().is_none())
+                {
                     self.position += 1;
                     Ok(Expression::Money {
                         amount: value,
@@ -193,12 +204,19 @@ impl Parser<'_> {
                     let count = value.exact_i64().ok_or_else(|| {
                         Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)
                     })?;
-                    let months = count.checked_mul(months_per_unit).ok_or_else(|| {
+                    let duration = if months_per_unit == 12 {
+                        CalendarDuration::years(count)
+                    } else {
+                        count
+                            .checked_mul(months_per_unit)
+                            .map(CalendarDuration::months)
+                    }
+                    .ok_or_else(|| {
                         Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, span)
                     })?;
                     self.position += 1;
                     Ok(Expression::CalendarDuration {
-                        value: CalendarDuration::months(months),
+                        value: duration,
                         span: span.join(calendar_token.span),
                     })
                 } else if let Some((unit, consumed, unit_span)) =
@@ -230,6 +248,12 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
             LexemeKind::Word if self.workday_range_at().is_some() => self.parse_workday_range(),
+            LexemeKind::Word if self.word_is(0, "remainder") && self.word_is(1, "of") => {
+                self.parse_natural_remainder()
+            }
+            LexemeKind::Word if self.starts_natural_time_difference() => {
+                self.parse_natural_time_difference()
+            }
             LexemeKind::Word if self.word_is(0, "clamp") => self.parse_natural_clamp(),
             LexemeKind::Word if self.word_is(0, "midpoint") && self.word_is(1, "between") => {
                 self.parse_natural_midpoint()
@@ -250,12 +274,10 @@ impl Parser<'_> {
             }
             LexemeKind::Word if self.month_at(0).is_some() => self.parse_named_date(true),
             LexemeKind::Word if self.temporal_keyword().is_some() => {
-                let keyword = self.temporal_keyword().expect("guard checked the keyword");
-                self.position += 1;
-                Ok(Expression::TemporalKeyword {
-                    keyword,
-                    span: token.span,
-                })
+                let (keyword, consumed, span) =
+                    self.temporal_keyword().expect("guard checked the keyword");
+                self.position += consumed;
+                Ok(Expression::TemporalKeyword { keyword, span })
             }
             LexemeKind::Word if self.unit().is_some() => {
                 let (unit, consumed, span) = self.unit().expect("guard checked the unit");
@@ -399,11 +421,7 @@ impl Parser<'_> {
         let source = &self.source[token.span.start..token.span.end];
         let currency = match token.kind {
             LexemeKind::CurrencySymbol => Currency::from_symbol(source, self.default_currency)?,
-            LexemeKind::Word
-                if source.len() == 3 && source.bytes().all(|byte| byte.is_ascii_uppercase()) =>
-            {
-                Currency::from_code(source)?
-            }
+            LexemeKind::Word if source.len() == 3 => Currency::from_code(source)?,
             _ => return None,
         };
         Some((currency, token))
@@ -467,11 +485,10 @@ impl Parser<'_> {
             self.position > 0 && self.tokens[self.position - 1].span.end == token.span.start;
 
         let factor = if is_adjacent {
-            match text {
-                "k" | "K" => Some(1_000),
-                "M" => Some(1_000_000),
-                "B" | "G" => Some(1_000_000_000),
-                "T" => Some(1_000_000_000_000),
+            match text.to_ascii_lowercase().as_str() {
+                "k" => Some(1_000),
+                "b" => Some(1_000_000_000),
+                "t" => Some(1_000_000_000_000),
                 _ => None,
             }
         } else {
@@ -588,12 +605,6 @@ impl Parser<'_> {
                     && !self.word_is(1, "most") =>
             {
                 (BinaryOperator::At, current.span, 1)
-            }
-            LexemeKind::Word if &self.source[current.span.start..current.span.end] == "AND" => {
-                (BinaryOperator::BitwiseAnd, current.span, 1)
-            }
-            LexemeKind::Word if &self.source[current.span.start..current.span.end] == "OR" => {
-                (BinaryOperator::BitwiseOr, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "and") => (BinaryOperator::And, current.span, 1),
             LexemeKind::Word if self.word_is(0, "or") => (BinaryOperator::Or, current.span, 1),

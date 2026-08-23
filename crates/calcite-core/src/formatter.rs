@@ -21,12 +21,17 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
             money.amount().formatted_with(decimal_separator),
             money.currency()
         ),
+        Value::MoneyRate(rate) => {
+            rate.formatted_with(&rate.amount().formatted_with(decimal_separator))
+        }
         Value::Rate(rate) => {
             rate.formatted_with(&rate.magnitude().formatted_with(decimal_separator))
         }
         Value::Date(date) => date.to_string(),
         Value::Clock(time) => time.to_string(),
+        Value::OffsetClock(time) => time.to_string(),
         Value::OffsetDateTime(value) => value.to_string(),
+        Value::TimeSpan(duration) => duration.to_string(),
         Value::CalendarDuration(duration) => duration.to_string(),
         Value::WorkdayDuration(duration) => duration.to_string(),
         Value::Weekday(weekday) => weekday.to_string(),

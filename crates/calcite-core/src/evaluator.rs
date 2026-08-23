@@ -2,11 +2,12 @@ use std::{collections::HashMap, fmt};
 
 use crate::functions::evaluate_call;
 use crate::operations::{classify_compound_value, convert, evaluate_binary, unsupported};
+use crate::syntax::identifier_key;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, Date, Diagnostic,
-    DiagnosticKind, Expression, Fraction, Money, Number, OffsetDateTime, Percentage, RadixInteger,
-    Rate, RelativeWeekdayDirection, TemporalKeyword, UnaryOperator, UnitValue, Weekday,
-    WorkdayDuration, parse_with_context,
+    DiagnosticKind, Expression, Fraction, Money, MoneyRate, Number, OffsetClockTime,
+    OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection, TemporalKeyword,
+    TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -18,10 +19,13 @@ pub enum Value {
     Fraction(Fraction),
     Unit(UnitValue),
     Money(Money),
+    MoneyRate(MoneyRate),
     Rate(Rate),
     Date(Date),
     Clock(ClockTime),
+    OffsetClock(OffsetClockTime),
     OffsetDateTime(OffsetDateTime),
+    TimeSpan(TimeSpan),
     CalendarDuration(CalendarDuration),
     WorkdayDuration(WorkdayDuration),
     Weekday(Weekday),
@@ -71,6 +75,13 @@ impl Value {
         }
     }
 
+    pub const fn as_money_rate(&self) -> Option<&MoneyRate> {
+        match self {
+            Self::MoneyRate(rate) => Some(rate),
+            _ => None,
+        }
+    }
+
     pub const fn as_rate(&self) -> Option<&Rate> {
         match self {
             Self::Rate(rate) => Some(rate),
@@ -92,9 +103,23 @@ impl Value {
         }
     }
 
+    pub const fn as_offset_clock(&self) -> Option<OffsetClockTime> {
+        match self {
+            Self::OffsetClock(time) => Some(*time),
+            _ => None,
+        }
+    }
+
     pub const fn as_offset_datetime(&self) -> Option<OffsetDateTime> {
         match self {
             Self::OffsetDateTime(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub const fn as_time_span(&self) -> Option<TimeSpan> {
+        match self {
+            Self::TimeSpan(duration) => Some(*duration),
             _ => None,
         }
     }
@@ -139,10 +164,13 @@ impl fmt::Display for Value {
                 write!(formatter, "{} {}", value.magnitude(), value.display_unit())
             }
             Self::Money(money) => money.fmt(formatter),
+            Self::MoneyRate(rate) => rate.fmt(formatter),
             Self::Rate(rate) => rate.fmt(formatter),
             Self::Date(date) => date.fmt(formatter),
             Self::Clock(time) => time.fmt(formatter),
+            Self::OffsetClock(time) => time.fmt(formatter),
             Self::OffsetDateTime(value) => value.fmt(formatter),
+            Self::TimeSpan(duration) => duration.fmt(formatter),
             Self::CalendarDuration(duration) => duration.fmt(formatter),
             Self::WorkdayDuration(duration) => duration.fmt(formatter),
             Self::Weekday(weekday) => weekday.fmt(formatter),
@@ -184,7 +212,18 @@ pub(crate) fn evaluate_expression(
             amount, currency, ..
         } => Ok(Value::Money(Money::new(amount.clone(), *currency))),
         Expression::Date { value, .. } => Ok(Value::Date(*value)),
+        Expression::PartialDate { month, day, span } => {
+            let year = context
+                .temporal
+                .current_datetime
+                .map(|current| current.date().year())
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span))?;
+            Date::new(year, *month, *day)
+                .map(Value::Date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))
+        }
         Expression::Clock { value, .. } => Ok(Value::Clock(*value)),
+        Expression::OffsetClock { value, .. } => Ok(Value::OffsetClock(*value)),
         Expression::OffsetDateTime { value, .. } => Ok(Value::OffsetDateTime(*value)),
         Expression::CalendarDuration { value, .. } => Ok(Value::CalendarDuration(*value)),
         Expression::WorkdayDuration { value, .. } => Ok(Value::WorkdayDuration(*value)),
@@ -211,6 +250,38 @@ pub(crate) fn evaluate_expression(
                 .current_datetime
                 .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
+            TemporalKeyword::NextMonth
+            | TemporalKeyword::PreviousMonth
+            | TemporalKeyword::NextYear
+            | TemporalKeyword::PreviousYear
+            | TemporalKeyword::StartOfMonth
+            | TemporalKeyword::EndOfMonth
+            | TemporalKeyword::StartOfYear
+            | TemporalKeyword::EndOfYear => {
+                let current = context
+                    .temporal
+                    .current_datetime
+                    .map(OffsetDateTime::date)
+                    .ok_or_else(|| {
+                        Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)
+                    })?;
+                let date = match keyword {
+                    TemporalKeyword::NextMonth => current.add_months(1),
+                    TemporalKeyword::PreviousMonth => current.add_months(-1),
+                    TemporalKeyword::NextYear => current.add_months(12),
+                    TemporalKeyword::PreviousYear => current.add_months(-12),
+                    TemporalKeyword::StartOfMonth => Date::new(current.year(), current.month(), 1),
+                    TemporalKeyword::EndOfMonth => current
+                        .add_months(1)
+                        .and_then(|next| Date::new(next.year(), next.month(), 1))
+                        .and_then(|next| next.add_days(-1)),
+                    TemporalKeyword::StartOfYear => Date::new(current.year(), 1, 1),
+                    TemporalKeyword::EndOfYear => Date::new(current.year(), 12, 31),
+                    _ => unreachable!("current-date keyword was matched above"),
+                };
+                date.map(Value::Date)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))
+            }
         },
         Expression::RelativeWeekday {
             direction,
@@ -241,7 +312,7 @@ pub(crate) fn evaluate_expression(
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))
         }
         Expression::Variable { name, span } => variables
-            .get(name)
+            .get(&identifier_key(name))
             .cloned()
             .ok_or_else(|| Diagnostic::with_detail(DiagnosticKind::UnknownVariable, *span, name)),
         Expression::Call {
@@ -286,6 +357,17 @@ pub(crate) fn evaluate_expression(
                 (UnaryOperator::Negative, Value::Money(money)) => Ok(Value::Money(money.negated())),
                 (UnaryOperator::Positive, Value::Rate(rate)) => Ok(Value::Rate(rate)),
                 (UnaryOperator::Negative, Value::Rate(rate)) => Ok(Value::Rate(rate.negated())),
+                (UnaryOperator::Positive, Value::MoneyRate(rate)) => Ok(Value::MoneyRate(rate)),
+                (UnaryOperator::Negative, Value::MoneyRate(rate)) => {
+                    Ok(Value::MoneyRate(rate.negated()))
+                }
+                (UnaryOperator::Positive, Value::TimeSpan(duration)) => {
+                    Ok(Value::TimeSpan(duration))
+                }
+                (UnaryOperator::Negative, Value::TimeSpan(duration)) => duration
+                    .checked_negated()
+                    .map(Value::TimeSpan)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, *operator_span)),
                 (UnaryOperator::Positive, Value::CalendarDuration(duration)) => {
                     Ok(Value::CalendarDuration(duration))
                 }
@@ -303,6 +385,7 @@ pub(crate) fn evaluate_expression(
                     UnaryOperator::Positive | UnaryOperator::Negative,
                     Value::Date(_)
                     | Value::Clock(_)
+                    | Value::OffsetClock(_)
                     | Value::OffsetDateTime(_)
                     | Value::Weekday(_)
                     | Value::Boolean(_),
@@ -315,10 +398,13 @@ pub(crate) fn evaluate_expression(
                     | Value::Fraction(_)
                     | Value::Unit(_)
                     | Value::Money(_)
+                    | Value::MoneyRate(_)
                     | Value::Rate(_)
                     | Value::Date(_)
                     | Value::Clock(_)
+                    | Value::OffsetClock(_)
                     | Value::OffsetDateTime(_)
+                    | Value::TimeSpan(_)
                     | Value::CalendarDuration(_)
                     | Value::WorkdayDuration(_)
                     | Value::Weekday(_),

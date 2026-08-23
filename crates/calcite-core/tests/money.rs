@@ -35,6 +35,12 @@ fn expanded_currency_codes_create_typed_money() {
 }
 
 #[test]
+fn currency_codes_are_case_insensitive() {
+    assert_eq!(output("usd 10 + UsD 5"), "15 USD");
+    assert_eq!(output("cup 10 + 5 CuP"), "15 CUP");
+}
+
+#[test]
 fn symbols_and_codes_create_unambiguous_typed_money() {
     for (source, expected) in [
         ("$100", "100 USD"),
@@ -87,6 +93,18 @@ fn dollar_symbols_use_the_explicit_context_default() {
 }
 
 #[test]
+fn money_per_unit_rates_preserve_currency_and_solve_quantities() {
+    assert_eq!(output("$100 / hour"), "100 USD/h");
+    assert_eq!(output("$100 / 2 hours"), "50 USD/h");
+    assert_eq!(output("$100/hour * 90 minutes"), "150 USD");
+    assert_eq!(output("90 minutes * ($100/hour)"), "150 USD");
+    assert_eq!(output("$500 / ($100/hour)"), "5 h");
+    assert_eq!(output("$500 at $20/hour"), "25 h");
+    assert_eq!(output("$120/hour in minute"), "2 USD/min");
+    assert_eq!(output("$100/hour + $2/minute"), "220 USD/h");
+}
+
+#[test]
 fn money_arithmetic_and_percentages_preserve_currency() {
     assert_eq!(output("$100 + $25"), "125 USD");
     assert_eq!(output("$100 + 10%"), "110 USD");
@@ -127,6 +145,12 @@ fn exchange_rates_are_injected_snapshots_and_work_in_both_directions() {
             .unwrap()
             .output,
         "80"
+    );
+    assert_eq!(
+        calculate_with_context("100 USD/hour in EUR", &context)
+            .unwrap()
+            .output,
+        "80 EUR/h"
     );
 }
 

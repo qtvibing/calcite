@@ -37,6 +37,7 @@ fn derived_rates_multiply_divide_and_cancel() {
     assert_eq!(output("2 m/s * 3 kg/s"), "6 m·kg/s²");
     assert_eq!(output("1 / (2 m/s)"), "0.5 s/m");
     assert_eq!(output("30 km/h in m/s"), "8.3333333333 m/s");
+    assert_eq!(output("3 hours / 3 days as hour/day"), "1 h/day");
 }
 
 #[test]

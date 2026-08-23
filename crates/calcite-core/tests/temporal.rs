@@ -1,6 +1,7 @@
 use calcite_core::{
-    CalculationContext, ClockTime, Date, DiagnosticKind, OffsetDateTime, TemporalContext,
-    UtcOffset, WorkdayCalendar, calculate, calculate_with_context,
+    CalculationContext, ClockTime, Date, DateOrder, DiagnosticKind, LEAP_SECOND_POLICY,
+    LeapSecondPolicy, OffsetDateTime, TemporalContext, UtcOffset, WorkdayCalendar, calculate,
+    calculate_with_context,
 };
 
 fn output(source: &str) -> String {
@@ -30,6 +31,27 @@ fn context_at(
 }
 
 #[test]
+fn numeric_dates_require_an_explicit_date_order() {
+    let mut context = CalculationContext::default();
+    context.temporal.date_order = Some(DateOrder::MonthDayYear);
+    assert_eq!(
+        calculate_with_context("3/8/2025", &context).unwrap().output,
+        "2025-03-08"
+    );
+    assert_eq!(
+        calculate_with_context("3.8.2025", &context).unwrap().output,
+        "2025-03-08"
+    );
+
+    context.temporal.date_order = Some(DateOrder::DayMonthYear);
+    assert_eq!(
+        calculate_with_context("3/8/2025", &context).unwrap().output,
+        "2025-08-03"
+    );
+    assert_eq!(output("3/8/2025"), "0.0001851852");
+}
+
+#[test]
 fn iso_dates_use_exact_gregorian_arithmetic() {
     assert_eq!(output("2024-02-29 + 1 day"), "2024-03-01");
     assert_eq!(output("2025-03-01 - 1 day"), "2025-02-28");
@@ -38,6 +60,84 @@ fn iso_dates_use_exact_gregorian_arithmetic() {
     assert_eq!(output("2024-02-29 + 1 year"), "2025-02-28");
     assert_eq!(output("March 8, 2025 + 1 day"), "2025-03-09");
     assert_eq!(output("8 March 2025 - 1 week"), "2025-03-01");
+    assert_eq!(output("Aug 1st, 2025 + 1 day"), "2025-08-02");
+    assert_eq!(output("2ND jun 2025 - 1 day"), "2025-06-01");
+    assert_eq!(output("Jan 3rd 2025"), "2025-01-03");
+    assert_eq!(output("4th SEPT 2025"), "2025-09-04");
+    assert_eq!(output("11th Feb 2025"), "2025-02-11");
+
+    let context = context_at(2025, 3, 8, 14, 30, 2);
+    assert_eq!(
+        calculate_with_context("Aug 5th", &context).unwrap().output,
+        "2025-08-05"
+    );
+    assert_eq!(
+        calculate("Aug 5th").unwrap_err().kind(),
+        DiagnosticKind::MissingTemporalContext
+    );
+}
+
+#[test]
+fn natural_time_differences_work_for_dates_times_and_contextual_now() {
+    assert_eq!(output("time between 2025-01-10 and 2025-01-01"), "9 days");
+    assert_eq!(
+        output("time between 2025-01-10T12:30:01.001Z and 2025-01-01T10:00:00Z"),
+        "9 days 2 h 30 min 1 s 1 ms"
+    );
+    assert_eq!(output("(time between 10:00 and 12:30) + 30 minutes"), "3 h");
+    assert_eq!(output("DAYS BETWEEN 2025-01-01 AND 2025-01-10"), "9 days");
+    assert_eq!(output("duration between 12:30 and 10:00"), "2 h 30 min");
+    assert_eq!(output("time from 10:00 to 12:30"), "2 h 30 min");
+    assert_eq!(output("how long between 10:00 and 12:30"), "2 h 30 min");
+    assert_eq!(output("hours between 2025-01-01 and 2025-01-03"), "48 h");
+    assert_eq!(output("minutes between 12:30 and 10:00"), "150 min");
+    assert_eq!(
+        output("microseconds between 12:00:01 and 12:00:00"),
+        "1000000 μs"
+    );
+    assert_eq!(
+        output("microseconds between 12:00:00.000002 and 12:00:00.000001"),
+        "1 μs"
+    );
+    assert_eq!(
+        output("months between Jan 31st 2024 and Mar 30th 2024"),
+        "1 month"
+    );
+    assert_eq!(
+        output("years between 29th Feb 2020 and Feb 28th 2025"),
+        "5 years"
+    );
+
+    let context = context_at(2025, 3, 8, 14, 30, 2);
+    assert_eq!(
+        calculate_with_context("time since 2025-01-01", &context)
+            .unwrap()
+            .output,
+        "66 days"
+    );
+    assert_eq!(
+        calculate_with_context("days until 2025-03-10", &context)
+            .unwrap()
+            .output,
+        "2 days"
+    );
+    assert_eq!(
+        calculate_with_context("months since 2024-12-08", &context)
+            .unwrap()
+            .output,
+        "3 months"
+    );
+    assert_eq!(
+        calculate_with_context("time since 2025-03-08T12:00:00+02:00", &context)
+            .unwrap()
+            .output,
+        "2 h 30 min"
+    );
+
+    assert_eq!(
+        calculate("time since 2025-01-01").unwrap_err().kind(),
+        DiagnosticKind::MissingTemporalContext
+    );
 }
 
 #[test]
@@ -91,6 +191,14 @@ fn relative_weekdays_have_explicit_strict_semantics() {
         ("next Saturday", "2025-03-15"),
         ("last Saturday", "2025-03-01"),
         ("next Monday at 9:00", "2025-03-10T09:00+02:00"),
+        ("next month", "2025-04-08"),
+        ("last month", "2025-02-08"),
+        ("next year", "2026-03-08"),
+        ("previous year", "2024-03-08"),
+        ("start of month", "2025-03-01"),
+        ("end of month", "2025-03-31"),
+        ("start of year", "2025-01-01"),
+        ("end of year", "2025-12-31"),
     ] {
         assert_eq!(
             calculate_with_context(source, &context).unwrap().output,
@@ -198,10 +306,15 @@ fn calendar_durations_remain_distinct_from_fixed_durations() {
 
 #[test]
 fn clock_times_accept_24_hour_and_meridiem_forms() {
+    assert_eq!(LEAP_SECOND_POLICY, LeapSecondPolicy::Reject);
     assert_eq!(output("09:30 + 2 h"), "11:30");
     assert_eq!(output("9:30 pm + 2 h"), "23:30");
     assert_eq!(output("12:30 am - 45 min"), "23:45");
     assert_eq!(output("18:00 - 09:30"), "30600 s");
+    assert_eq!(output("12:00:00.001 - 12:00:00"), "0.001 s");
+    assert_eq!(output("12:00:00.001 + 1 us"), "12:00:00.001001");
+    assert_eq!(output("10:00 cet in UTC"), "09:00Z");
+    assert_eq!(output("time between 10:00 CEST and 10:00 CET"), "1 h");
 }
 
 #[test]
@@ -217,6 +330,31 @@ fn offset_date_times_cross_days_and_convert_the_same_instant() {
     assert_eq!(
         output("2025-03-08T14:30:00+02:00 in -05:00"),
         "2025-03-08T07:30-05:00"
+    );
+    assert_eq!(output("2025-03-08 at 10:00 CET"), "2025-03-08T10:00+01:00");
+    assert_eq!(
+        output("2025-03-08T14:30:00.123456789+02:00 + 1 ns"),
+        "2025-03-08T14:30:00.12345679+02:00"
+    );
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in gMt"),
+        "2025-03-08T12:30Z"
+    );
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in cet"),
+        "2025-03-08T13:30+01:00"
+    );
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in CEST"),
+        "2025-03-08T14:30+02:00"
+    );
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in uTc-3"),
+        "2025-03-08T09:30-03:00"
+    );
+    assert_eq!(
+        output("2025-03-08T14:30:00+02:00 in GMT+5:30"),
+        "2025-03-08T18:00+05:30"
     );
     assert_eq!(output("2025-03-08T14:30+02:00 - 2025-03-08T12:30Z"), "0 s");
     assert_eq!(
@@ -293,6 +431,14 @@ fn invalid_and_ambiguous_temporal_input_is_not_guessed() {
     );
     assert_eq!(
         calculate("2025-03-08T24:00Z").unwrap_err().kind(),
+        DiagnosticKind::InvalidTime
+    );
+    assert_eq!(
+        calculate("23:59:60").unwrap_err().kind(),
+        DiagnosticKind::InvalidTime
+    );
+    assert_eq!(
+        calculate("2016-12-31T23:59:60Z").unwrap_err().kind(),
         DiagnosticKind::InvalidTime
     );
     assert_eq!(

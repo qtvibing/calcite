@@ -102,7 +102,7 @@ pub fn lex_with_number_format(
                     }
                 }
                 '×' | '·' => LexemeKind::Star,
-                '/' | '÷' => LexemeKind::Slash,
+                '/' | '÷' | '.' => LexemeKind::Slash,
                 '^' => LexemeKind::Caret,
                 ':' => LexemeKind::Colon,
                 ',' => LexemeKind::Comma,
@@ -170,6 +170,26 @@ pub fn lex_with_number_format(
 fn scan_number(source: &str, start: usize, number_format: NumberFormat) -> usize {
     let decimal = number_format.decimal_separator();
     let mut index = start;
+
+    let base_end = source[start..]
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .count()
+        + start;
+    if source[base_end..].starts_with('#') {
+        index = base_end + 1;
+        while index < source.len() {
+            let character = source[index..]
+                .chars()
+                .next()
+                .expect("valid character boundary");
+            if !character.is_ascii_alphanumeric() && character != '_' {
+                break;
+            }
+            index += character.len_utf8();
+        }
+        return index;
+    }
 
     if ["0b", "0B", "0o", "0O", "0x", "0X"]
         .iter()

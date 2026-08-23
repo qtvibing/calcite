@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::evaluator::evaluate_expression;
+use crate::syntax::identifier_key;
 use crate::{
     CalculationContext, Diagnostic, DiagnosticKind, Expression, LexemeKind, Span, Value,
     format_with_context, lex_with_number_format, parse_with_context,
@@ -201,7 +202,7 @@ fn evaluate_line(
     let dependencies = references
         .into_iter()
         .map(|name| DocumentDependency {
-            source_result: definitions.get(&name).copied(),
+            source_result: definitions.get(&identifier_key(&name)).copied(),
             name,
         })
         .collect();
@@ -210,8 +211,9 @@ fn evaluate_line(
     let output = format_with_context(&value, context);
     let result_index = lines.len();
     if let Some(name) = &name {
-        variables.insert(name.clone(), value.clone());
-        definitions.insert(name.clone(), result_index);
+        let key = identifier_key(name);
+        variables.insert(key.clone(), value.clone());
+        definitions.insert(key, result_index);
     }
     lines.push(DocumentLine {
         name,
@@ -277,7 +279,9 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
         | Expression::Unit { .. }
         | Expression::Money { .. }
         | Expression::Date { .. }
+        | Expression::PartialDate { .. }
         | Expression::Clock { .. }
+        | Expression::OffsetClock { .. }
         | Expression::OffsetDateTime { .. }
         | Expression::CalendarDuration { .. }
         | Expression::WorkdayDuration { .. }

@@ -1,7 +1,7 @@
 use crate::evaluator::Value;
 use crate::{
-    CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Fraction, Money, Percentage,
-    RadixInteger, Span,
+    CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Fraction, Money, Number,
+    Percentage, RadixInteger, Span, Unit, UnitValue,
 };
 
 use super::{classify_compound_value, unit_diagnostic, unsupported};
@@ -20,10 +20,13 @@ pub(crate) fn convert(
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
             Value::Unit(value) => Ok(Value::Number(value.magnitude().clone())),
             Value::Money(value) => Ok(Value::Number(value.amount().clone())),
+            Value::MoneyRate(value) => Ok(Value::Number(value.amount().clone())),
             Value::Rate(value) => Ok(Value::Number(value.magnitude().clone())),
             Value::Date(_)
             | Value::Clock(_)
+            | Value::OffsetClock(_)
             | Value::OffsetDateTime(_)
+            | Value::TimeSpan(_)
             | Value::CalendarDuration(_)
             | Value::WorkdayDuration(_)
             | Value::Weekday(_)
@@ -50,10 +53,13 @@ pub(crate) fn convert(
             ))),
             Value::Unit(_)
             | Value::Money(_)
+            | Value::MoneyRate(_)
             | Value::Rate(_)
             | Value::Date(_)
             | Value::Clock(_)
+            | Value::OffsetClock(_)
             | Value::OffsetDateTime(_)
+            | Value::TimeSpan(_)
             | Value::CalendarDuration(_)
             | Value::WorkdayDuration(_)
             | Value::Weekday(_)
@@ -67,10 +73,13 @@ pub(crate) fn convert(
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
                 Value::Unit(_)
                 | Value::Money(_)
+                | Value::MoneyRate(_)
                 | Value::Rate(_)
                 | Value::Date(_)
                 | Value::Clock(_)
+                | Value::OffsetClock(_)
                 | Value::OffsetDateTime(_)
+                | Value::TimeSpan(_)
                 | Value::CalendarDuration(_)
                 | Value::WorkdayDuration(_)
                 | Value::Weekday(_)
@@ -81,6 +90,10 @@ pub(crate) fn convert(
                 .ok_or_else(|| unsupported(span))
         }
         ConversionTarget::CompoundUnit(target) => match value {
+            Value::Number(number) => UnitValue::from_compound(number, Default::default())
+                .converted_to_compound(&target)
+                .map(classify_compound_value)
+                .map_err(|error| unit_diagnostic(error, span)),
             Value::Unit(value) => value
                 .converted_to_compound(&target)
                 .map(classify_compound_value)
@@ -89,9 +102,24 @@ pub(crate) fn convert(
                 .converted_to_compound(&target)
                 .map(Value::Rate)
                 .map_err(|error| unit_diagnostic(error, span)),
+            Value::MoneyRate(rate) => rate
+                .converted_denominator(&target)
+                .map(Value::MoneyRate)
+                .map_err(|error| unit_diagnostic(error, span)),
+            Value::TimeSpan(duration) => {
+                let seconds = Number::parse_decimal(&duration.nanoseconds().to_string())
+                    .expect("an i128 is a valid bounded decimal")
+                    .divide(Number::from_i64(1_000_000_000))
+                    .expect("one billion is nonzero");
+                UnitValue::new(seconds, Unit::Second)
+                    .converted_to_compound(&target)
+                    .map(classify_compound_value)
+                    .map_err(|error| unit_diagnostic(error, span))
+            }
             _ => Err(unsupported(span)),
         },
         ConversionTarget::UtcOffset(offset) => match value {
+            Value::OffsetClock(value) => Ok(Value::OffsetClock(value.converted_to(offset))),
             Value::OffsetDateTime(value) => value
                 .converted_to(offset)
                 .map(Value::OffsetDateTime)
@@ -120,6 +148,26 @@ pub(crate) fn convert(
                     money.amount().clone().multiply(rate),
                     target,
                 )))
+            }
+            Value::MoneyRate(money_rate) => {
+                let source = money_rate.currency();
+                let rate = context
+                    .monetary
+                    .exchange_rates
+                    .rate(source, target, context.monetary.exchange_rate_freshness)
+                    .map_err(|error| {
+                        let kind = match error {
+                            crate::ExchangeRateLookupError::Missing => {
+                                DiagnosticKind::MissingExchangeRate
+                            }
+                            crate::ExchangeRateLookupError::Stale => {
+                                DiagnosticKind::StaleExchangeRate
+                            }
+                        };
+                        Diagnostic::with_detail(kind, span, format!("{source} to {target}"))
+                    })?;
+                let amount = money_rate.amount().clone().multiply(rate);
+                Ok(Value::MoneyRate(money_rate.with_currency(amount, target)))
             }
             _ => Err(unsupported(span)),
         },

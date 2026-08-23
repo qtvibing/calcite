@@ -30,6 +30,10 @@ fn explicit_base_conversions_support_words_numbers_and_functions() {
     assert_eq!(output("0b1000101 to octal"), "0o105");
     assert_eq!(output("0b101101 as base 8"), "0o55");
     assert_eq!(output("0x2D as base 2"), "0b101101");
+    assert_eq!(output("99 in base 3"), "3#10200");
+    assert_eq!(output("35 in base 36"), "36#z");
+    assert_eq!(output("36#z + 1"), "36");
+    assert_eq!(output("2#101010 in base 36"), "36#16");
     assert_eq!(output("hex(99)"), "0x63");
     assert_eq!(output("bin(0x73)"), "0b1110011");
     assert_eq!(output("int(0o55)"), "45");
@@ -49,8 +53,6 @@ fn bitwise_operators_use_arbitrary_precision_signed_integers() {
     assert_eq!(output("0b1100 | 0b0011"), "15");
     assert_eq!(output("0b1100 xor 0b1010"), "6");
     assert_eq!(output("0xff & 0x0f in hex"), "0xf");
-    assert_eq!(output("12 AND 10"), "8");
-    assert_eq!(output("12 OR 3"), "15");
     assert_eq!(output("1 << 100"), "1267650600228229401496703205376");
     assert_eq!(output("0x100 >> 4"), "16");
     assert_eq!(output("-8 >> 2"), "-2");

@@ -1,10 +1,76 @@
 use super::Parser;
 use crate::{
-    ClockTime, Date, Diagnostic, DiagnosticKind, Expression, Lexeme, LexemeKind, OffsetDateTime,
-    RelativeWeekdayDirection, Span, TemporalKeyword, Weekday,
+    CalendarDuration, ClockTime, CompoundUnit, Date, DateOrder, Diagnostic, DiagnosticKind,
+    Dimension, Expression, Function, Lexeme, LexemeKind, Number, OffsetClockTime, OffsetDateTime,
+    RelativeWeekdayDirection, Span, TemporalKeyword, Unit, Weekday,
 };
 
+#[derive(Clone, Copy)]
+enum TimeDifferenceTarget {
+    Fixed(Unit),
+    Months,
+    Years,
+}
+
 impl Parser<'_> {
+    pub(super) fn parse_configured_numeric_date(
+        &mut self,
+    ) -> Option<Result<Expression, Diagnostic>> {
+        let order = self.date_order?;
+        let start = self.current()?.span.start;
+        let length = self.source[start..]
+            .bytes()
+            .take_while(|byte| byte.is_ascii_digit() || matches!(*byte, b'/' | b'.'))
+            .count();
+        let end = start + length;
+        let source = &self.source[start..end];
+        let separator = if source.bytes().filter(|byte| *byte == b'/').count() == 2 {
+            '/'
+        } else if source.bytes().filter(|byte| *byte == b'.').count() == 2 {
+            '.'
+        } else {
+            return None;
+        };
+        if source.contains(if separator == '/' { '.' } else { '/' }) {
+            return None;
+        }
+        let parts = source.split(separator).collect::<Vec<_>>();
+        if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) {
+            return None;
+        }
+        let (year, month, day) = match order {
+            DateOrder::DayMonthYear => (parts[2], parts[1], parts[0]),
+            DateOrder::MonthDayYear => (parts[2], parts[0], parts[1]),
+            DateOrder::YearMonthDay => (parts[0], parts[1], parts[2]),
+        };
+        if year.len() != 4 {
+            return Some(Err(Diagnostic::with_detail(
+                DiagnosticKind::InvalidDate,
+                Span::new(start, end),
+                "numeric dates require a four-digit year",
+            )));
+        }
+        let date = year
+            .parse::<i32>()
+            .ok()
+            .zip(month.parse::<u8>().ok())
+            .zip(day.parse::<u8>().ok())
+            .and_then(|((year, month), day)| Date::new(year, month, day));
+        let Some(date) = date else {
+            return Some(Err(Diagnostic::new(
+                DiagnosticKind::InvalidDate,
+                Span::new(start, end),
+            )));
+        };
+        while self.current().is_some_and(|token| token.span.start < end) {
+            self.position += 1;
+        }
+        Some(Ok(Expression::Date {
+            value: date,
+            span: Span::new(start, end),
+        }))
+    }
+
     pub(super) fn starts_iso_datetime(&self) -> bool {
         self.is_iso_date()
             && self.source[self.tokens[self.position + 4].span.end..]
@@ -38,41 +104,64 @@ impl Parser<'_> {
     pub(super) fn is_day_first_named_date(&self) -> bool {
         self.current()
             .is_some_and(|token| token.kind == LexemeKind::Number)
-            && self.month_at(1).is_some()
+            && (self.month_at(1).is_some()
+                || (self.ordinal_suffix_at(1).is_some() && self.month_at(2).is_some()))
     }
 
     pub(super) fn parse_named_date(&mut self, month_first: bool) -> Result<Expression, Diagnostic> {
         let start = self.current().expect("date start is present");
-        let (month, day_offset, after_month_and_day) = if month_first {
-            (self.month_at(0).expect("guard checked month"), 1, 2)
+        let day_offset = usize::from(month_first);
+        let suffix_offset = day_offset + 1;
+        let has_ordinal_suffix = self.ordinal_suffix_at(suffix_offset).is_some();
+        let month_offset = if month_first {
+            0
         } else {
-            (self.month_at(1).expect("guard checked month"), 0, 2)
+            1 + usize::from(has_ordinal_suffix)
         };
-        let year_offset = if self
+        let after_month_and_day = 2 + usize::from(has_ordinal_suffix);
+        let month = self
+            .month_at(month_offset)
+            .expect("guard checked the month");
+        let comma = self
             .tokens
             .get(self.position + after_month_and_day)
-            .is_some_and(|token| token.kind == LexemeKind::Comma)
-        {
-            after_month_and_day + 1
-        } else {
-            after_month_and_day
-        };
-        let end = self.tokens.get(self.position + year_offset).copied();
-        let span = start.span.join(end.map_or(start.span, |token| token.span));
-        let day = self.token_u8(day_offset);
-        let year = end
+            .filter(|token| token.kind == LexemeKind::Comma)
+            .copied();
+        let year_offset = after_month_and_day + usize::from(comma.is_some());
+        let year_token = self
+            .tokens
+            .get(self.position + year_offset)
             .filter(|token| token.kind == LexemeKind::Number)
-            .and_then(|token| {
-                self.source[token.span.start..token.span.end]
-                    .parse::<i32>()
-                    .ok()
-            });
-        let value = day
-            .zip(year)
-            .and_then(|(day, year)| Date::new(year, month, day))
-            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))?;
-        self.position += year_offset + 1;
-        Ok(Expression::Date { value, span })
+            .copied();
+        if let Some(comma) = comma.filter(|_| year_token.is_none()) {
+            return Err(Diagnostic::new(
+                DiagnosticKind::InvalidDate,
+                start.span.join(comma.span),
+            ));
+        }
+
+        let day = self
+            .token_u8(day_offset)
+            .filter(|day| Date::new(2000, month, *day).is_some())
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, start.span))?;
+        if let Some(year_token) = year_token {
+            let span = start.span.join(year_token.span);
+            let year = self.source[year_token.span.start..year_token.span.end]
+                .parse::<i32>()
+                .ok();
+            let value = year
+                .and_then(|year| Date::new(year, month, day))
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))?;
+            self.position += year_offset + 1;
+            Ok(Expression::Date { value, span })
+        } else {
+            let end_offset = after_month_and_day - 1;
+            let span = start
+                .span
+                .join(self.tokens[self.position + end_offset].span);
+            self.position += after_month_and_day;
+            Ok(Expression::PartialDate { month, day, span })
+        }
     }
 
     pub(super) fn month_at(&self, offset: usize) -> Option<u8> {
@@ -82,22 +171,48 @@ impl Parser<'_> {
         }
         let word = &self.source[token.span.start..token.span.end];
         [
-            "january",
-            "february",
-            "march",
-            "april",
-            "may",
-            "june",
-            "july",
-            "august",
-            "september",
-            "october",
-            "november",
-            "december",
+            &["january", "jan"][..],
+            &["february", "feb"][..],
+            &["march", "mar"][..],
+            &["april", "apr"][..],
+            &["may"][..],
+            &["june", "jun"][..],
+            &["july", "jul"][..],
+            &["august", "aug"][..],
+            &["september", "sep", "sept"][..],
+            &["october", "oct"][..],
+            &["november", "nov"][..],
+            &["december", "dec"][..],
         ]
         .iter()
-        .position(|month| word.eq_ignore_ascii_case(month))
+        .position(|aliases| aliases.iter().any(|alias| word.eq_ignore_ascii_case(alias)))
         .and_then(|month| u8::try_from(month + 1).ok())
+    }
+
+    pub(super) fn ordinal_suffix_at(&self, offset: usize) -> Option<Lexeme> {
+        let number = *self.tokens.get(self.position + offset - 1)?;
+        let suffix = *self.tokens.get(self.position + offset)?;
+        if number.kind != LexemeKind::Number
+            || suffix.kind != LexemeKind::Word
+            || number.span.end != suffix.span.start
+        {
+            return None;
+        }
+        let day = self.source[number.span.start..number.span.end]
+            .parse::<u8>()
+            .ok()?;
+        let expected = match day % 100 {
+            11..=13 => "th",
+            _ => match day % 10 {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                _ => "th",
+            },
+        };
+        self.source[suffix.span.start..suffix.span.end]
+            .eq_ignore_ascii_case(expected)
+            .then_some(suffix)
     }
 
     pub(super) fn is_iso_date(&self) -> bool {
@@ -153,13 +268,13 @@ impl Parser<'_> {
         let hour = self.token_u8(0);
         let minute = self.token_u8(2);
         let mut consumed = 3;
-        let mut second = Some(0);
+        let mut second = Some((0, 0));
         if self
             .tokens
             .get(self.position + 3)
             .is_some_and(|token| token.kind == LexemeKind::Colon)
         {
-            second = self.token_u8(4);
+            second = self.clock_second_at(4);
             consumed = 5;
         }
 
@@ -178,15 +293,32 @@ impl Parser<'_> {
             Some(_) => Some(hour % 12 + 12),
             None => Some(hour),
         });
-        let end = self.tokens[self.position + consumed - 1];
-        let span = start.span.join(end.span);
         let value = hour
             .zip(minute)
             .zip(second)
-            .and_then(|((hour, minute), second)| ClockTime::new(hour, minute, second))
-            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span))?;
-        self.position += consumed;
-        Ok(Expression::Clock { value, span })
+            .and_then(|((hour, minute), (second, nanosecond))| {
+                ClockTime::with_nanosecond(hour, minute, second, nanosecond)
+            })
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, start.span))?;
+        let offset = self
+            .tokens
+            .get(self.position + consumed)
+            .filter(|token| token.kind == LexemeKind::Word)
+            .and_then(|_| self.utc_offset_at(consumed));
+        if let Some((offset, offset_tokens, offset_span)) = offset {
+            consumed += offset_tokens;
+            let span = start.span.join(offset_span);
+            self.position += consumed;
+            Ok(Expression::OffsetClock {
+                value: OffsetClockTime::new(value, offset),
+                span,
+            })
+        } else {
+            let end = self.tokens[self.position + consumed - 1];
+            let span = start.span.join(end.span);
+            self.position += consumed;
+            Ok(Expression::Clock { value, span })
+        }
     }
 
     pub(super) fn token_u8(&self, offset: usize) -> Option<u8> {
@@ -194,6 +326,25 @@ impl Parser<'_> {
         (token.kind == LexemeKind::Number)
             .then(|| self.source[token.span.start..token.span.end].parse().ok())
             .flatten()
+    }
+
+    fn clock_second_at(&self, offset: usize) -> Option<(u8, u32)> {
+        let token = *self.tokens.get(self.position + offset)?;
+        if token.kind != LexemeKind::Number {
+            return None;
+        }
+        let nanoseconds = self
+            .parse_number_value(token)
+            .ok()?
+            .multiply(Number::from_i64(1_000_000_000))
+            .exact_i64()?;
+        if !(0..60_000_000_000).contains(&nanoseconds) {
+            return None;
+        }
+        Some((
+            (nanoseconds / 1_000_000_000) as u8,
+            (nanoseconds % 1_000_000_000) as u32,
+        ))
     }
 
     pub(super) fn relative_weekday_at(&self) -> Option<(RelativeWeekdayDirection, Weekday, Span)> {
@@ -233,8 +384,101 @@ impl Parser<'_> {
         }
     }
 
-    pub(super) fn temporal_keyword(&self) -> Option<TemporalKeyword> {
-        if self.word_is(0, "today") {
+    pub(super) fn starts_natural_time_difference(&self) -> bool {
+        self.time_difference_prefix()
+            .is_some_and(|(_, relation_offset)| {
+                self.word_is(relation_offset, "between")
+                    || self.word_is(relation_offset, "from")
+                    || self.word_is(relation_offset, "since")
+                    || self.word_is(relation_offset, "until")
+            })
+    }
+
+    fn time_difference_prefix(&self) -> Option<(Option<TimeDifferenceTarget>, usize)> {
+        if self.word_is(0, "how") && self.word_is(1, "long") {
+            return Some((None, 2));
+        }
+        self.time_difference_target().map(|target| (target, 1))
+    }
+
+    fn time_difference_target(&self) -> Option<Option<TimeDifferenceTarget>> {
+        let word = self.word_text_at(0)?;
+        if word.eq_ignore_ascii_case("time") || word.eq_ignore_ascii_case("duration") {
+            return Some(None);
+        }
+        if word.eq_ignore_ascii_case("month") || word.eq_ignore_ascii_case("months") {
+            return Some(Some(TimeDifferenceTarget::Months));
+        }
+        if word.eq_ignore_ascii_case("year") || word.eq_ignore_ascii_case("years") {
+            return Some(Some(TimeDifferenceTarget::Years));
+        }
+        Unit::from_alias(word)
+            .filter(|unit| unit.dimension() == Dimension::Duration)
+            .map(TimeDifferenceTarget::Fixed)
+            .map(Some)
+    }
+
+    pub(super) fn parse_natural_time_difference(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.current().expect("time phrase is present").span;
+        let (target, relation_offset) = self
+            .time_difference_prefix()
+            .expect("guard checked the time difference prefix");
+        let function = if self.word_is(relation_offset, "between") {
+            Function::TimeBetween
+        } else if self.word_is(relation_offset, "from") {
+            Function::TimeFrom
+        } else if self.word_is(relation_offset, "since") {
+            Function::TimeSince
+        } else {
+            Function::TimeUntil
+        };
+        self.position += relation_offset + 1;
+
+        let has_second_argument = matches!(function, Function::TimeBetween | Function::TimeFrom);
+        let first = self.parse_expression(if has_second_argument { 4 } else { 0 })?;
+        let mut arguments = vec![first];
+        if has_second_argument {
+            let (separator, detail) = if function == Function::TimeBetween {
+                ("and", "expected 'and'")
+            } else {
+                ("to", "expected 'to'")
+            };
+            self.consume_word(separator, detail)?;
+            arguments.push(self.parse_expression(0)?);
+        }
+        let end = arguments
+            .last()
+            .expect("a time difference has an argument")
+            .span();
+        if let Some(target) = target {
+            arguments.push(match target {
+                TimeDifferenceTarget::Fixed(unit) => Expression::Unit {
+                    value: Number::from_i64(1),
+                    unit: CompoundUnit::from_unit(unit),
+                    span: start,
+                },
+                TimeDifferenceTarget::Months => Expression::CalendarDuration {
+                    value: CalendarDuration::months(1),
+                    span: start,
+                },
+                TimeDifferenceTarget::Years => Expression::CalendarDuration {
+                    value: CalendarDuration::years(1).expect("one year is representable"),
+                    span: start,
+                },
+            });
+        }
+        let span = start.join(end);
+        Ok(Expression::Call {
+            function,
+            function_span: start,
+            arguments,
+            span,
+        })
+    }
+
+    pub(super) fn temporal_keyword(&self) -> Option<(TemporalKeyword, usize, Span)> {
+        let first = self.current()?;
+        let single = if self.word_is(0, "today") {
             Some(TemporalKeyword::Today)
         } else if self.word_is(0, "tomorrow") {
             Some(TemporalKeyword::Tomorrow)
@@ -244,7 +488,46 @@ impl Parser<'_> {
             Some(TemporalKeyword::Now)
         } else {
             None
+        };
+        if let Some(keyword) = single {
+            return Some((keyword, 1, first.span));
         }
+
+        let keyword = if self.word_is(0, "next") && self.word_is(1, "month") {
+            TemporalKeyword::NextMonth
+        } else if (self.word_is(0, "last") || self.word_is(0, "previous"))
+            && self.word_is(1, "month")
+        {
+            TemporalKeyword::PreviousMonth
+        } else if self.word_is(0, "next") && self.word_is(1, "year") {
+            TemporalKeyword::NextYear
+        } else if (self.word_is(0, "last") || self.word_is(0, "previous"))
+            && self.word_is(1, "year")
+        {
+            TemporalKeyword::PreviousYear
+        } else if self.word_is(0, "start") && self.word_is(1, "of") && self.word_is(2, "month") {
+            TemporalKeyword::StartOfMonth
+        } else if self.word_is(0, "end") && self.word_is(1, "of") && self.word_is(2, "month") {
+            TemporalKeyword::EndOfMonth
+        } else if self.word_is(0, "start") && self.word_is(1, "of") && self.word_is(2, "year") {
+            TemporalKeyword::StartOfYear
+        } else if self.word_is(0, "end") && self.word_is(1, "of") && self.word_is(2, "year") {
+            TemporalKeyword::EndOfYear
+        } else {
+            return None;
+        };
+        let consumed = if matches!(
+            keyword,
+            TemporalKeyword::StartOfMonth
+                | TemporalKeyword::EndOfMonth
+                | TemporalKeyword::StartOfYear
+                | TemporalKeyword::EndOfYear
+        ) {
+            3
+        } else {
+            2
+        };
+        Some((keyword, consumed, self.phrase_span(consumed)))
     }
 
     pub(super) fn workday_unit(&self) -> Option<(usize, Span)> {

@@ -3,26 +3,33 @@ use std::fmt;
 use crate::{Number, NumberParseError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Radix {
-    Binary,
-    Octal,
-    Hexadecimal,
-}
+pub struct Radix(u8);
 
+#[allow(non_upper_case_globals)]
 impl Radix {
-    pub const fn value(self) -> u8 {
-        match self {
-            Self::Binary => 2,
-            Self::Octal => 8,
-            Self::Hexadecimal => 16,
+    pub const Binary: Self = Self(2);
+    pub const Octal: Self = Self(8);
+    pub const Decimal: Self = Self(10);
+    pub const Hexadecimal: Self = Self(16);
+
+    pub const fn new(value: u8) -> Option<Self> {
+        if value >= 2 && value <= 36 {
+            Some(Self(value))
+        } else {
+            None
         }
     }
 
-    pub const fn prefix(self) -> &'static str {
-        match self {
-            Self::Binary => "0b",
-            Self::Octal => "0o",
-            Self::Hexadecimal => "0x",
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    pub const fn prefix(self) -> Option<&'static str> {
+        match self.0 {
+            2 => Some("0b"),
+            8 => Some("0o"),
+            16 => Some("0x"),
+            _ => None,
         }
     }
 }
@@ -50,6 +57,13 @@ impl RadixInteger {
             .or_else(|| source.strip_prefix("0X"))
         {
             (Radix::Hexadecimal, digits)
+        } else if let Some((base, digits)) = source.split_once('#') {
+            let base = base
+                .parse::<u8>()
+                .ok()
+                .and_then(Radix::new)
+                .ok_or(NumberParseError::Invalid)?;
+            (base, digits)
         } else {
             return Err(NumberParseError::Invalid);
         };

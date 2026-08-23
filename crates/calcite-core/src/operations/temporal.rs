@@ -1,7 +1,8 @@
 use crate::evaluator::Value;
 use crate::{
     BinaryOperator, CalendarDuration, ClockTime, Date, Diagnostic, DiagnosticKind, Number,
-    OffsetDateTime, Span, Unit, UnitValue, WorkdayCalendar, WorkdayDuration,
+    OffsetClockTime, OffsetDateTime, Span, TimeSpan, Unit, UnitValue, WorkdayCalendar,
+    WorkdayDuration,
 };
 
 use super::{compare_ordering, unit_diagnostic, unsupported};
@@ -12,10 +13,10 @@ pub(super) fn datetime_pair(
     right: OffsetDateTime,
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    let seconds = left.seconds_since(right);
+    let nanoseconds = left.nanoseconds_since(right);
     match operator {
         BinaryOperator::Subtract => Ok(Value::Unit(UnitValue::new(
-            Number::from_i64(seconds),
+            seconds_from_nanoseconds(nanoseconds),
             Unit::Second,
         ))),
         BinaryOperator::Equal
@@ -23,7 +24,7 @@ pub(super) fn datetime_pair(
         | BinaryOperator::Greater
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Less
-        | BinaryOperator::LessEqual => compare_ordering(operator, seconds.cmp(&0), span),
+        | BinaryOperator::LessEqual => compare_ordering(operator, nanoseconds.cmp(&0), span),
         _ => Err(unsupported(span)),
     }
 }
@@ -35,21 +36,22 @@ pub(super) fn datetime_duration_pair(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     let duration = duration
-        .converted_to(Unit::Second)
+        .converted_to(Unit::Nanosecond)
         .map_err(|error| unit_diagnostic(error, span))?;
-    let mut seconds = duration
+    let mut nanoseconds = duration
         .magnitude()
         .exact_i64()
+        .map(i128::from)
         .ok_or_else(|| unsupported(span))?;
     if operator == BinaryOperator::Subtract {
-        seconds = seconds
+        nanoseconds = nanoseconds
             .checked_neg()
             .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span))?;
     } else if operator != BinaryOperator::Add {
         return Err(unsupported(span));
     }
     value
-        .add_seconds(seconds)
+        .add_nanoseconds(nanoseconds)
         .map(Value::OffsetDateTime)
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
 }
@@ -202,7 +204,7 @@ pub(super) fn clock_pair(
 ) -> Result<Value, Diagnostic> {
     match operator {
         BinaryOperator::Subtract => Ok(Value::Unit(UnitValue::new(
-            Number::from_i64(left.seconds_since(right)),
+            seconds_from_nanoseconds(left.nanoseconds_since(right)),
             Unit::Second,
         ))),
         BinaryOperator::Equal
@@ -215,6 +217,41 @@ pub(super) fn clock_pair(
     }
 }
 
+pub(super) fn offset_clock_pair(
+    operator: BinaryOperator,
+    left: OffsetClockTime,
+    right: OffsetClockTime,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Subtract => Ok(Value::Unit(UnitValue::new(
+            seconds_from_nanoseconds(left.nanoseconds_since(right)),
+            Unit::Second,
+        ))),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => {
+            compare_ordering(operator, left.nanoseconds_since(right).cmp(&0), span)
+        }
+        _ => Err(unsupported(span)),
+    }
+}
+
+pub(super) fn offset_clock_duration_pair(
+    operator: BinaryOperator,
+    value: OffsetClockTime,
+    duration: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    clock_duration_pair(operator, value.time(), duration, span).map(|result| match result {
+        Value::Clock(time) => Value::OffsetClock(OffsetClockTime::new(time, value.offset())),
+        _ => unreachable!("clock duration arithmetic returns a clock"),
+    })
+}
+
 pub(super) fn clock_duration_pair(
     operator: BinaryOperator,
     time: ClockTime,
@@ -222,20 +259,72 @@ pub(super) fn clock_duration_pair(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     let duration = duration
-        .converted_to(Unit::Second)
+        .converted_to(Unit::Nanosecond)
         .map_err(|error| unit_diagnostic(error, span))?;
-    let mut seconds = duration
+    let mut nanoseconds = duration
         .magnitude()
         .exact_i64()
+        .map(i128::from)
         .ok_or_else(|| unsupported(span))?;
     if operator == BinaryOperator::Subtract {
-        seconds = seconds
+        nanoseconds = nanoseconds
             .checked_neg()
             .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span))?;
     } else if operator != BinaryOperator::Add {
         return Err(unsupported(span));
     }
-    Ok(Value::Clock(time.add_seconds(seconds)))
+    Ok(Value::Clock(time.add_nanoseconds(nanoseconds)))
+}
+
+fn seconds_from_nanoseconds(nanoseconds: i128) -> Number {
+    Number::parse_decimal(&nanoseconds.to_string())
+        .expect("an i128 is a valid bounded decimal")
+        .divide(Number::from_i64(1_000_000_000))
+        .expect("one billion is nonzero")
+}
+
+pub(super) fn time_span_pair(
+    operator: BinaryOperator,
+    left: TimeSpan,
+    right: TimeSpan,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => left
+            .checked_add(right)
+            .map(Value::TimeSpan)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span)),
+        BinaryOperator::Subtract => left
+            .checked_subtract(right)
+            .map(Value::TimeSpan)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span)),
+        BinaryOperator::Equal
+        | BinaryOperator::NotEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterEqual
+        | BinaryOperator::Less
+        | BinaryOperator::LessEqual => {
+            compare_ordering(operator, left.nanoseconds().cmp(&right.nanoseconds()), span)
+        }
+        _ => Err(unsupported(span)),
+    }
+}
+
+pub(super) fn time_span_unit_pair(
+    operator: BinaryOperator,
+    left: TimeSpan,
+    right: UnitValue,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let right = right
+        .converted_to(Unit::Nanosecond)
+        .map_err(|error| unit_diagnostic(error, span))?
+        .magnitude()
+        .exact_i64()
+        .map(i128::from)
+        .ok_or_else(|| unsupported(span))?;
+    let right = TimeSpan::from_nanoseconds(right);
+    time_span_pair(operator, left, right, span)
 }
 
 pub(super) fn calendar_pair(
