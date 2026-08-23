@@ -8,6 +8,7 @@ pub(crate) use conversion::convert;
 use money::*;
 pub(crate) use numeric::numeric_diagnostic;
 use numeric::*;
+pub(crate) use temporal::time_zone_diagnostic;
 use temporal::*;
 use units::*;
 pub(crate) use units::{classify_compound_value, unit_diagnostic};

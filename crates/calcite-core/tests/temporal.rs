@@ -269,6 +269,50 @@ fn injected_holidays_change_workday_rules_deterministically() {
 }
 
 #[test]
+fn country_holiday_calendars_enforce_their_data_boundaries() {
+    let calendar = WorkdayCalendar::for_country(
+        "us",
+        Date::new(2025, 1, 1).unwrap(),
+        Date::new(2025, 12, 31).unwrap(),
+        [Date::new(2025, 12, 25).unwrap()],
+    )
+    .unwrap();
+    assert_eq!(calendar.country_code(), Some("US"));
+    assert_eq!(
+        calendar.valid_range(),
+        Some((
+            Date::new(2025, 1, 1).unwrap(),
+            Date::new(2025, 12, 31).unwrap()
+        ))
+    );
+    let context = CalculationContext {
+        temporal: TemporalContext {
+            workday_calendar: calendar,
+            ..TemporalContext::default()
+        },
+        ..CalculationContext::default()
+    };
+    assert_eq!(
+        calculate_with_context("2025-12-24 + 1 workday", &context)
+            .unwrap()
+            .output,
+        "2025-12-26"
+    );
+    assert_eq!(
+        calculate_with_context("2025-12-31 + 1 workday", &context)
+            .unwrap_err()
+            .kind(),
+        DiagnosticKind::HolidayCalendarOutOfRange
+    );
+    assert_eq!(
+        calculate_with_context("is_workday(2026-01-02)", &context)
+            .unwrap_err()
+            .kind(),
+        DiagnosticKind::HolidayCalendarOutOfRange
+    );
+}
+
+#[test]
 fn workday_functions_preserve_context_and_date_time_fields() {
     let context = context_at(2025, 3, 8, 14, 30, 2);
     assert_eq!(
@@ -290,6 +334,30 @@ fn workday_functions_preserve_context_and_date_time_fields() {
     assert_eq!(
         output("next workday after 2025-03-07T14:30:00+02:00"),
         "2025-03-10T14:30+02:00"
+    );
+}
+
+#[test]
+fn calendar_differences_retain_year_month_and_day_remainders() {
+    assert_eq!(
+        output("calendar duration between 2024-01-31 and 2025-03-30"),
+        "1 year 1 month 30 days"
+    );
+    assert_eq!(
+        output("calendar time from 2025-03-30 to 2024-01-31"),
+        "-1 year 1 month 30 days"
+    );
+    assert_eq!(
+        output("calendar duration between 2020-02-29 and 2025-02-28"),
+        "5 years"
+    );
+
+    let context = context_at(2025, 3, 30, 12, 0, 0);
+    assert_eq!(
+        calculate_with_context("calendar time since 2024-01-31", &context)
+            .unwrap()
+            .output,
+        "1 year 1 month 30 days"
     );
 }
 

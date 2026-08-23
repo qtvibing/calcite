@@ -4,8 +4,8 @@ use crate::functions::evaluate_call;
 use crate::operations::{classify_compound_value, convert, evaluate_binary, unsupported};
 use crate::syntax::identifier_key;
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, Date, Diagnostic,
-    DiagnosticKind, Expression, Fraction, Money, MoneyRate, Number, OffsetClockTime,
+    BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, Constant, Date,
+    Diagnostic, DiagnosticKind, Expression, Fraction, Money, MoneyRate, Number, OffsetClockTime,
     OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection, TemporalKeyword,
     TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime,
     parse_with_context,
@@ -30,6 +30,7 @@ pub enum Value {
     ZonedDateTime(ZonedDateTime),
     TimeSpan(TimeSpan),
     CalendarDuration(CalendarDuration),
+    CalendarSpan(CalendarSpan),
     WorkdayDuration(WorkdayDuration),
     Weekday(Weekday),
     Boolean(bool),
@@ -141,6 +142,13 @@ impl Value {
         }
     }
 
+    pub const fn as_calendar_span(&self) -> Option<CalendarSpan> {
+        match self {
+            Self::CalendarSpan(duration) => Some(*duration),
+            _ => None,
+        }
+    }
+
     pub const fn as_calendar_duration(&self) -> Option<CalendarDuration> {
         match self {
             Self::CalendarDuration(duration) => Some(*duration),
@@ -191,6 +199,7 @@ impl fmt::Display for Value {
             Self::ZonedDateTime(value) => value.fmt(formatter),
             Self::TimeSpan(duration) => duration.fmt(formatter),
             Self::CalendarDuration(duration) => duration.fmt(formatter),
+            Self::CalendarSpan(duration) => duration.fmt(formatter),
             Self::WorkdayDuration(duration) => duration.fmt(formatter),
             Self::Weekday(weekday) => weekday.fmt(formatter),
             Self::Boolean(value) => value.fmt(formatter),
@@ -394,6 +403,15 @@ pub(crate) fn evaluate_expression(
                 (UnaryOperator::Negative, Value::CalendarDuration(duration)) => {
                     Ok(Value::CalendarDuration(duration.negated()))
                 }
+                (UnaryOperator::Positive, Value::CalendarSpan(duration)) => {
+                    Ok(Value::CalendarSpan(duration))
+                }
+                (UnaryOperator::Negative, Value::CalendarSpan(duration)) => duration
+                    .checked_negated()
+                    .map(Value::CalendarSpan)
+                    .ok_or_else(|| {
+                        Diagnostic::new(DiagnosticKind::InvalidCalendarDuration, *operator_span)
+                    }),
                 (UnaryOperator::Positive, Value::WorkdayDuration(duration)) => {
                     Ok(Value::WorkdayDuration(duration))
                 }
@@ -430,6 +448,7 @@ pub(crate) fn evaluate_expression(
                     | Value::ZonedDateTime(_)
                     | Value::TimeSpan(_)
                     | Value::CalendarDuration(_)
+                    | Value::CalendarSpan(_)
                     | Value::WorkdayDuration(_)
                     | Value::Weekday(_),
                 ) => Err(unsupported(*operator_span)),

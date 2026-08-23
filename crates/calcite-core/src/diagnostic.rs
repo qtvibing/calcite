@@ -17,6 +17,7 @@ pub enum DiagnosticKind {
     AmbiguousLocalTime,
     NonexistentLocalTime,
     TimeZoneDataOutOfRange,
+    HolidayCalendarOutOfRange,
     UnknownVariable,
     InvalidAssignment,
     InvalidFunctionArguments,
@@ -102,6 +103,9 @@ impl Diagnostic {
             DiagnosticKind::NonexistentLocalTime => "local time does not exist in this time zone",
             DiagnosticKind::TimeZoneDataOutOfRange => {
                 "time is outside the time-zone snapshot's coverage"
+            }
+            DiagnosticKind::HolidayCalendarOutOfRange => {
+                "date is outside the holiday calendar's coverage"
             }
             DiagnosticKind::UnknownVariable => "unknown variable",
             DiagnosticKind::InvalidAssignment => "invalid variable assignment",

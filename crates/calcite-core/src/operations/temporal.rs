@@ -172,9 +172,9 @@ pub(super) fn datetime_workday_pair(
         _ => return Err(unsupported(span)),
     };
     calendar
-        .add_workdays(value.date(), days)
+        .checked_add_workdays(value.date(), days)
         .map(|date| Value::OffsetDateTime(OffsetDateTime::new(date, value.time(), value.offset())))
-        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+        .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span))
 }
 
 pub(super) fn date_pair(
@@ -233,9 +233,9 @@ pub(super) fn date_workday_pair(
         _ => return Err(unsupported(span)),
     };
     calendar
-        .add_workdays(date, days)
+        .checked_add_workdays(date, days)
         .map(Value::Date)
-        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+        .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span))
 }
 
 pub(super) fn calendar_date_pair(
@@ -356,7 +356,7 @@ pub(super) fn clock_duration_pair(
     Ok(Value::Clock(time.add_nanoseconds(nanoseconds)))
 }
 
-pub(super) fn time_zone_diagnostic(error: TimeZoneError, span: Span) -> Diagnostic {
+pub(crate) fn time_zone_diagnostic(error: TimeZoneError, span: Span) -> Diagnostic {
     let kind = match error {
         TimeZoneError::UnknownZone => DiagnosticKind::UnknownTimeZone,
         TimeZoneError::OutOfRange => DiagnosticKind::TimeZoneDataOutOfRange,

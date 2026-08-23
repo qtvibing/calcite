@@ -1,8 +1,8 @@
 use crate::evaluator::Value;
 use crate::operations::{evaluate_binary, unit_diagnostic};
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, Date, Diagnostic, DiagnosticKind,
-    Function, Span, TimeSpan,
+    BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, Date, Diagnostic,
+    DiagnosticKind, Function, Span, TimeSpan,
 };
 
 use super::{invalid_function_arguments, rounding};
@@ -14,6 +14,29 @@ pub(super) fn evaluate(
     context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
     match function {
+        Function::CalendarBetween | Function::CalendarFrom => {
+            let [first, second] = values else {
+                return Err(invalid_function_arguments(span));
+            };
+            let (left, right, absolute) = if function == Function::CalendarBetween {
+                (first, second, true)
+            } else {
+                (second, first, false)
+            };
+            calendar_span_difference(left, right, absolute, span)
+        }
+        Function::CalendarSince | Function::CalendarUntil => {
+            let [value] = values else {
+                return Err(invalid_function_arguments(span));
+            };
+            let current = current_value_for(value, span, context)?;
+            let (left, right) = if function == Function::CalendarSince {
+                (&current, value)
+            } else {
+                (value, &current)
+            };
+            calendar_span_difference(left, right, false, span)
+        }
         Function::TimeBetween | Function::TimeFrom => {
             let (first, second, target) = match values {
                 [first, second] => (first, second, None),
@@ -82,6 +105,9 @@ fn fixed_time_span(
         (Value::OffsetDateTime(left), Value::OffsetDateTime(right)) => {
             left.nanoseconds_since(*right)
         }
+        (Value::ZonedDateTime(left), Value::ZonedDateTime(right)) => {
+            left.datetime().nanoseconds_since(right.datetime())
+        }
         (Value::OffsetClock(left), Value::OffsetClock(right)) => left.nanoseconds_since(*right),
         (Value::Clock(left), Value::Clock(right)) => left.nanoseconds_since(*right),
         _ => return Err(invalid_function_arguments(span)),
@@ -119,6 +145,40 @@ fn convert_fixed_difference(
         .map_err(|error| unit_diagnostic(error, span))
 }
 
+fn calendar_span_difference(
+    left: &Value,
+    right: &Value,
+    absolute: bool,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let mut left = local_date(left).ok_or_else(|| invalid_function_arguments(span))?;
+    let mut right = local_date(right).ok_or_else(|| invalid_function_arguments(span))?;
+    let negative = if left < right {
+        if absolute {
+            std::mem::swap(&mut left, &mut right);
+            false
+        } else {
+            std::mem::swap(&mut left, &mut right);
+            true
+        }
+    } else {
+        false
+    };
+    let months = complete_months_since(left, right);
+    let anchor = right
+        .add_months(months)
+        .ok_or_else(|| invalid_function_arguments(span))?;
+    let days = left.days_since(anchor);
+    let (months, days) = if negative {
+        (-months, -days)
+    } else {
+        (months, days)
+    };
+    CalendarSpan::new(months, days)
+        .map(Value::CalendarSpan)
+        .ok_or_else(|| invalid_function_arguments(span))
+}
+
 fn calendar_difference(
     left: &Value,
     right: &Value,
@@ -146,6 +206,7 @@ fn local_date(value: &Value) -> Option<Date> {
     match value {
         Value::Date(date) => Some(*date),
         Value::OffsetDateTime(date_time) => Some(date_time.date()),
+        Value::ZonedDateTime(date_time) => Some(date_time.datetime().date()),
         _ => None,
     }
 }
@@ -177,6 +238,14 @@ fn current_value_for(
     match value {
         Value::Date(_) => Ok(Value::Date(current.date())),
         Value::OffsetDateTime(_) => Ok(Value::OffsetDateTime(current)),
+        Value::ZonedDateTime(value) => context
+            .temporal
+            .time_zones
+            .as_ref()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?
+            .at_instant(value.zone(), current)
+            .map(Value::ZonedDateTime)
+            .map_err(|error| crate::operations::time_zone_diagnostic(error, span)),
         Value::OffsetClock(_) => Ok(Value::OffsetClock(crate::OffsetClockTime::new(
             current.time(),
             current.offset(),

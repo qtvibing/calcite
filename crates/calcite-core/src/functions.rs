@@ -74,9 +74,14 @@ pub(super) fn evaluate_call(
         Function::AbsoluteValue | Function::Round | Function::Floor | Function::Ceiling => {
             rounding::evaluate(function, &values, span)
         }
-        Function::TimeBetween | Function::TimeFrom | Function::TimeSince | Function::TimeUntil => {
-            temporal::evaluate(function, &values, span, context)
-        }
+        Function::TimeBetween
+        | Function::TimeFrom
+        | Function::TimeSince
+        | Function::TimeUntil
+        | Function::CalendarBetween
+        | Function::CalendarFrom
+        | Function::CalendarSince
+        | Function::CalendarUntil => temporal::evaluate(function, &values, span, context),
         Function::SalesTax | Function::AddTax | Function::RemoveTax | Function::TaxFromTotal => {
             evaluate_tax_function(function, &values, span, context)
         }

@@ -35,6 +35,7 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         Value::ZonedDateTime(value) => value.to_string(),
         Value::TimeSpan(duration) => duration.to_string(),
         Value::CalendarDuration(duration) => duration.to_string(),
+        Value::CalendarSpan(duration) => duration.to_string(),
         Value::WorkdayDuration(duration) => duration.to_string(),
         Value::Weekday(weekday) => weekday.to_string(),
         Value::Boolean(value) => value.to_string(),

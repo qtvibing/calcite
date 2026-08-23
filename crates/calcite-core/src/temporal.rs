@@ -644,6 +644,80 @@ impl fmt::Display for WorkdayDuration {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CalendarSpan {
+    months: i64,
+    days: i64,
+}
+
+impl CalendarSpan {
+    pub const fn new(months: i64, days: i64) -> Option<Self> {
+        if (months < 0 && days > 0) || (months > 0 && days < 0) {
+            None
+        } else {
+            Some(Self { months, days })
+        }
+    }
+
+    pub const fn total_months(self) -> i64 {
+        self.months
+    }
+
+    pub const fn remaining_days(self) -> i64 {
+        self.days
+    }
+
+    pub const fn years(self) -> i64 {
+        self.months / 12
+    }
+
+    pub const fn remaining_months(self) -> i64 {
+        self.months % 12
+    }
+
+    pub const fn checked_negated(self) -> Option<Self> {
+        match (self.months.checked_neg(), self.days.checked_neg()) {
+            (Some(months), Some(days)) => Some(Self { months, days }),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for CalendarSpan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let negative = self.months < 0 || self.days < 0;
+        let years = self.years().unsigned_abs();
+        let months = self.remaining_months().unsigned_abs();
+        let days = self.days.unsigned_abs();
+        if negative {
+            formatter.write_str("-")?;
+        }
+        let mut wrote = false;
+        for (amount, singular, plural) in [
+            (years, "year", "years"),
+            (months, "month", "months"),
+            (days, "day", "days"),
+        ] {
+            if amount == 0 {
+                continue;
+            }
+            if wrote {
+                formatter.write_str(" ")?;
+            }
+            write!(
+                formatter,
+                "{amount} {}",
+                if amount == 1 { singular } else { plural }
+            )?;
+            wrote = true;
+        }
+        if !wrote {
+            formatter.write_str("0 days")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CalendarDurationUnit {
     Month,
     Year,
@@ -759,16 +833,83 @@ impl fmt::Display for CalendarDuration {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HolidayCalendarError {
+    InvalidDefinition,
+    OutOfRange,
+}
+
+impl fmt::Display for HolidayCalendarError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::InvalidDefinition => "the holiday calendar definition is invalid",
+            Self::OutOfRange => "the date is outside the holiday calendar's coverage",
+        })
+    }
+}
+
+impl std::error::Error for HolidayCalendarError {}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkdayCalendar {
     holidays: BTreeSet<Date>,
+    country_code: Option<String>,
+    valid_from: Option<Date>,
+    valid_until: Option<Date>,
 }
 
 impl WorkdayCalendar {
     pub fn new(holidays: impl IntoIterator<Item = Date>) -> Self {
         Self {
             holidays: holidays.into_iter().collect(),
+            country_code: None,
+            valid_from: None,
+            valid_until: None,
         }
+    }
+
+    pub fn for_country(
+        country_code: impl Into<String>,
+        valid_from: Date,
+        valid_until: Date,
+        holidays: impl IntoIterator<Item = Date>,
+    ) -> Result<Self, HolidayCalendarError> {
+        let country_code = country_code.into().to_ascii_uppercase();
+        if country_code.len() != 2
+            || !country_code.bytes().all(|byte| byte.is_ascii_alphabetic())
+            || valid_from > valid_until
+        {
+            return Err(HolidayCalendarError::InvalidDefinition);
+        }
+        let holidays = holidays.into_iter().collect::<BTreeSet<_>>();
+        if holidays
+            .iter()
+            .any(|date| *date < valid_from || *date > valid_until)
+        {
+            return Err(HolidayCalendarError::InvalidDefinition);
+        }
+        Ok(Self {
+            holidays,
+            country_code: Some(country_code),
+            valid_from: Some(valid_from),
+            valid_until: Some(valid_until),
+        })
+    }
+
+    pub fn country_code(&self) -> Option<&str> {
+        self.country_code.as_deref()
+    }
+
+    pub const fn valid_range(&self) -> Option<(Date, Date)> {
+        match (self.valid_from, self.valid_until) {
+            (Some(from), Some(until)) => Some((from, until)),
+            _ => None,
+        }
+    }
+
+    pub fn covers(&self, date: Date) -> bool {
+        self.valid_from.is_none_or(|from| date >= from)
+            && self.valid_until.is_none_or(|until| date <= until)
     }
 
     pub fn holidays(&self) -> impl Iterator<Item = Date> + '_ {
@@ -779,30 +920,70 @@ impl WorkdayCalendar {
         date.is_workday() && !self.holidays.contains(&date)
     }
 
+    pub fn checked_is_workday(&self, date: Date) -> Result<bool, HolidayCalendarError> {
+        if !self.covers(date) {
+            return Err(HolidayCalendarError::OutOfRange);
+        }
+        Ok(self.is_workday(date))
+    }
+
     pub fn add_workdays(&self, date: Date, workdays: i64) -> Option<Date> {
+        self.checked_add_workdays(date, workdays).ok()
+    }
+
+    pub fn checked_add_workdays(
+        &self,
+        date: Date,
+        workdays: i64,
+    ) -> Result<Date, HolidayCalendarError> {
+        if !self.covers(date) {
+            return Err(HolidayCalendarError::OutOfRange);
+        }
         if workdays == 0 {
-            return Some(date);
+            return Ok(date);
         }
         let direction = workdays.signum();
         let mut segment_start = date;
-        let mut candidate = date.add_workdays(workdays)?;
+        let mut candidate = date
+            .add_workdays(workdays)
+            .ok_or(HolidayCalendarError::OutOfRange)?;
         loop {
             let skipped_holidays = self.traversed_weekday_holidays(segment_start, candidate);
             if skipped_holidays == 0 {
-                return Some(candidate);
+                return self
+                    .covers(candidate)
+                    .then_some(candidate)
+                    .ok_or(HolidayCalendarError::OutOfRange);
             }
             segment_start = candidate;
-            candidate = candidate.add_workdays(direction.checked_mul(skipped_holidays)?)?;
+            candidate = candidate
+                .add_workdays(
+                    direction
+                        .checked_mul(skipped_holidays)
+                        .ok_or(HolidayCalendarError::OutOfRange)?,
+                )
+                .ok_or(HolidayCalendarError::OutOfRange)?;
         }
     }
 
-    pub fn workdays_between(&self, start: Date, end: Date) -> i64 {
+    pub fn workdays_between(&self, start: Date, end: Date) -> Option<i64> {
+        self.checked_workdays_between(start, end).ok()
+    }
+
+    pub fn checked_workdays_between(
+        &self,
+        start: Date,
+        end: Date,
+    ) -> Result<i64, HolidayCalendarError> {
+        if !self.covers(start) || !self.covers(end) {
+            return Err(HolidayCalendarError::OutOfRange);
+        }
         let weekdays = start.workdays_until(end);
-        if start <= end {
+        Ok(if start <= end {
             weekdays - self.weekday_holidays_between(start, end)
         } else {
             weekdays + self.weekday_holidays_between(end, start)
-        }
+        })
     }
 
     fn weekday_holidays_between(&self, start: Date, end: Date) -> i64 {
@@ -946,8 +1127,8 @@ mod tests {
         assert!(!calendar.is_workday(holiday));
         assert_eq!(calendar.add_workdays(friday, 1), Some(tuesday));
         assert_eq!(calendar.add_workdays(tuesday, -1), Some(friday));
-        assert_eq!(calendar.workdays_between(friday, tuesday), 1);
-        assert_eq!(calendar.workdays_between(tuesday, friday), -1);
+        assert_eq!(calendar.workdays_between(friday, tuesday), Some(1));
+        assert_eq!(calendar.workdays_between(tuesday, friday), Some(-1));
     }
 
     #[test]

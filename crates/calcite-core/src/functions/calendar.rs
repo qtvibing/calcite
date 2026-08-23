@@ -21,9 +21,12 @@ pub(super) fn evaluate(
             if function == Function::Weekday {
                 Ok(Value::Weekday(date.weekday()))
             } else {
-                Ok(Value::Boolean(
-                    context.temporal.workday_calendar.is_workday(date),
-                ))
+                context
+                    .temporal
+                    .workday_calendar
+                    .checked_is_workday(date)
+                    .map(Value::Boolean)
+                    .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span))
             }
         }
         Function::AddWorkdays => match values {
@@ -34,9 +37,9 @@ pub(super) fn evaluate(
                 context
                     .temporal
                     .workday_calendar
-                    .add_workdays(*date, days)
+                    .checked_add_workdays(*date, days)
                     .map(Value::Date)
-                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+                    .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span))
             }
             [Value::OffsetDateTime(value), Value::Number(days)] => {
                 let days = days
@@ -45,7 +48,7 @@ pub(super) fn evaluate(
                 context
                     .temporal
                     .workday_calendar
-                    .add_workdays(value.date(), days)
+                    .checked_add_workdays(value.date(), days)
                     .map(|date| {
                         Value::OffsetDateTime(OffsetDateTime::new(
                             date,
@@ -53,7 +56,7 @@ pub(super) fn evaluate(
                             value.offset(),
                         ))
                     })
-                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+                    .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span))
             }
             _ => Err(invalid_function_arguments(span)),
         },
@@ -67,13 +70,13 @@ pub(super) fn evaluate(
                 [Value::Date(date)] => context
                     .temporal
                     .workday_calendar
-                    .add_workdays(*date, days)
+                    .checked_add_workdays(*date, days)
                     .map(Value::Date)
-                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+                    .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span)),
                 [Value::OffsetDateTime(value)] => context
                     .temporal
                     .workday_calendar
-                    .add_workdays(value.date(), days)
+                    .checked_add_workdays(value.date(), days)
                     .map(|date| {
                         Value::OffsetDateTime(OffsetDateTime::new(
                             date,
@@ -81,7 +84,7 @@ pub(super) fn evaluate(
                             value.offset(),
                         ))
                     })
-                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+                    .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span)),
                 _ => Err(invalid_function_arguments(span)),
             }
         }
@@ -93,12 +96,13 @@ pub(super) fn evaluate(
                 }
                 _ => return Err(invalid_function_arguments(span)),
             };
-            Ok(Value::WorkdayDuration(WorkdayDuration::new(
-                context
-                    .temporal
-                    .workday_calendar
-                    .workdays_between(start, end),
-            )))
+            context
+                .temporal
+                .workday_calendar
+                .checked_workdays_between(start, end)
+                .map(WorkdayDuration::new)
+                .map(Value::WorkdayDuration)
+                .map_err(|_| Diagnostic::new(DiagnosticKind::HolidayCalendarOutOfRange, span))
         }
         _ => unreachable!("calendar dispatch only passes calendar functions"),
     }

@@ -30,6 +30,7 @@ pub(crate) fn convert(
             | Value::ZonedDateTime(_)
             | Value::TimeSpan(_)
             | Value::CalendarDuration(_)
+            | Value::CalendarSpan(_)
             | Value::WorkdayDuration(_)
             | Value::Weekday(_)
             | Value::Boolean(_) => Err(unsupported(span)),
@@ -65,6 +66,7 @@ pub(crate) fn convert(
             | Value::ZonedDateTime(_)
             | Value::TimeSpan(_)
             | Value::CalendarDuration(_)
+            | Value::CalendarSpan(_)
             | Value::WorkdayDuration(_)
             | Value::Weekday(_)
             | Value::Boolean(_) => Err(unsupported(span)),
@@ -87,6 +89,7 @@ pub(crate) fn convert(
                 | Value::ZonedDateTime(_)
                 | Value::TimeSpan(_)
                 | Value::CalendarDuration(_)
+                | Value::CalendarSpan(_)
                 | Value::WorkdayDuration(_)
                 | Value::Weekday(_)
                 | Value::Boolean(_) => return Err(unsupported(span)),

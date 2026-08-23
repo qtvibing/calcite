@@ -10,6 +10,7 @@ enum TimeDifferenceTarget {
     Fixed(Unit),
     Months,
     Years,
+    Calendar,
 }
 
 impl Parser<'_> {
@@ -456,6 +457,9 @@ impl Parser<'_> {
         if self.word_is(0, "how") && self.word_is(1, "long") {
             return Some((None, 2));
         }
+        if self.word_is(0, "calendar") && (self.word_is(1, "time") || self.word_is(1, "duration")) {
+            return Some((Some(TimeDifferenceTarget::Calendar), 2));
+        }
         self.time_difference_target().map(|target| (target, 1))
     }
 
@@ -481,26 +485,48 @@ impl Parser<'_> {
         let (target, relation_offset) = self
             .time_difference_prefix()
             .expect("guard checked the time difference prefix");
+        let calendar = matches!(target, Some(TimeDifferenceTarget::Calendar));
         let function = if self.word_is(relation_offset, "between") {
-            Function::TimeBetween
+            if calendar {
+                Function::CalendarBetween
+            } else {
+                Function::TimeBetween
+            }
         } else if self.word_is(relation_offset, "from") {
-            Function::TimeFrom
+            if calendar {
+                Function::CalendarFrom
+            } else {
+                Function::TimeFrom
+            }
         } else if self.word_is(relation_offset, "since") {
-            Function::TimeSince
+            if calendar {
+                Function::CalendarSince
+            } else {
+                Function::TimeSince
+            }
+        } else if calendar {
+            Function::CalendarUntil
         } else {
             Function::TimeUntil
         };
         self.position += relation_offset + 1;
 
-        let has_second_argument = matches!(function, Function::TimeBetween | Function::TimeFrom);
+        let has_second_argument = matches!(
+            function,
+            Function::TimeBetween
+                | Function::TimeFrom
+                | Function::CalendarBetween
+                | Function::CalendarFrom
+        );
         let first = self.parse_expression(if has_second_argument { 4 } else { 0 })?;
         let mut arguments = vec![first];
         if has_second_argument {
-            let (separator, detail) = if function == Function::TimeBetween {
-                ("and", "expected 'and'")
-            } else {
-                ("to", "expected 'to'")
-            };
+            let (separator, detail) =
+                if matches!(function, Function::TimeBetween | Function::CalendarBetween) {
+                    ("and", "expected 'and'")
+                } else {
+                    ("to", "expected 'to'")
+                };
             self.consume_word(separator, detail)?;
             arguments.push(self.parse_expression(0)?);
         }
@@ -508,22 +534,25 @@ impl Parser<'_> {
             .last()
             .expect("a time difference has an argument")
             .span();
-        if let Some(target) = target {
-            arguments.push(match target {
-                TimeDifferenceTarget::Fixed(unit) => Expression::Unit {
-                    value: Number::from_i64(1),
-                    unit: CompoundUnit::from_unit(unit),
-                    span: start,
-                },
-                TimeDifferenceTarget::Months => Expression::CalendarDuration {
+        match target {
+            Some(TimeDifferenceTarget::Fixed(unit)) => arguments.push(Expression::Unit {
+                value: Number::from_i64(1),
+                unit: CompoundUnit::from_unit(unit),
+                span: start,
+            }),
+            Some(TimeDifferenceTarget::Months) => {
+                arguments.push(Expression::CalendarDuration {
                     value: CalendarDuration::months(1),
                     span: start,
-                },
-                TimeDifferenceTarget::Years => Expression::CalendarDuration {
+                });
+            }
+            Some(TimeDifferenceTarget::Years) => {
+                arguments.push(Expression::CalendarDuration {
                     value: CalendarDuration::years(1).expect("one year is representable"),
                     span: start,
-                },
-            });
+                });
+            }
+            Some(TimeDifferenceTarget::Calendar) | None => {}
         }
         let span = start.join(end);
         Ok(Expression::Call {
