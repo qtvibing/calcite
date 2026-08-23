@@ -14,7 +14,10 @@ use units::*;
 pub(crate) use units::{classify_compound_value, unit_diagnostic};
 
 use crate::evaluator::Value;
-use crate::{BinaryOperator, CalculationContext, Diagnostic, DiagnosticKind, OffsetDateTime, Span};
+use crate::{
+    BinaryOperator, CalculationContext, ComplexNumber, Diagnostic, DiagnosticKind, OffsetDateTime,
+    Span,
+};
 
 pub(super) fn evaluate_binary(
     operator: BinaryOperator,
@@ -25,13 +28,22 @@ pub(super) fn evaluate_binary(
 ) -> Result<Value, Diagnostic> {
     let left = match left {
         Value::RadixInteger(value) => Value::Number(value.into_number()),
+        Value::RomanInteger(value) => Value::Number(value.into_number()),
         value => value,
     };
     let right = match right {
         Value::RadixInteger(value) => Value::Number(value.into_number()),
+        Value::RomanInteger(value) => Value::Number(value.into_number()),
         value => value,
     };
     match (left, right) {
+        (Value::Complex(left), Value::Complex(right)) => complex_pair(operator, left, right, span),
+        (Value::Complex(left), Value::Number(right)) => {
+            complex_pair(operator, left, ComplexNumber::from_real(right), span)
+        }
+        (Value::Number(left), Value::Complex(right)) => {
+            complex_pair(operator, ComplexNumber::from_real(left), right, span)
+        }
         (Value::Number(left), Value::Number(right)) => number_pair(operator, left, right, span),
         (Value::Percentage(left), Value::Percentage(right)) => {
             percentage_pair(operator, left, right, span)
@@ -262,6 +274,35 @@ pub(super) fn evaluate_binary(
             compare_ordering(operator, left.cmp(&right), span)
         }
         (Value::Boolean(left), Value::Boolean(right)) => boolean_pair(operator, left, right, span),
+        _ => Err(unsupported(span)),
+    }
+}
+
+fn complex_pair(
+    operator: BinaryOperator,
+    left: ComplexNumber,
+    right: ComplexNumber,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match operator {
+        BinaryOperator::Add => Ok(Value::Complex(left.add(right))),
+        BinaryOperator::Subtract => Ok(Value::Complex(left.subtract(right))),
+        BinaryOperator::Multiply => Ok(Value::Complex(left.multiply(right))),
+        BinaryOperator::Divide => left
+            .checked_divide(right)
+            .map(Value::Complex)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::DivisionByZero, span)),
+        BinaryOperator::Power if right.is_real() => {
+            let exponent = right
+                .real()
+                .exact_i64()
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::IntegerRequired, span))?;
+            left.pow(exponent)
+                .map(Value::Complex)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::ExponentTooLarge, span))
+        }
+        BinaryOperator::Equal => Ok(Value::Boolean(left == right)),
+        BinaryOperator::NotEqual => Ok(Value::Boolean(left != right)),
         _ => Err(unsupported(span)),
     }
 }

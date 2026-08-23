@@ -26,6 +26,7 @@ impl Parser<'_> {
                 || target.eq_ignore_ascii_case("dec")
                 || target.eq_ignore_ascii_case("number")
                 || target.eq_ignore_ascii_case("base")
+                || target.eq_ignore_ascii_case("roman")
                 || target.eq_ignore_ascii_case("fraction")
                 || target.eq_ignore_ascii_case("percent")
                 || target.eq_ignore_ascii_case("percentage")
@@ -267,6 +268,8 @@ impl Parser<'_> {
                                 ));
                             }
                         }
+                    } else if target.eq_ignore_ascii_case("roman") {
+                        ConversionTarget::Roman
                     } else if target.eq_ignore_ascii_case("percent")
                         || target.eq_ignore_ascii_case("percentage")
                     {

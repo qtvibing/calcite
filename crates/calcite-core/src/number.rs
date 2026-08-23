@@ -7,7 +7,7 @@ use dashu_float::{
 use dashu_int::{IBig, ops::UnsignedAbs};
 use dashu_ratio::RBig;
 
-use crate::Radix;
+use crate::{NumberOutputMode, Radix};
 
 const WORKING_PRECISION: usize = 34;
 const DISPLAY_DECIMAL_PLACES: usize = 10;
@@ -597,24 +597,83 @@ impl Number {
     }
 
     pub(crate) fn formatted_with(&self, decimal_separator: char) -> String {
-        let rendered = match &self.0 {
-            Representation::Exact(value) if value.denominator() == &dashu_int::UBig::ONE => {
-                value.numerator().to_string()
+        self.formatted_with_mode(NumberOutputMode::Auto, decimal_separator, false)
+    }
+
+    pub(crate) fn formatted_with_mode(
+        &self,
+        mode: NumberOutputMode,
+        decimal_separator: char,
+        mark_approximate: bool,
+    ) -> String {
+        let (rendered, exact_rendering) = match mode {
+            NumberOutputMode::Auto => {
+                (self.format_decimal(DISPLAY_DECIMAL_PLACES), self.is_exact())
             }
-            Representation::Exact(value) => {
-                format!("{:.DISPLAY_DECIMAL_PLACES$}", value.in_expanded(10))
+            NumberOutputMode::Exact | NumberOutputMode::Fraction => match &self.0 {
+                Representation::Exact(value) => (value.to_string(), true),
+                Representation::Approximate(_) => {
+                    (self.format_decimal(DISPLAY_DECIMAL_PLACES), false)
+                }
+            },
+            NumberOutputMode::Mixed => match &self.0 {
+                Representation::Exact(value) => (format_mixed(value), true),
+                Representation::Approximate(_) => {
+                    (self.format_decimal(DISPLAY_DECIMAL_PLACES), false)
+                }
+            },
+            NumberOutputMode::Decimal { places } => {
+                let places = usize::from(places).min(100);
+                let rendered = self.format_decimal(places);
+                let exact = Number::parse_decimal(&rendered)
+                    .ok()
+                    .is_some_and(|rendered| rendered == *self);
+                (rendered, exact)
             }
-            Representation::Approximate(value) => {
-                format!("{value:.DISPLAY_DECIMAL_PLACES$}")
+            NumberOutputMode::Significant { digits } => {
+                let digits = usize::from(digits).clamp(1, WORKING_PRECISION);
+                let scientific = self.format_scientific(digits);
+                let rendered = expand_scientific(&scientific);
+                let exact = Number::parse_decimal(&rendered)
+                    .ok()
+                    .is_some_and(|rendered| rendered == *self);
+                (rendered, exact)
+            }
+            NumberOutputMode::Scientific { digits } => {
+                let digits = usize::from(digits).clamp(1, WORKING_PRECISION);
+                let rendered = self.format_scientific(digits);
+                let exact = Number::parse_decimal(&rendered)
+                    .ok()
+                    .is_some_and(|rendered| rendered == *self);
+                (rendered, exact)
             }
         };
-
-        let rendered = trim_decimal_zeros(rendered);
-        if decimal_separator == '.' {
+        let rendered = if decimal_separator == '.' {
             rendered
         } else {
             rendered.replace('.', &decimal_separator.to_string())
+        };
+        if mark_approximate && !exact_rendering {
+            format!("≈{rendered}")
+        } else {
+            rendered
         }
+    }
+
+    fn format_decimal(&self, places: usize) -> String {
+        trim_decimal_zeros(match &self.0 {
+            Representation::Exact(value) if value.denominator() == &dashu_int::UBig::ONE => {
+                value.numerator().to_string()
+            }
+            Representation::Exact(value) => format!("{:.places$}", value.in_expanded(10)),
+            Representation::Approximate(value) => format!("{value:.places$}"),
+        })
+    }
+
+    fn format_scientific(&self, digits: usize) -> String {
+        let decimal_places = digits.saturating_sub(1);
+        let value = into_real(self.0.clone());
+        trim_decimal_zeros(format!("{value:.decimal_places$e}"))
     }
 }
 
@@ -767,6 +826,55 @@ fn into_real(value: Representation) -> Real {
         Representation::Exact(value) => value.to_float(WORKING_PRECISION).value(),
         Representation::Approximate(value) => value,
     }
+}
+
+fn format_mixed(value: &RBig) -> String {
+    if value.denominator() == &dashu_int::UBig::ONE {
+        return value.numerator().to_string();
+    }
+    let denominator = IBig::from(value.denominator().clone());
+    let whole = value.numerator() / &denominator;
+    let remainder = (value.numerator() % &denominator).unsigned_abs();
+    if whole == IBig::ZERO {
+        if value.numerator() < &IBig::ZERO {
+            format!("-{remainder}/{}", value.denominator())
+        } else {
+            format!("{remainder}/{}", value.denominator())
+        }
+    } else if remainder == dashu_int::UBig::ZERO {
+        whole.to_string()
+    } else {
+        format!("{whole} {remainder}/{}", value.denominator())
+    }
+}
+
+fn expand_scientific(value: &str) -> String {
+    let Some((coefficient, exponent)) = value.split_once('e') else {
+        return value.to_owned();
+    };
+    let Ok(exponent) = exponent.parse::<isize>() else {
+        return value.to_owned();
+    };
+    let negative = coefficient.starts_with('-');
+    let coefficient = coefficient.trim_start_matches('-');
+    let decimal_position = coefficient.find('.').unwrap_or(coefficient.len()) as isize + exponent;
+    let digits = coefficient.replace('.', "");
+    let mut expanded = if decimal_position <= 0 {
+        format!("0.{}{}", "0".repeat((-decimal_position) as usize), digits)
+    } else if decimal_position as usize >= digits.len() {
+        format!(
+            "{}{}",
+            digits,
+            "0".repeat(decimal_position as usize - digits.len())
+        )
+    } else {
+        let position = decimal_position as usize;
+        format!("{}.{}", &digits[..position], &digits[position..])
+    };
+    if negative {
+        expanded.insert(0, '-');
+    }
+    expanded
 }
 
 fn trim_decimal_zeros(mut value: String) -> String {

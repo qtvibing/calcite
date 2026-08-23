@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+
 use crate::evaluator::Value;
 use crate::operations::{numeric_diagnostic, unit_diagnostic};
-use crate::{Diagnostic, DiagnosticKind, Function, Number, Span, Unit, UnitValue};
+use crate::{ComplexNumber, Diagnostic, DiagnosticKind, Function, Number, Span, Unit, UnitValue};
 
 use super::invalid_function_arguments;
 
@@ -19,6 +21,18 @@ pub(super) fn evaluate(
             } else {
                 3
             };
+            if function == Function::SquareRoot
+                && number.compare(&Number::from_i64(0)) == Some(Ordering::Less)
+            {
+                return number
+                    .clone()
+                    .negated()
+                    .nth_root(2)
+                    .map(|imaginary| {
+                        Value::Complex(ComplexNumber::new(Number::from_i64(0), imaginary))
+                    })
+                    .map_err(|error| numeric_diagnostic(error, span));
+            }
             number
                 .clone()
                 .nth_root(degree)

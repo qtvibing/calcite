@@ -4,11 +4,11 @@ use crate::functions::evaluate_call;
 use crate::operations::{classify_compound_value, convert, evaluate_binary, unsupported};
 use crate::syntax::identifier_key;
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, Constant, Date,
-    Diagnostic, DiagnosticKind, DiceDistribution, Expression, Fraction, Money, MoneyRate, Number,
-    OffsetClockTime, OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection,
-    TemporalKeyword, TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, ZonedClockTime,
-    ZonedDateTime, parse_with_context,
+    BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, ComplexNumber,
+    Constant, Date, Diagnostic, DiagnosticKind, DiceDistribution, Expression, Fraction, Money,
+    MoneyRate, Number, OffsetClockTime, OffsetDateTime, Percentage, RadixInteger, Rate,
+    RelativeWeekdayDirection, RomanInteger, TemporalKeyword, TimeSpan, UnaryOperator, UnitValue,
+    Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +16,8 @@ use crate::{
 pub enum Value {
     Number(Number),
     RadixInteger(RadixInteger),
+    RomanInteger(RomanInteger),
+    Complex(ComplexNumber),
     Percentage(Percentage),
     Fraction(Fraction),
     Unit(UnitValue),
@@ -48,6 +50,20 @@ impl Value {
     pub const fn as_radix_integer(&self) -> Option<&RadixInteger> {
         match self {
             Self::RadixInteger(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub const fn as_roman_integer(&self) -> Option<&RomanInteger> {
+        match self {
+            Self::RomanInteger(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub const fn as_complex(&self) -> Option<&ComplexNumber> {
+        match self {
+            Self::Complex(value) => Some(value),
             _ => None,
         }
     }
@@ -191,6 +207,8 @@ impl fmt::Display for Value {
         match self {
             Self::Number(number) => number.fmt(formatter),
             Self::RadixInteger(value) => value.fmt(formatter),
+            Self::RomanInteger(value) => value.fmt(formatter),
+            Self::Complex(value) => value.fmt(formatter),
             Self::Percentage(percentage) => percentage.fmt(formatter),
             Self::Fraction(fraction) => fraction.fmt(formatter),
             Self::Unit(value) => {
@@ -236,6 +254,8 @@ pub(crate) fn evaluate_expression(
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
         Expression::RadixInteger { value, .. } => Ok(Value::RadixInteger(value.clone())),
+        Expression::RomanInteger { value, .. } => Ok(Value::RomanInteger(value.clone())),
+        Expression::Complex { value, .. } => Ok(Value::Complex(value.clone())),
         Expression::Boolean { value, .. } => Ok(Value::Boolean(*value)),
         Expression::Constant { constant, .. } => Ok(Value::Number(match constant {
             Constant::Pi => Number::pi(),
@@ -375,6 +395,16 @@ pub(crate) fn evaluate_expression(
                 (UnaryOperator::Negative, Value::RadixInteger(value)) => {
                     Ok(Value::RadixInteger(value.negated()))
                 }
+                (UnaryOperator::Positive, Value::RomanInteger(value)) => {
+                    Ok(Value::RomanInteger(value))
+                }
+                (UnaryOperator::Negative, Value::RomanInteger(value)) => {
+                    Ok(Value::Number(value.into_number().negated()))
+                }
+                (UnaryOperator::Positive, Value::Complex(value)) => Ok(Value::Complex(value)),
+                (UnaryOperator::Negative, Value::Complex(value)) => {
+                    Ok(Value::Complex(value.negated()))
+                }
                 (UnaryOperator::Positive, Value::Percentage(percentage)) => {
                     Ok(Value::Percentage(percentage))
                 }
@@ -445,6 +475,8 @@ pub(crate) fn evaluate_expression(
                     UnaryOperator::Not,
                     Value::Number(_)
                     | Value::RadixInteger(_)
+                    | Value::RomanInteger(_)
+                    | Value::Complex(_)
                     | Value::Percentage(_)
                     | Value::Fraction(_)
                     | Value::Unit(_)

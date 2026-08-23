@@ -275,6 +275,23 @@ fn supports_plain_and_json_output_modes() {
 }
 
 #[test]
+fn configures_numeric_output_modes() {
+    let exact = calcite()
+        .args(["--format", "exact", "1", "/", "3"])
+        .output()
+        .expect("calcite should run");
+    assert!(exact.status.success());
+    assert_eq!(String::from_utf8(exact.stdout).unwrap(), "1/3\n");
+
+    let scientific = calcite()
+        .args(["--format", "scientific", "--precision", "4", "12345.67"])
+        .output()
+        .expect("calcite should run");
+    assert!(scientific.status.success());
+    assert_eq!(String::from_utf8(scientific.stdout).unwrap(), "1.235e4\n");
+}
+
+#[test]
 fn evaluates_an_expression_from_arguments() {
     let output = calcite()
         .args(["10%", "of", "50", "km"])

@@ -238,10 +238,6 @@ fn typed_rounding_uses_the_displayed_magnitude() {
 #[test]
 fn invalid_function_domains_and_arities_are_diagnostic() {
     assert_eq!(
-        calculate("sqrt(-1)").unwrap_err().kind(),
-        DiagnosticKind::NonRealResult
-    );
-    assert_eq!(
         calculate("sqrt(1, 2)").unwrap_err().kind(),
         DiagnosticKind::InvalidFunctionArguments
     );

@@ -1,7 +1,7 @@
 use crate::evaluator::Value;
 use crate::{
     CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Fraction, Money, Number,
-    Percentage, RadixInteger, Span, Unit, UnitValue,
+    Percentage, RadixInteger, RomanInteger, Span, Unit, UnitValue,
 };
 
 use super::{classify_compound_value, time_zone_diagnostic, unit_diagnostic, unsupported};
@@ -16,13 +16,15 @@ pub(crate) fn convert(
         ConversionTarget::Number => match value {
             Value::Number(number) => Ok(Value::Number(number)),
             Value::RadixInteger(value) => Ok(Value::Number(value.into_number())),
+            Value::RomanInteger(value) => Ok(Value::Number(value.into_number())),
             Value::Percentage(percentage) => Ok(Value::Number(percentage.into_ratio())),
             Value::Fraction(fraction) => Ok(Value::Number(fraction.into_number())),
             Value::Unit(value) => Ok(Value::Number(value.magnitude().clone())),
             Value::Money(value) => Ok(Value::Number(value.amount().clone())),
             Value::MoneyRate(value) => Ok(Value::Number(value.amount().clone())),
             Value::Rate(value) => Ok(Value::Number(value.magnitude().clone())),
-            Value::Dice(_)
+            Value::Complex(_)
+            | Value::Dice(_)
             | Value::Date(_)
             | Value::Clock(_)
             | Value::OffsetClock(_)
@@ -40,10 +42,22 @@ pub(crate) fn convert(
             let number = match value {
                 Value::Number(number) => number,
                 Value::RadixInteger(value) => value.into_number(),
+                Value::RomanInteger(value) => value.into_number(),
                 _ => return Err(unsupported(span)),
             };
             RadixInteger::new(number, radix)
                 .map(Value::RadixInteger)
+                .map_err(|_| Diagnostic::new(DiagnosticKind::IntegerRequired, span))
+        }
+        ConversionTarget::Roman => {
+            let number = match value {
+                Value::Number(number) => number,
+                Value::RadixInteger(value) => value.into_number(),
+                Value::RomanInteger(value) => return Ok(Value::RomanInteger(value)),
+                _ => return Err(unsupported(span)),
+            };
+            RomanInteger::new(number)
+                .map(Value::RomanInteger)
                 .map_err(|_| Diagnostic::new(DiagnosticKind::IntegerRequired, span))
         }
         ConversionTarget::Percentage => match value {
@@ -51,11 +65,15 @@ pub(crate) fn convert(
             Value::RadixInteger(value) => Ok(Value::Percentage(Percentage::from_ratio(
                 value.into_number(),
             ))),
+            Value::RomanInteger(value) => Ok(Value::Percentage(Percentage::from_ratio(
+                value.into_number(),
+            ))),
             Value::Percentage(percentage) => Ok(Value::Percentage(percentage)),
             Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
                 fraction.into_number(),
             ))),
-            Value::Unit(_)
+            Value::Complex(_)
+            | Value::Unit(_)
             | Value::Money(_)
             | Value::MoneyRate(_)
             | Value::Rate(_)
@@ -77,9 +95,11 @@ pub(crate) fn convert(
             let number = match value {
                 Value::Number(number) => number,
                 Value::RadixInteger(value) => value.into_number(),
+                Value::RomanInteger(value) => value.into_number(),
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
-                Value::Unit(_)
+                Value::Complex(_)
+                | Value::Unit(_)
                 | Value::Money(_)
                 | Value::MoneyRate(_)
                 | Value::Rate(_)

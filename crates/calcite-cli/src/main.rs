@@ -9,7 +9,8 @@ use std::{
 
 use calcite_core::{
     CalculationContext, CalculationSession, ClockTime, Date, DateOrder, Diagnostic, DiagnosticKind,
-    DocumentCalculation, OffsetDateTime, UtcOffset, calculate_document_with_context,
+    DocumentCalculation, NumberOutputMode, OffsetDateTime, UtcOffset,
+    calculate_document_with_context,
 };
 use jiff::{Timestamp, tz::TimeZone};
 
@@ -21,6 +22,9 @@ Options:\n\
   -i, --repl               Start an interactive session\n\
       --refresh-rates      Refresh exchange rates before evaluation\n\
       --date-order <ORDER> Parse numeric dates as dmy, mdy, or ymd\n\
+      --format <MODE>      auto, exact, fraction, mixed, decimal, significant, or scientific\n\
+      --precision <N>      Digits used by decimal/scientific output\n\
+      --approximate        Mark rounded or approximate numbers with ≈\n\
       --plain              Print only the final result\n\
       --json               Print structured JSON\n\
   -h, --help               Print help\n\
@@ -31,6 +35,8 @@ struct Options {
     refresh_rates: bool,
     output: OutputMode,
     date_order: Option<DateOrder>,
+    number_mode: NumberOutputMode,
+    mark_approximate: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -38,6 +44,31 @@ enum OutputMode {
     Text,
     Plain,
     Json,
+}
+
+#[derive(Clone, Copy)]
+enum RequestedNumberMode {
+    Auto,
+    Exact,
+    Fraction,
+    Mixed,
+    Decimal,
+    Significant,
+    Scientific,
+}
+
+impl RequestedNumberMode {
+    const fn resolve(self, precision: u8) -> NumberOutputMode {
+        match self {
+            Self::Auto => NumberOutputMode::Auto,
+            Self::Exact => NumberOutputMode::Exact,
+            Self::Fraction => NumberOutputMode::Fraction,
+            Self::Mixed => NumberOutputMode::Mixed,
+            Self::Decimal => NumberOutputMode::Decimal { places: precision },
+            Self::Significant => NumberOutputMode::Significant { digits: precision },
+            Self::Scientific => NumberOutputMode::Scientific { digits: precision },
+        }
+    }
 }
 
 enum Action {
@@ -66,7 +97,14 @@ async fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Action::Repl => {
-            return run_repl(options.refresh_rates, options.date_order, options.output).await;
+            return run_repl(
+                options.refresh_rates,
+                options.date_order,
+                options.number_mode,
+                options.mark_approximate,
+                options.output,
+            )
+            .await;
         }
         Action::Calculate(expression) => expression,
     };
@@ -76,7 +114,15 @@ async fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    match calculate_with_rates(&expression, options.refresh_rates, options.date_order).await {
+    match calculate_with_rates(
+        &expression,
+        options.refresh_rates,
+        options.date_order,
+        options.number_mode,
+        options.mark_approximate,
+    )
+    .await
+    {
         Ok(document) => {
             print_result(&document, options.output);
             ExitCode::SUCCESS
@@ -95,6 +141,8 @@ async fn main() -> ExitCode {
 async fn run_repl(
     force_refresh: bool,
     date_order: Option<DateOrder>,
+    number_mode: NumberOutputMode,
+    mark_approximate: bool,
     output: OutputMode,
 ) -> ExitCode {
     let path = rates::cache_path();
@@ -107,6 +155,8 @@ async fn run_repl(
     };
     let mut context = CalculationContext::default();
     context.temporal.date_order = date_order;
+    context.output_format.number_mode = number_mode;
+    context.output_format.mark_approximate = mark_approximate;
     if let Some(cached) = &cached
         && cached.fresh
     {
@@ -215,6 +265,8 @@ async fn calculate_with_rates(
     expression: &str,
     force_refresh: bool,
     date_order: Option<DateOrder>,
+    number_mode: NumberOutputMode,
+    mark_approximate: bool,
 ) -> Result<DocumentCalculation, Diagnostic> {
     let path = rates::cache_path();
     let cached = match rates::load_cache(&path) {
@@ -226,6 +278,8 @@ async fn calculate_with_rates(
     };
     let mut context = CalculationContext::default();
     context.temporal.date_order = date_order;
+    context.output_format.number_mode = number_mode;
+    context.output_format.mark_approximate = mark_approximate;
 
     if force_refresh {
         if let Err(error) = refresh_rates(&mut context, &path).await {
@@ -330,6 +384,9 @@ fn read_options() -> Result<Options, String> {
     let mut refresh_rates = false;
     let mut output = OutputMode::Text;
     let mut date_order = None;
+    let mut requested_number_mode = RequestedNumberMode::Auto;
+    let mut precision = 10;
+    let mut mark_approximate = false;
     let mut repl = false;
     let mut expression = None;
     let mut file = None;
@@ -345,6 +402,8 @@ fn read_options() -> Result<Options, String> {
                     refresh_rates,
                     output,
                     date_order,
+                    number_mode: NumberOutputMode::Auto,
+                    mark_approximate: false,
                 });
             }
             "-V" | "--version" => {
@@ -353,10 +412,45 @@ fn read_options() -> Result<Options, String> {
                     refresh_rates,
                     output,
                     date_order,
+                    number_mode: NumberOutputMode::Auto,
+                    mark_approximate: false,
                 });
             }
             "--plain" => output = OutputMode::Plain,
             "--json" => output = OutputMode::Json,
+            "--format" => {
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| "--format requires an output mode".to_owned())?;
+                requested_number_mode = match value.to_ascii_lowercase().as_str() {
+                    "auto" => RequestedNumberMode::Auto,
+                    "exact" => RequestedNumberMode::Exact,
+                    "fraction" => RequestedNumberMode::Fraction,
+                    "mixed" => RequestedNumberMode::Mixed,
+                    "decimal" => RequestedNumberMode::Decimal,
+                    "significant" => RequestedNumberMode::Significant,
+                    "scientific" => RequestedNumberMode::Scientific,
+                    _ => {
+                        return Err(
+                            "--format requires auto, exact, fraction, mixed, decimal, significant, or scientific"
+                                .into(),
+                        );
+                    }
+                };
+            }
+            "--precision" => {
+                let value = arguments.next().ok_or_else(|| {
+                    "--precision requires an integer from 1 through 100".to_owned()
+                })?;
+                precision = value
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|value| (1..=100).contains(value))
+                    .ok_or_else(|| {
+                        "--precision requires an integer from 1 through 100".to_owned()
+                    })?;
+            }
+            "--approximate" => mark_approximate = true,
             "--date-order" => {
                 let value = arguments
                     .next()
@@ -414,6 +508,8 @@ fn read_options() -> Result<Options, String> {
             refresh_rates,
             output,
             date_order,
+            number_mode: requested_number_mode.resolve(precision),
+            mark_approximate,
         });
     }
     let source = if let Some(expression) = expression {
@@ -429,6 +525,8 @@ fn read_options() -> Result<Options, String> {
             refresh_rates,
             output,
             date_order,
+            number_mode: requested_number_mode.resolve(precision),
+            mark_approximate,
         });
     } else {
         let mut source = String::new();
@@ -443,6 +541,8 @@ fn read_options() -> Result<Options, String> {
         refresh_rates,
         output,
         date_order,
+        number_mode: requested_number_mode.resolve(precision),
+        mark_approximate,
     })
 }
 

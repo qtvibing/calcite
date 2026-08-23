@@ -274,6 +274,8 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
         }
         Expression::Number { .. }
         | Expression::RadixInteger { .. }
+        | Expression::RomanInteger { .. }
+        | Expression::Complex { .. }
         | Expression::Boolean { .. }
         | Expression::Constant { .. }
         | Expression::Unit { .. }

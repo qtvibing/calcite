@@ -1,3 +1,4 @@
+mod complex;
 mod context;
 mod crypto;
 mod currency;
@@ -19,6 +20,7 @@ mod percentage;
 mod price_index;
 mod radix;
 mod rate;
+mod roman;
 mod session;
 mod span;
 mod syntax;
@@ -26,7 +28,8 @@ mod temporal;
 mod timezone;
 mod unit;
 
-pub use context::{CalculationContext, NumberFormat};
+pub use complex::ComplexNumber;
+pub use context::{CalculationContext, NumberFormat, NumberOutputMode, OutputFormat};
 pub use crypto::{
     CryptoAmount, CryptoAsset, CryptoError, CryptoQuote, CryptoQuoteFreshness, CryptoQuoteSnapshot,
 };
@@ -53,6 +56,7 @@ pub use percentage::Percentage;
 pub use price_index::{PriceIndexError, PriceIndexSeries, PriceIndexSnapshot};
 pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
+pub use roman::RomanInteger;
 pub use session::CalculationSession;
 pub use span::Span;
 pub use syntax::{

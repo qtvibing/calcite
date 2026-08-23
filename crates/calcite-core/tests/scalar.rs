@@ -1,5 +1,6 @@
 use calcite_core::{
-    CalculationContext, DiagnosticKind, NumberFormat, calculate, calculate_with_context,
+    CalculationContext, DiagnosticKind, NumberFormat, NumberOutputMode, calculate,
+    calculate_with_context,
 };
 
 fn output(expression: &str) -> String {
@@ -84,6 +85,18 @@ fn power_has_conventional_binding_and_associativity() {
 }
 
 #[test]
+fn number_words_are_case_insensitive_and_bounded() {
+    assert_eq!(output("twenty-one + 4"), "25");
+    assert_eq!(output("One Hundred and Five * 2"), "210");
+    assert_eq!(output("two million three hundred thousand five"), "2300005");
+    assert_eq!(output("one hundred kilometers in meters"), "100000 m");
+    assert_eq!(
+        calculate("twenty thirteen").unwrap_err().kind(),
+        DiagnosticKind::InvalidNumber
+    );
+}
+
+#[test]
 fn implicit_multiplication_supports_constants_functions_and_groups() {
     assert_eq!(output("2(3 + 4)"), "14");
     assert_eq!(output("(2 + 1)(4 - 1)"), "9");
@@ -93,6 +106,41 @@ fn implicit_multiplication_supports_constants_functions_and_groups() {
     assert_eq!(output("2³"), "8");
     assert_eq!(output("2⁻²"), "0.25");
     assert_eq!(output("3² + 4²"), "25");
+}
+
+#[test]
+fn number_output_modes_preserve_exactness_and_mark_approximations() {
+    let mut context = CalculationContext::default();
+    context.output_format.number_mode = NumberOutputMode::Exact;
+    assert_eq!(
+        calculate_with_context("1 / 3", &context).unwrap().output,
+        "1/3"
+    );
+
+    context.output_format.number_mode = NumberOutputMode::Mixed;
+    assert_eq!(
+        calculate_with_context("7 / 3", &context).unwrap().output,
+        "2 1/3"
+    );
+
+    context.output_format.number_mode = NumberOutputMode::Decimal { places: 4 };
+    context.output_format.mark_approximate = true;
+    assert_eq!(
+        calculate_with_context("1 / 3", &context).unwrap().output,
+        "≈0.3333"
+    );
+
+    context.output_format.number_mode = NumberOutputMode::Significant { digits: 3 };
+    assert_eq!(
+        calculate_with_context("12345.67", &context).unwrap().output,
+        "≈12300"
+    );
+
+    context.output_format.number_mode = NumberOutputMode::Scientific { digits: 4 };
+    assert_eq!(
+        calculate_with_context("12345.67", &context).unwrap().output,
+        "≈1.235e4"
+    );
 }
 
 #[test]

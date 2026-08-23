@@ -82,9 +82,36 @@ impl Default for NumberFormat {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NumberOutputMode {
+    Auto,
+    Exact,
+    Fraction,
+    Mixed,
+    Decimal { places: u8 },
+    Significant { digits: u8 },
+    Scientific { digits: u8 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputFormat {
+    pub number_mode: NumberOutputMode,
+    pub mark_approximate: bool,
+}
+
+impl Default for OutputFormat {
+    fn default() -> Self {
+        Self {
+            number_mode: NumberOutputMode::Auto,
+            mark_approximate: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CalculationContext {
     pub number_format: NumberFormat,
+    pub output_format: OutputFormat,
     pub temporal: crate::TemporalContext,
     pub monetary: crate::MonetaryContext,
 }

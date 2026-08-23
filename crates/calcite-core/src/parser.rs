@@ -3,10 +3,10 @@ mod temporal;
 mod units;
 
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, Currency, DateOrder, Diagnostic,
-    DiagnosticKind, DiceDistribution, Expression, Function, Lexeme, LexemeKind, Number,
-    NumberFormat, NumberParseError, RadixInteger, Span, UnaryOperator, WorkdayDuration,
-    lex_with_number_format,
+    BinaryOperator, CalculationContext, CalendarDuration, ComplexNumber, Currency, DateOrder,
+    Diagnostic, DiagnosticKind, DiceDistribution, Expression, Function, Lexeme, LexemeKind, Number,
+    NumberFormat, NumberParseError, RadixInteger, RomanInteger, Span, UnaryOperator,
+    WorkdayDuration, lex_with_number_format,
 };
 
 pub fn parse(source: &str) -> Result<Expression, Diagnostic> {
@@ -284,6 +284,14 @@ impl Parser<'_> {
                 }
             }
             LexemeKind::CurrencySymbol => self.parse_prefixed_money(),
+            LexemeKind::Word if self.word_is(0, "roman") => self.parse_roman_integer(),
+            LexemeKind::Word if self.word_is(0, "i") => {
+                self.position += 1;
+                Ok(Expression::Complex {
+                    value: ComplexNumber::imaginary_unit(),
+                    span: token.span,
+                })
+            }
             LexemeKind::Word if self.word_starts_dice() => {
                 self.dice_at().expect("guard checked dice notation")
             }
@@ -312,6 +320,7 @@ impl Parser<'_> {
             LexemeKind::Word if self.natural_function_at().is_some() => {
                 self.parse_natural_function()
             }
+            LexemeKind::Word if self.starts_number_words() => self.parse_number_words(),
             LexemeKind::Word if self.relative_weekday_at().is_some() => {
                 let (direction, weekday, span) = self
                     .relative_weekday_at()
@@ -411,6 +420,135 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn starts_number_words(&self) -> bool {
+        self.word_text_at(0).and_then(number_word).is_some()
+    }
+
+    fn parse_number_words(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.current().expect("number word is present").span;
+        let mut total = 0u64;
+        let mut group = 0u64;
+        let mut previous_scale = u64::MAX;
+        let mut previous_value = None;
+        let mut consumed = 0usize;
+        let mut end = start;
+
+        loop {
+            if self.word_is(consumed, "and") {
+                if consumed == 0
+                    || self
+                        .word_text_at(consumed + 1)
+                        .and_then(number_word)
+                        .is_none()
+                {
+                    break;
+                }
+                end = self.tokens[self.position + consumed].span;
+                consumed += 1;
+                continue;
+            }
+            let Some(word) = self.word_text_at(consumed).and_then(number_word) else {
+                break;
+            };
+            match word {
+                NumberWord::Value(value) => {
+                    if previous_value.is_some_and(|previous| {
+                        !(previous >= 20 && previous % 10 == 0 && value < 10)
+                    }) || (value == 0 && consumed > 0)
+                    {
+                        return Err(Diagnostic::new(
+                            DiagnosticKind::InvalidNumber,
+                            start.join(self.tokens[self.position + consumed].span),
+                        ));
+                    }
+                    group = group.checked_add(value).ok_or_else(|| {
+                        Diagnostic::new(DiagnosticKind::NumberTooLarge, start.join(end))
+                    })?;
+                    previous_value = Some(value);
+                }
+                NumberWord::Hundred => {
+                    if !(1..=9).contains(&group) || previous_value.is_none() {
+                        return Err(Diagnostic::new(
+                            DiagnosticKind::InvalidNumber,
+                            start.join(self.tokens[self.position + consumed].span),
+                        ));
+                    }
+                    group *= 100;
+                    previous_value = None;
+                }
+                NumberWord::Scale(scale) => {
+                    if group == 0 || scale >= previous_scale {
+                        return Err(Diagnostic::new(
+                            DiagnosticKind::InvalidNumber,
+                            start.join(self.tokens[self.position + consumed].span),
+                        ));
+                    }
+                    total = total
+                        .checked_add(group.checked_mul(scale).ok_or_else(|| {
+                            Diagnostic::new(DiagnosticKind::NumberTooLarge, start.join(end))
+                        })?)
+                        .ok_or_else(|| {
+                            Diagnostic::new(DiagnosticKind::NumberTooLarge, start.join(end))
+                        })?;
+                    group = 0;
+                    previous_scale = scale;
+                    previous_value = None;
+                }
+            }
+            end = self.tokens[self.position + consumed].span;
+            consumed += 1;
+            if self
+                .tokens
+                .get(self.position + consumed)
+                .is_some_and(|token| token.kind == LexemeKind::Minus)
+                && self
+                    .tokens
+                    .get(self.position + consumed + 1)
+                    .is_some_and(|token| token.kind == LexemeKind::Word)
+                && self.tokens[self.position + consumed - 1].span.end
+                    == self.tokens[self.position + consumed].span.start
+                && self.tokens[self.position + consumed].span.end
+                    == self.tokens[self.position + consumed + 1].span.start
+            {
+                consumed += 1;
+            }
+        }
+        let value = total
+            .checked_add(group)
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::NumberTooLarge, start.join(end)))?;
+        self.position += consumed;
+        Ok(Expression::Number {
+            value: Number::parse_decimal(&value.to_string())
+                .map_err(|_| Diagnostic::new(DiagnosticKind::NumberTooLarge, start.join(end)))?,
+            span: start.join(end),
+        })
+    }
+
+    fn parse_roman_integer(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.current().expect("Roman prefix is present");
+        self.position += 1;
+        if self.word_is(0, "numeral") {
+            self.position += 1;
+        }
+        let token = self.current().ok_or_else(|| {
+            Diagnostic::with_detail(
+                DiagnosticKind::UnexpectedEnd,
+                Span::empty(self.source.len()),
+                "expected a Roman numeral",
+            )
+        })?;
+        if token.kind != LexemeKind::Word {
+            return Err(Diagnostic::new(DiagnosticKind::InvalidNumber, token.span));
+        }
+        let value = RomanInteger::parse(&self.source[token.span.start..token.span.end])
+            .map_err(|_| Diagnostic::new(DiagnosticKind::InvalidNumber, token.span))?;
+        self.position += 1;
+        Ok(Expression::RomanInteger {
+            value,
+            span: start.span.join(token.span),
+        })
     }
 
     fn word_starts_dice(&self) -> bool {
@@ -843,7 +981,10 @@ impl Parser<'_> {
         self.current().is_some_and(|token| {
             token.kind == LexemeKind::LeftParenthesis
                 || (token.kind == LexemeKind::Word
-                    && (self.constant_at().is_some() || self.function_call_at().is_some()))
+                    && (self.constant_at().is_some()
+                        || self.function_call_at().is_some()
+                        || (self.unit().is_some() && !self.in_starts_conversion())
+                        || self.word_is(0, "i")))
         })
     }
 
@@ -873,6 +1014,51 @@ impl Parser<'_> {
             &self.source[token.span.start..token.span.end],
         )
     }
+}
+
+enum NumberWord {
+    Value(u64),
+    Hundred,
+    Scale(u64),
+}
+
+fn number_word(word: &str) -> Option<NumberWord> {
+    Some(match word.to_ascii_lowercase().as_str() {
+        "zero" => NumberWord::Value(0),
+        "one" => NumberWord::Value(1),
+        "two" => NumberWord::Value(2),
+        "three" => NumberWord::Value(3),
+        "four" => NumberWord::Value(4),
+        "five" => NumberWord::Value(5),
+        "six" => NumberWord::Value(6),
+        "seven" => NumberWord::Value(7),
+        "eight" => NumberWord::Value(8),
+        "nine" => NumberWord::Value(9),
+        "ten" => NumberWord::Value(10),
+        "eleven" => NumberWord::Value(11),
+        "twelve" => NumberWord::Value(12),
+        "thirteen" => NumberWord::Value(13),
+        "fourteen" => NumberWord::Value(14),
+        "fifteen" => NumberWord::Value(15),
+        "sixteen" => NumberWord::Value(16),
+        "seventeen" => NumberWord::Value(17),
+        "eighteen" => NumberWord::Value(18),
+        "nineteen" => NumberWord::Value(19),
+        "twenty" => NumberWord::Value(20),
+        "thirty" => NumberWord::Value(30),
+        "forty" => NumberWord::Value(40),
+        "fifty" => NumberWord::Value(50),
+        "sixty" => NumberWord::Value(60),
+        "seventy" => NumberWord::Value(70),
+        "eighty" => NumberWord::Value(80),
+        "ninety" => NumberWord::Value(90),
+        "hundred" => NumberWord::Hundred,
+        "thousand" => NumberWord::Scale(1_000),
+        "million" => NumberWord::Scale(1_000_000),
+        "billion" => NumberWord::Scale(1_000_000_000),
+        "trillion" => NumberWord::Scale(1_000_000_000_000),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
