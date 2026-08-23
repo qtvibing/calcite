@@ -7,7 +7,7 @@ use crate::{
 
 use super::{compare_numbers, compare_ordering, numeric_diagnostic, unsupported};
 
-pub(crate) fn unit_pair(
+pub(super) fn unit_pair(
     operator: BinaryOperator,
     left: UnitValue,
     right: UnitValue,
@@ -47,7 +47,7 @@ pub(crate) fn unit_pair(
     }
 }
 
-pub(crate) fn rate_pair(
+pub(super) fn rate_pair(
     operator: BinaryOperator,
     left: Rate,
     right: Rate,
@@ -90,7 +90,7 @@ pub(crate) fn rate_pair(
     }
 }
 
-pub(crate) fn rate_number_pair(
+pub(super) fn rate_number_pair(
     operator: BinaryOperator,
     left: Rate,
     right: Number,
@@ -113,7 +113,7 @@ pub(crate) fn rate_number_pair(
     }
 }
 
-pub(crate) fn number_rate_pair(
+pub(super) fn number_rate_pair(
     operator: BinaryOperator,
     left: Number,
     right: Rate,
@@ -134,7 +134,7 @@ pub(crate) fn number_rate_pair(
     }
 }
 
-pub(crate) fn rate_unit_pair(
+pub(super) fn rate_unit_pair(
     operator: BinaryOperator,
     rate: Rate,
     unit: UnitValue,
@@ -151,7 +151,7 @@ pub(crate) fn rate_unit_pair(
         .map_err(|error| unit_diagnostic(error, span))
 }
 
-pub(crate) fn unit_rate_pair(
+pub(super) fn unit_rate_pair(
     operator: BinaryOperator,
     unit: UnitValue,
     rate: Rate,
@@ -168,7 +168,7 @@ pub(crate) fn unit_rate_pair(
         .map_err(|error| unit_diagnostic(error, span))
 }
 
-pub(crate) fn rate_as_unit_value(rate: Rate) -> UnitValue {
+pub(super) fn rate_as_unit_value(rate: Rate) -> UnitValue {
     let (magnitude, unit) = rate.into_parts();
     UnitValue::from_compound(magnitude, unit)
 }
@@ -184,7 +184,7 @@ pub(crate) fn classify_compound_value(value: UnitValue) -> Value {
     }
 }
 
-pub(crate) fn unit_percentage_pair(
+pub(super) fn unit_percentage_pair(
     operator: BinaryOperator,
     left: UnitValue,
     right: Percentage,
@@ -213,7 +213,7 @@ pub(crate) fn unit_percentage_pair(
     }
 }
 
-pub(crate) fn percentage_unit_pair(
+pub(super) fn percentage_unit_pair(
     operator: BinaryOperator,
     left: Percentage,
     right: UnitValue,
@@ -227,7 +227,7 @@ pub(crate) fn percentage_unit_pair(
     }
 }
 
-pub(crate) fn unit_number_pair(
+pub(super) fn unit_number_pair(
     operator: BinaryOperator,
     left: UnitValue,
     right: Number,
@@ -260,7 +260,7 @@ pub(crate) fn unit_number_pair(
     }
 }
 
-pub(crate) fn unit_exponent(value: &Number, span: Span) -> Result<i32, Diagnostic> {
+pub(super) fn unit_exponent(value: &Number, span: Span) -> Result<i32, Diagnostic> {
     value
         .exact_i64()
         .and_then(|value| i32::try_from(value).ok())
@@ -268,7 +268,7 @@ pub(crate) fn unit_exponent(value: &Number, span: Span) -> Result<i32, Diagnosti
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidUnitExponent, span))
 }
 
-pub(crate) fn number_unit_pair(
+pub(super) fn number_unit_pair(
     operator: BinaryOperator,
     left: Number,
     right: UnitValue,

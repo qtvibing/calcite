@@ -7,7 +7,7 @@ use crate::{
 
 use super::unsupported;
 
-pub(crate) fn number_pair(
+pub(super) fn number_pair(
     operator: BinaryOperator,
     left: Number,
     right: Number,
@@ -84,7 +84,7 @@ pub(crate) fn number_pair(
     }
 }
 
-pub(crate) fn percentage_pair(
+pub(super) fn percentage_pair(
     operator: BinaryOperator,
     left: Percentage,
     right: Percentage,
@@ -134,7 +134,7 @@ pub(crate) fn percentage_pair(
     }
 }
 
-pub(crate) fn number_percentage_pair(
+pub(super) fn number_percentage_pair(
     operator: BinaryOperator,
     number: Number,
     percentage: Percentage,
@@ -181,7 +181,7 @@ pub(crate) fn number_percentage_pair(
     }
 }
 
-pub(crate) fn percentage_number_pair(
+pub(super) fn percentage_number_pair(
     operator: BinaryOperator,
     percentage: Percentage,
     number: Number,
@@ -229,7 +229,7 @@ pub(crate) fn percentage_number_pair(
     }
 }
 
-pub(crate) fn fraction_pair(
+pub(super) fn fraction_pair(
     operator: BinaryOperator,
     left: Number,
     right: Number,
@@ -243,7 +243,7 @@ pub(crate) fn fraction_pair(
     }
 }
 
-pub(crate) fn compare_numbers(
+pub(super) fn compare_numbers(
     operator: BinaryOperator,
     left: &Number,
     right: &Number,
@@ -253,7 +253,7 @@ pub(crate) fn compare_numbers(
     compare_ordering(operator, ordering, span)
 }
 
-pub(crate) fn compare_ordering(
+pub(super) fn compare_ordering(
     operator: BinaryOperator,
     ordering: Ordering,
     span: Span,
@@ -270,7 +270,7 @@ pub(crate) fn compare_ordering(
     Ok(Value::Boolean(result))
 }
 
-pub(crate) fn boolean_pair(
+pub(super) fn boolean_pair(
     operator: BinaryOperator,
     left: bool,
     right: bool,
