@@ -8,9 +8,9 @@ impl Parser<'_> {
             return None;
         }
         let name = &self.source[token.span.start..token.span.end];
-        if name.eq_ignore_ascii_case("pi") {
+        if name.eq_ignore_ascii_case("pi") || name == "π" {
             Some(Constant::Pi)
-        } else if name.eq_ignore_ascii_case("tau") {
+        } else if name.eq_ignore_ascii_case("tau") || name == "τ" {
             Some(Constant::Tau)
         } else if name.eq_ignore_ascii_case("e") {
             Some(Constant::E)

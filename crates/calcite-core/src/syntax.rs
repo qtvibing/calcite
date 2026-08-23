@@ -1,6 +1,7 @@
 use crate::{
-    CalendarDuration, ClockTime, CompoundUnit, Currency, Date, Number, OffsetClockTime,
-    OffsetDateTime, Radix, RadixInteger, Span, UtcOffset, Weekday, WorkdayDuration, ZonedClockTime,
+    CalendarDuration, ClockTime, CompoundUnit, Currency, Date, DiceDistribution, Number,
+    OffsetClockTime, OffsetDateTime, Radix, RadixInteger, Span, UtcOffset, Weekday,
+    WorkdayDuration, ZonedClockTime,
 };
 
 pub(crate) fn identifier_key(name: &str) -> String {
@@ -132,6 +133,8 @@ pub enum Function {
     GreatestCommonDivisor,
     LeastCommonMultiple,
     IsPrime,
+    Probability,
+    ExpectedValue,
     Clamp,
     Midpoint,
     ProportionDenominator,
@@ -178,6 +181,8 @@ impl Function {
             "gcd" | "greatest_common_divisor" => Self::GreatestCommonDivisor,
             "lcm" | "least_common_multiple" => Self::LeastCommonMultiple,
             "is_prime" | "isprime" | "prime" => Self::IsPrime,
+            "probability" => Self::Probability,
+            "expected_value" | "expectedvalue" => Self::ExpectedValue,
             "factorial" => Self::Factorial,
             "permutation" | "permutations" | "perm" => Self::Permutation,
             "combination" | "combinations" | "choose" => Self::Combination,
@@ -310,6 +315,10 @@ pub enum Expression {
         currency: Currency,
         span: Span,
     },
+    Dice {
+        value: DiceDistribution,
+        span: Span,
+    },
     Date {
         value: Date,
         span: Span,
@@ -410,6 +419,7 @@ impl Expression {
             | Self::Constant { span, .. }
             | Self::Unit { span, .. }
             | Self::Money { span, .. }
+            | Self::Dice { span, .. }
             | Self::Date { span, .. }
             | Self::PartialDate { span, .. }
             | Self::Clock { span, .. }

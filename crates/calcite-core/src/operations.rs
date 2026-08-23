@@ -107,6 +107,31 @@ pub(super) fn evaluate_binary(
         (Value::Percentage(left), Value::Money(right)) => {
             percentage_money_pair(operator, left, right, span)
         }
+        (Value::Dice(dice), Value::Number(modifier)) => {
+            let modifier = modifier
+                .exact_i64()
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::IntegerRequired, span))?;
+            let modifier = if operator == BinaryOperator::Subtract {
+                modifier
+                    .checked_neg()
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDice, span))?
+            } else if operator == BinaryOperator::Add {
+                modifier
+            } else {
+                return Err(unsupported(span));
+            };
+            dice.with_modifier(modifier)
+                .map(Value::Dice)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDice, span))
+        }
+        (Value::Number(modifier), Value::Dice(dice)) if operator == BinaryOperator::Add => {
+            let modifier = modifier
+                .exact_i64()
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::IntegerRequired, span))?;
+            dice.with_modifier(modifier)
+                .map(Value::Dice)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDice, span))
+        }
         (Value::Rate(left), Value::Rate(right)) => rate_pair(operator, left, right, span),
         (Value::Rate(left), Value::Number(right)) => rate_number_pair(operator, left, right, span),
         (Value::Number(left), Value::Rate(right)) => number_rate_pair(operator, left, right, span),

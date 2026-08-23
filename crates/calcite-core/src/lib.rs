@@ -2,6 +2,7 @@ mod context;
 mod crypto;
 mod currency;
 mod diagnostic;
+mod dice;
 mod document;
 mod evaluator;
 mod finance;
@@ -31,6 +32,7 @@ pub use crypto::{
 };
 pub use currency::Currency;
 pub use diagnostic::{Diagnostic, DiagnosticKind};
+pub use dice::{CoinSide, DiceDistribution, DiceError, EntropySource, flip_coin};
 pub use document::{
     DocumentCalculation, DocumentDependency, DocumentEntry, DocumentEntryKind, DocumentLine,
     calculate_document, calculate_document_with_context,

@@ -27,6 +27,7 @@ pub enum LexemeKind {
     BitwiseOr,
     ShiftLeft,
     ShiftRight,
+    SuperscriptNumber,
     LogicalNot,
     LeftParenthesis,
     RightParenthesis,
@@ -75,6 +76,19 @@ pub fn lex_with_number_format(
         {
             index = scan_number(source, index, number_format);
             LexemeKind::Number
+        } else if is_superscript_digit(character) || character == '⁻' {
+            index += character.len_utf8();
+            while index < source.len() {
+                let next = source[index..]
+                    .chars()
+                    .next()
+                    .expect("valid character boundary");
+                if !is_superscript_digit(next) {
+                    break;
+                }
+                index += next.len_utf8();
+            }
+            LexemeKind::SuperscriptNumber
         } else if character.is_alphabetic() || character == '_' {
             index += character.len_utf8();
             while index < source.len() {
@@ -293,6 +307,13 @@ fn scan_group(source: &str, mut index: usize) -> Option<usize> {
     } else {
         Some(index)
     }
+}
+
+fn is_superscript_digit(character: char) -> bool {
+    matches!(
+        character,
+        '⁰' | '¹' | '²' | '³' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹'
+    )
 }
 
 fn next_character_is_digit(source: &str, index: usize) -> bool {

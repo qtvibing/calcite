@@ -5,10 +5,10 @@ use crate::operations::{classify_compound_value, convert, evaluate_binary, unsup
 use crate::syntax::identifier_key;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, Constant, Date,
-    Diagnostic, DiagnosticKind, Expression, Fraction, Money, MoneyRate, Number, OffsetClockTime,
-    OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection, TemporalKeyword,
-    TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime,
-    parse_with_context,
+    Diagnostic, DiagnosticKind, DiceDistribution, Expression, Fraction, Money, MoneyRate, Number,
+    OffsetClockTime, OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection,
+    TemporalKeyword, TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, ZonedClockTime,
+    ZonedDateTime, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -22,6 +22,7 @@ pub enum Value {
     Money(Money),
     MoneyRate(MoneyRate),
     Rate(Rate),
+    Dice(DiceDistribution),
     Date(Date),
     Clock(ClockTime),
     OffsetClock(OffsetClockTime),
@@ -89,6 +90,13 @@ impl Value {
     pub const fn as_rate(&self) -> Option<&Rate> {
         match self {
             Self::Rate(rate) => Some(rate),
+            _ => None,
+        }
+    }
+
+    pub const fn as_dice(&self) -> Option<DiceDistribution> {
+        match self {
+            Self::Dice(dice) => Some(*dice),
             _ => None,
         }
     }
@@ -191,6 +199,7 @@ impl fmt::Display for Value {
             Self::Money(money) => money.fmt(formatter),
             Self::MoneyRate(rate) => rate.fmt(formatter),
             Self::Rate(rate) => rate.fmt(formatter),
+            Self::Dice(dice) => dice.fmt(formatter),
             Self::Date(date) => date.fmt(formatter),
             Self::Clock(time) => time.fmt(formatter),
             Self::OffsetClock(time) => time.fmt(formatter),
@@ -239,6 +248,7 @@ pub(crate) fn evaluate_expression(
         Expression::Money {
             amount, currency, ..
         } => Ok(Value::Money(Money::new(amount.clone(), *currency))),
+        Expression::Dice { value, .. } => Ok(Value::Dice(*value)),
         Expression::Date { value, .. } => Ok(Value::Date(*value)),
         Expression::PartialDate { month, day, span } => {
             let year = context
@@ -421,7 +431,8 @@ pub(crate) fn evaluate_expression(
                 (UnaryOperator::Not, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                 (
                     UnaryOperator::Positive | UnaryOperator::Negative,
-                    Value::Date(_)
+                    Value::Dice(_)
+                    | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)
                     | Value::ZonedClock(_)
@@ -440,6 +451,7 @@ pub(crate) fn evaluate_expression(
                     | Value::Money(_)
                     | Value::MoneyRate(_)
                     | Value::Rate(_)
+                    | Value::Dice(_)
                     | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)

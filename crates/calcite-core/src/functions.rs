@@ -35,6 +35,17 @@ pub(super) fn evaluate_call(
         .collect::<Result<Vec<_>, _>>()?;
 
     match function {
+        Function::Probability => match values.as_slice() {
+            [Value::Dice(dice), Value::Number(total)] => total
+                .exact_i64()
+                .map(|total| Value::Percentage(dice.probability(total)))
+                .ok_or_else(|| invalid_function_arguments(span)),
+            _ => Err(invalid_function_arguments(span)),
+        },
+        Function::ExpectedValue => match values.as_slice() {
+            [Value::Dice(dice)] => Ok(Value::Number(dice.mean())),
+            _ => Err(invalid_function_arguments(span)),
+        },
         Function::Binary
         | Function::Octal
         | Function::Hexadecimal

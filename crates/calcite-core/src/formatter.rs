@@ -27,6 +27,7 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         Value::Rate(rate) => {
             rate.formatted_with(&rate.magnitude().formatted_with(decimal_separator))
         }
+        Value::Dice(dice) => dice.to_string(),
         Value::Date(date) => date.to_string(),
         Value::Clock(time) => time.to_string(),
         Value::OffsetClock(time) => time.to_string(),

@@ -22,7 +22,8 @@ pub(crate) fn convert(
             Value::Money(value) => Ok(Value::Number(value.amount().clone())),
             Value::MoneyRate(value) => Ok(Value::Number(value.amount().clone())),
             Value::Rate(value) => Ok(Value::Number(value.magnitude().clone())),
-            Value::Date(_)
+            Value::Dice(_)
+            | Value::Date(_)
             | Value::Clock(_)
             | Value::OffsetClock(_)
             | Value::ZonedClock(_)
@@ -58,6 +59,7 @@ pub(crate) fn convert(
             | Value::Money(_)
             | Value::MoneyRate(_)
             | Value::Rate(_)
+            | Value::Dice(_)
             | Value::Date(_)
             | Value::Clock(_)
             | Value::OffsetClock(_)
@@ -81,6 +83,7 @@ pub(crate) fn convert(
                 | Value::Money(_)
                 | Value::MoneyRate(_)
                 | Value::Rate(_)
+                | Value::Dice(_)
                 | Value::Date(_)
                 | Value::Clock(_)
                 | Value::OffsetClock(_)

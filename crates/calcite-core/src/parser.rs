@@ -4,8 +4,9 @@ mod units;
 
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, Currency, DateOrder, Diagnostic,
-    DiagnosticKind, Expression, Function, Lexeme, LexemeKind, Number, NumberFormat,
-    NumberParseError, RadixInteger, Span, UnaryOperator, WorkdayDuration, lex_with_number_format,
+    DiagnosticKind, DiceDistribution, Expression, Function, Lexeme, LexemeKind, Number,
+    NumberFormat, NumberParseError, RadixInteger, Span, UnaryOperator, WorkdayDuration,
+    lex_with_number_format,
 };
 
 pub fn parse(source: &str) -> Result<Expression, Diagnostic> {
@@ -87,8 +88,44 @@ impl Parser<'_> {
                 continue;
             }
 
+            if 19 >= minimum_binding_power
+                && self
+                    .current()
+                    .is_some_and(|token| token.kind == LexemeKind::SuperscriptNumber)
+            {
+                let token = self.current().expect("superscript token is present");
+                self.position += 1;
+                let exponent = self.parse_superscript_number(token)?;
+                let span = left.span().join(token.span);
+                left = Expression::Binary {
+                    operator: BinaryOperator::Power,
+                    operator_span: token.span,
+                    left: Box::new(left),
+                    right: Box::new(Expression::Number {
+                        value: exponent,
+                        span: token.span,
+                    }),
+                    span,
+                };
+                continue;
+            }
+
             if minimum_binding_power == 0 && self.is_conversion_operator() {
                 left = self.parse_conversion(left)?;
+                continue;
+            }
+
+            if 17 >= minimum_binding_power && self.starts_implicit_multiplication() {
+                let operator_span = Span::empty(left.span().end);
+                let right = self.parse_expression(18)?;
+                let span = left.span().join(right.span());
+                left = Expression::Binary {
+                    operator: BinaryOperator::Multiply,
+                    operator_span,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    span,
+                };
                 continue;
             }
 
@@ -150,29 +187,39 @@ impl Parser<'_> {
                 if self.is_clock_time() {
                     return self.parse_clock_time();
                 }
-                let ordinal_suffix = self.ordinal_suffix_at(1);
-                self.position += 1 + usize::from(ordinal_suffix.is_some());
-                let source = &self.source[token.span.start..token.span.end];
-                let radix_value = (source.contains('#')
-                    || source.get(..2).is_some_and(|prefix| {
-                        matches!(prefix, "0b" | "0B" | "0o" | "0O" | "0x" | "0X")
-                    }))
-                .then(|| {
-                    RadixInteger::parse(source).map_err(|error| {
-                        let kind = match error {
-                            NumberParseError::Invalid => DiagnosticKind::InvalidNumber,
-                            NumberParseError::TooLarge => DiagnosticKind::NumberTooLarge,
-                        };
-                        Diagnostic::new(kind, token.span)
+                if let Some(dice) = self.dice_at() {
+                    return dice;
+                }
+                let mixed = self.mixed_number_at().transpose()?;
+                let ordinal_suffix = mixed.is_none().then(|| self.ordinal_suffix_at(1)).flatten();
+                let (value, base_span, radix_value) = if let Some((value, consumed, span)) = mixed {
+                    self.position += consumed;
+                    (value, span, None)
+                } else {
+                    self.position += 1 + usize::from(ordinal_suffix.is_some());
+                    let source = &self.source[token.span.start..token.span.end];
+                    let radix_value = (source.contains('#')
+                        || source.get(..2).is_some_and(|prefix| {
+                            matches!(prefix, "0b" | "0B" | "0o" | "0O" | "0x" | "0X")
+                        }))
+                    .then(|| {
+                        RadixInteger::parse(source).map_err(|error| {
+                            let kind = match error {
+                                NumberParseError::Invalid => DiagnosticKind::InvalidNumber,
+                                NumberParseError::TooLarge => DiagnosticKind::NumberTooLarge,
+                            };
+                            Diagnostic::new(kind, token.span)
+                        })
                     })
-                })
-                .transpose()?;
-                let value = match &radix_value {
-                    Some(value) => value.value().clone(),
-                    None => self.parse_number_value(token)?,
+                    .transpose()?;
+                    let value = match &radix_value {
+                        Some(value) => value.value().clone(),
+                        None => self.parse_number_value(token)?,
+                    };
+                    let span =
+                        ordinal_suffix.map_or(token.span, |suffix| token.span.join(suffix.span));
+                    (value, span, radix_value)
                 };
-                let base_span =
-                    ordinal_suffix.map_or(token.span, |suffix| token.span.join(suffix.span));
                 let (value, span) = if let Some((factor, scalar)) = self.scalar() {
                     self.position += 1;
                     (
@@ -237,6 +284,9 @@ impl Parser<'_> {
                 }
             }
             LexemeKind::CurrencySymbol => self.parse_prefixed_money(),
+            LexemeKind::Word if self.word_starts_dice() => {
+                self.dice_at().expect("guard checked dice notation")
+            }
             LexemeKind::Word if self.currency_at(0).is_some() => self.parse_prefixed_money(),
             LexemeKind::Word if self.constant_at().is_some() => {
                 let constant = self.constant_at().expect("guard checked the constant");
@@ -361,6 +411,128 @@ impl Parser<'_> {
             }
             _ => Err(self.unexpected(token)),
         }
+    }
+
+    fn word_starts_dice(&self) -> bool {
+        let Some(token) = self
+            .current()
+            .filter(|token| token.kind == LexemeKind::Word)
+        else {
+            return false;
+        };
+        let source = &self.source[token.span.start..token.span.end];
+        source
+            .get(..1)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("d"))
+            && source.len() > 1
+            && source[1..].bytes().all(|byte| byte.is_ascii_digit())
+    }
+
+    fn dice_at(&mut self) -> Option<Result<Expression, Diagnostic>> {
+        let first = self.current()?;
+        let (count, sides_token, consumed) = match first.kind {
+            LexemeKind::Number => {
+                let sides = *self.tokens.get(self.position + 1)?;
+                if sides.kind != LexemeKind::Word {
+                    return None;
+                }
+                let source = &self.source[sides.span.start..sides.span.end];
+                if !source
+                    .get(..1)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("d"))
+                    || !source[1..].bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    return None;
+                }
+                let count = self.parse_number_value(first).ok()?.exact_i64()?;
+                (u32::try_from(count).ok()?, sides, 2)
+            }
+            LexemeKind::Word => {
+                let source = &self.source[first.span.start..first.span.end];
+                if !source
+                    .get(..1)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("d"))
+                    || source.len() == 1
+                    || !source[1..].bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    return None;
+                }
+                (1, first, 1)
+            }
+            _ => return None,
+        };
+        let sides_source = &self.source[sides_token.span.start..sides_token.span.end];
+        let sides = sides_source[1..].parse::<u32>().ok();
+        let span = first.span.join(sides_token.span);
+        Some(
+            match sides.and_then(|sides| DiceDistribution::new(count, sides).ok()) {
+                Some(value) => {
+                    self.position += consumed;
+                    Ok(Expression::Dice { value, span })
+                }
+                None => Err(Diagnostic::new(DiagnosticKind::InvalidDice, span)),
+            },
+        )
+    }
+
+    fn parse_superscript_number(&self, token: Lexeme) -> Result<Number, Diagnostic> {
+        let mut normalized = String::new();
+        for character in self.source[token.span.start..token.span.end].chars() {
+            normalized.push(match character {
+                '⁰' => '0',
+                '¹' => '1',
+                '²' => '2',
+                '³' => '3',
+                '⁴' => '4',
+                '⁵' => '5',
+                '⁶' => '6',
+                '⁷' => '7',
+                '⁸' => '8',
+                '⁹' => '9',
+                '⁻' => '-',
+                _ => return Err(Diagnostic::new(DiagnosticKind::InvalidNumber, token.span)),
+            });
+        }
+        Number::parse_decimal(&normalized)
+            .map_err(|_| Diagnostic::new(DiagnosticKind::InvalidNumber, token.span))
+    }
+
+    fn mixed_number_at(&self) -> Option<Result<(Number, usize, Span), Diagnostic>> {
+        let whole_token = *self.tokens.get(self.position)?;
+        let numerator_token = *self.tokens.get(self.position + 1)?;
+        let slash = *self.tokens.get(self.position + 2)?;
+        let denominator_token = *self.tokens.get(self.position + 3)?;
+        if whole_token.kind != LexemeKind::Number
+            || numerator_token.kind != LexemeKind::Number
+            || slash.kind != LexemeKind::Slash
+            || denominator_token.kind != LexemeKind::Number
+            || whole_token.span.end == numerator_token.span.start
+        {
+            return None;
+        }
+        let span = whole_token.span.join(denominator_token.span);
+        let result = (|| {
+            let whole = self.parse_number_value(whole_token)?;
+            let numerator = self.parse_number_value(numerator_token)?;
+            let denominator = self.parse_number_value(denominator_token)?;
+            if !whole.is_integer()
+                || !numerator.is_integer()
+                || !denominator.is_integer()
+                || !numerator
+                    .compare(&Number::from_i64(0))
+                    .is_some_and(|ordering| ordering.is_gt())
+                || !denominator
+                    .compare(&numerator)
+                    .is_some_and(|ordering| ordering.is_gt())
+            {
+                return Err(Diagnostic::new(DiagnosticKind::InvalidNumber, span));
+            }
+            numerator
+                .divide(denominator)
+                .map(|fraction| (whole.add(fraction), 4, span))
+                .map_err(|_| Diagnostic::new(DiagnosticKind::InvalidNumber, span))
+        })();
+        Some(result)
     }
 
     fn parse_number_value(&self, token: Lexeme) -> Result<Number, Diagnostic> {
@@ -665,6 +837,14 @@ impl Parser<'_> {
         };
         let (left_power, right_power) = operator.binding_power();
         Some((operator, span, consumed, left_power, right_power))
+    }
+
+    fn starts_implicit_multiplication(&self) -> bool {
+        self.current().is_some_and(|token| {
+            token.kind == LexemeKind::LeftParenthesis
+                || (token.kind == LexemeKind::Word
+                    && (self.constant_at().is_some() || self.function_call_at().is_some()))
+        })
     }
 
     fn current(&self) -> Option<Lexeme> {

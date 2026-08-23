@@ -84,6 +84,30 @@ fn power_has_conventional_binding_and_associativity() {
 }
 
 #[test]
+fn implicit_multiplication_supports_constants_functions_and_groups() {
+    assert_eq!(output("2(3 + 4)"), "14");
+    assert_eq!(output("(2 + 1)(4 - 1)"), "9");
+    assert_eq!(output("2pi / pi"), "2");
+    assert_eq!(output("2π / π"), "2");
+    assert_eq!(output("3sqrt(9)"), "9");
+    assert_eq!(output("2³"), "8");
+    assert_eq!(output("2⁻²"), "0.25");
+    assert_eq!(output("3² + 4²"), "25");
+}
+
+#[test]
+fn mixed_number_literals_are_exact_fractions() {
+    assert_eq!(output("1 1/2"), "1.5");
+    assert_eq!(output("-2 3/4"), "-2.75");
+    assert_eq!(output("1 1/2 + 2 1/4"), "3.75");
+    assert_eq!(output("1 1/2 km in m"), "1500 m");
+    assert_eq!(
+        calculate("1 3/2").unwrap_err().kind(),
+        DiagnosticKind::InvalidNumber
+    );
+}
+
+#[test]
 fn ordinary_decimal_and_fraction_arithmetic_remains_exact() {
     let decimal = calculate("0.1 + 0.2").unwrap();
     assert_eq!(decimal.output, "0.3");

@@ -34,6 +34,7 @@ pub enum DiagnosticKind {
     IntegerRequired,
     InvalidCombinatorics,
     CombinatoricsTooLarge,
+    InvalidDice,
     InvalidShift,
     ShiftTooLarge,
     PrimalityInputTooLarge,
@@ -129,6 +130,7 @@ impl Diagnostic {
                 "factorial and combinatorics require non-negative integers, with selection no greater than population"
             }
             DiagnosticKind::CombinatoricsTooLarge => "combinatorics input is too large",
+            DiagnosticKind::InvalidDice => "invalid or excessively large dice distribution",
             DiagnosticKind::InvalidShift => "shift count must be a non-negative exact integer",
             DiagnosticKind::ShiftTooLarge => "shift count is too large",
             DiagnosticKind::PrimalityInputTooLarge => {
