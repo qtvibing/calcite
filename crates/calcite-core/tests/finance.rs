@@ -1,7 +1,46 @@
-use calcite_core::{DiagnosticKind, calculate, calculate_document};
+use calcite_core::{
+    Currency, DiagnosticKind, Money, Number, Percentage, amortization_schedule, calculate,
+    calculate_document,
+};
 
 fn output(source: &str) -> String {
     calculate(source).unwrap().output
+}
+
+#[test]
+fn amortization_schedules_are_bounded_typed_and_deterministic() {
+    let schedule = amortization_schedule(
+        Money::new(Number::parse_decimal("1200").unwrap(), Currency::Usd),
+        Percentage::from_ratio(Number::parse_decimal("0").unwrap()),
+        1,
+        12,
+    )
+    .unwrap();
+    assert_eq!(schedule.payment().to_string(), "100 USD");
+    assert_eq!(schedule.payments().len(), 12);
+    assert_eq!(schedule.payments()[0].period(), 1);
+    assert_eq!(schedule.payments()[0].interest().to_string(), "0 USD");
+    assert_eq!(
+        schedule
+            .payments()
+            .last()
+            .unwrap()
+            .remaining_balance()
+            .to_string(),
+        "0 USD"
+    );
+
+    let interest_schedule = amortization_schedule(
+        Money::new(Number::parse_decimal("1000").unwrap(), Currency::Usd),
+        Percentage::from_ratio(Number::parse_decimal("0.12").unwrap()),
+        1,
+        12,
+    )
+    .unwrap();
+    assert_eq!(
+        interest_schedule.payments()[0].interest().to_string(),
+        "10 USD"
+    );
 }
 
 #[test]
@@ -10,6 +49,22 @@ fn tax_functions_distinguish_net_gross_and_extracted_tax() {
     assert_eq!(output("add_tax($300, 15%)"), "345 USD");
     assert_eq!(output("round(remove_tax($300, 15%), 2)"), "260.87 USD");
     assert_eq!(output("round(tax_from_total($300, 15%), 2)"), "39.13 USD");
+}
+
+#[test]
+fn natural_finance_phrases_preserve_typed_results() {
+    assert_eq!(output("sales tax on $300 at 15%"), "45 USD");
+    assert_eq!(output("add tax to $300 at 15%"), "345 USD");
+    assert_eq!(
+        output("round(future value of $1000 at 7% for 3 years, 2)"),
+        "1225.04 USD"
+    );
+    assert_eq!(
+        output("round(mortgage payment on $300000 at 6% for 30 years, 2)"),
+        "1798.65 USD"
+    );
+    assert_eq!(output("return on investment from 100 to 125"), "25%");
+    assert_eq!(output("round(cagr from 100 to 121 over 2 years, 2)"), "10%");
 }
 
 #[test]

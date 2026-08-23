@@ -304,6 +304,87 @@ impl Parser<'_> {
         })
     }
 
+    pub(super) fn natural_finance_at(&self) -> Option<(Function, usize)> {
+        const PHRASES: &[(Function, &[&str])] = &[
+            (Function::MortgagePayment, &["mortgage", "payment", "on"]),
+            (Function::TotalRepayment, &["total", "repayment", "on"]),
+            (Function::TotalInterest, &["total", "interest", "on"]),
+            (Function::FutureValue, &["future", "value", "of"]),
+            (Function::PresentValue, &["present", "value", "of"]),
+            (Function::CompoundInterest, &["compound", "interest", "on"]),
+            (Function::PurchasingPower, &["purchasing", "power", "of"]),
+            (
+                Function::ReturnOnInvestment,
+                &["return", "on", "investment", "from"],
+            ),
+            (Function::CompoundAnnualGrowthRate, &["cagr", "from"]),
+            (Function::SalesTax, &["sales", "tax", "on"]),
+            (Function::AddTax, &["add", "tax", "to"]),
+            (Function::RemoveTax, &["remove", "tax", "from"]),
+            (Function::TaxFromTotal, &["tax", "from", "total"]),
+        ];
+        PHRASES
+            .iter()
+            .find(|(_, words)| self.phrase_is(words))
+            .map(|(function, words)| (*function, words.len()))
+    }
+
+    pub(super) fn parse_natural_finance(&mut self) -> Result<Expression, Diagnostic> {
+        let (function, consumed) = self
+            .natural_finance_at()
+            .expect("guard checked the finance phrase");
+        let function_span = self.phrase_span(consumed);
+        self.position += consumed;
+        let first = self.parse_expression(14)?;
+        let mut arguments = vec![first];
+
+        if matches!(
+            function,
+            Function::ReturnOnInvestment | Function::CompoundAnnualGrowthRate
+        ) {
+            self.consume_word("to", "expected 'to' and a final value")?;
+            let final_binding_power = if function == Function::CompoundAnnualGrowthRate {
+                18
+            } else {
+                0
+            };
+            arguments.push(self.parse_expression(final_binding_power)?);
+            if function == Function::CompoundAnnualGrowthRate {
+                self.consume_word("over", "expected 'over' and a period count")?;
+                arguments.push(self.parse_expression(0)?);
+            }
+        } else {
+            self.consume_word("at", "expected 'at' and a percentage rate")?;
+            arguments.push(self.parse_expression(1)?);
+            if matches!(
+                function,
+                Function::FutureValue
+                    | Function::PresentValue
+                    | Function::CompoundInterest
+                    | Function::PurchasingPower
+                    | Function::MortgagePayment
+                    | Function::TotalRepayment
+                    | Function::TotalInterest
+            ) {
+                self.consume_word("for", "expected 'for' and a term")?;
+                arguments.push(self.parse_expression(0)?);
+            }
+        }
+
+        let span = function_span.join(
+            arguments
+                .last()
+                .expect("finance phrases parse at least one argument")
+                .span(),
+        );
+        Ok(Expression::Call {
+            function,
+            function_span,
+            arguments,
+            span,
+        })
+    }
+
     pub(super) fn parse_natural_function(&mut self) -> Result<Expression, Diagnostic> {
         let (function, consumed) = self
             .natural_function_at()

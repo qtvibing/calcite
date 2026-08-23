@@ -1,4 +1,5 @@
 mod context;
+mod crypto;
 mod currency;
 mod diagnostic;
 mod document;
@@ -14,6 +15,7 @@ mod number;
 mod operations;
 mod parser;
 mod percentage;
+mod price_index;
 mod radix;
 mod rate;
 mod session;
@@ -24,6 +26,9 @@ mod timezone;
 mod unit;
 
 pub use context::{CalculationContext, NumberFormat};
+pub use crypto::{
+    CryptoAmount, CryptoAsset, CryptoError, CryptoQuote, CryptoQuoteFreshness, CryptoQuoteSnapshot,
+};
 pub use currency::Currency;
 pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use document::{
@@ -31,6 +36,7 @@ pub use document::{
     calculate_document, calculate_document_with_context,
 };
 pub use evaluator::{Value, evaluate, evaluate_with_context};
+pub use finance::{AmortizationPayment, AmortizationSchedule, FinanceError, amortization_schedule};
 pub use formatter::{format, format_with_context};
 pub use fraction::Fraction;
 pub use lexer::{Lexeme, LexemeKind, lex, lex_with_number_format};
@@ -42,6 +48,7 @@ pub use money_rate::MoneyRate;
 pub use number::{Number, NumberParseError};
 pub use parser::{parse, parse_with_context};
 pub use percentage::Percentage;
+pub use price_index::{PriceIndexError, PriceIndexSeries, PriceIndexSnapshot};
 pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
 pub use session::CalculationSession;

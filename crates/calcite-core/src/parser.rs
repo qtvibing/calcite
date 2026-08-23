@@ -258,6 +258,7 @@ impl Parser<'_> {
             LexemeKind::Word if self.word_is(0, "midpoint") && self.word_is(1, "between") => {
                 self.parse_natural_midpoint()
             }
+            LexemeKind::Word if self.natural_finance_at().is_some() => self.parse_natural_finance(),
             LexemeKind::Word if self.natural_function_at().is_some() => {
                 self.parse_natural_function()
             }
