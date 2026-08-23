@@ -146,171 +146,78 @@ pub enum Function {
 
 impl Function {
     pub(crate) fn from_name(name: &str) -> Option<Self> {
-        if name.eq_ignore_ascii_case("sales_tax") || name.eq_ignore_ascii_case("tax") {
-            Some(Self::SalesTax)
-        } else if name.eq_ignore_ascii_case("add_tax") {
-            Some(Self::AddTax)
-        } else if name.eq_ignore_ascii_case("remove_tax") {
-            Some(Self::RemoveTax)
-        } else if name.eq_ignore_ascii_case("tax_from_total") {
-            Some(Self::TaxFromTotal)
-        } else if name.eq_ignore_ascii_case("future_value") {
-            Some(Self::FutureValue)
-        } else if name.eq_ignore_ascii_case("compound_interest") {
-            Some(Self::CompoundInterest)
-        } else if name.eq_ignore_ascii_case("present_value") {
-            Some(Self::PresentValue)
-        } else if name.eq_ignore_ascii_case("cagr") {
-            Some(Self::CompoundAnnualGrowthRate)
-        } else if name.eq_ignore_ascii_case("roi") {
-            Some(Self::ReturnOnInvestment)
-        } else if name.eq_ignore_ascii_case("mortgage_payment")
-            || name.eq_ignore_ascii_case("loan_payment")
-        {
-            Some(Self::MortgagePayment)
-        } else if name.eq_ignore_ascii_case("total_repayment") {
-            Some(Self::TotalRepayment)
-        } else if name.eq_ignore_ascii_case("total_interest") {
-            Some(Self::TotalInterest)
-        } else if name.eq_ignore_ascii_case("purchasing_power") {
-            Some(Self::PurchasingPower)
-        } else if name.eq_ignore_ascii_case("break_even") {
-            Some(Self::BreakEven)
-        } else if name.eq_ignore_ascii_case("clamp") {
-            Some(Self::Clamp)
-        } else if name.eq_ignore_ascii_case("midpoint") {
-            Some(Self::Midpoint)
-        } else if name.eq_ignore_ascii_case("proportion") {
-            Some(Self::ProportionDenominator)
-        } else if name.eq_ignore_ascii_case("gcd")
-            || name.eq_ignore_ascii_case("greatest_common_divisor")
-        {
-            Some(Self::GreatestCommonDivisor)
-        } else if name.eq_ignore_ascii_case("lcm")
-            || name.eq_ignore_ascii_case("least_common_multiple")
-        {
-            Some(Self::LeastCommonMultiple)
-        } else if name.eq_ignore_ascii_case("is_prime")
-            || name.eq_ignore_ascii_case("isprime")
-            || name.eq_ignore_ascii_case("prime")
-        {
-            Some(Self::IsPrime)
-        } else if name.eq_ignore_ascii_case("factorial") {
-            Some(Self::Factorial)
-        } else if name.eq_ignore_ascii_case("permutation")
-            || name.eq_ignore_ascii_case("permutations")
-            || name.eq_ignore_ascii_case("perm")
-        {
-            Some(Self::Permutation)
-        } else if name.eq_ignore_ascii_case("combination")
-            || name.eq_ignore_ascii_case("combinations")
-            || name.eq_ignore_ascii_case("choose")
-        {
-            Some(Self::Combination)
-        } else if name.eq_ignore_ascii_case("bin") || name.eq_ignore_ascii_case("binary") {
-            Some(Self::Binary)
-        } else if name.eq_ignore_ascii_case("oct") || name.eq_ignore_ascii_case("octal") {
-            Some(Self::Octal)
-        } else if name.eq_ignore_ascii_case("hex") || name.eq_ignore_ascii_case("hexadecimal") {
-            Some(Self::Hexadecimal)
-        } else if name.eq_ignore_ascii_case("int") || name.eq_ignore_ascii_case("integer") {
-            Some(Self::Integer)
-        } else if name.eq_ignore_ascii_case("sqrt") {
-            Some(Self::SquareRoot)
-        } else if name.eq_ignore_ascii_case("cbrt") {
-            Some(Self::CubicRoot)
-        } else if name.eq_ignore_ascii_case("root") {
-            Some(Self::NthRoot)
-        } else if name.eq_ignore_ascii_case("ln") {
-            Some(Self::NaturalLogarithm)
-        } else if name.eq_ignore_ascii_case("log")
-            || name.eq_ignore_ascii_case("log10")
-            || name.eq_ignore_ascii_case("logarithm")
-        {
-            Some(Self::CommonLogarithm)
-        } else if name.eq_ignore_ascii_case("log2") {
-            Some(Self::BinaryLogarithm)
-        } else if name.eq_ignore_ascii_case("sin") || name.eq_ignore_ascii_case("sine") {
-            Some(Self::Sine)
-        } else if name.eq_ignore_ascii_case("cos") || name.eq_ignore_ascii_case("cosine") {
-            Some(Self::Cosine)
-        } else if name.eq_ignore_ascii_case("tan") || name.eq_ignore_ascii_case("tangent") {
-            Some(Self::Tangent)
-        } else if name.eq_ignore_ascii_case("asin") || name.eq_ignore_ascii_case("arcsine") {
-            Some(Self::ArcSine)
-        } else if name.eq_ignore_ascii_case("acos") || name.eq_ignore_ascii_case("arccosine") {
-            Some(Self::ArcCosine)
-        } else if name.eq_ignore_ascii_case("atan") || name.eq_ignore_ascii_case("arctangent") {
-            Some(Self::ArcTangent)
-        } else if name.eq_ignore_ascii_case("atan2") {
-            Some(Self::ArcTangent2)
-        } else if name.eq_ignore_ascii_case("exp") || name.eq_ignore_ascii_case("exponential") {
-            Some(Self::Exponential)
-        } else if name.eq_ignore_ascii_case("sinh") {
-            Some(Self::HyperbolicSine)
-        } else if name.eq_ignore_ascii_case("cosh") {
-            Some(Self::HyperbolicCosine)
-        } else if name.eq_ignore_ascii_case("tanh") {
-            Some(Self::HyperbolicTangent)
-        } else if name.eq_ignore_ascii_case("asinh") {
-            Some(Self::InverseHyperbolicSine)
-        } else if name.eq_ignore_ascii_case("acosh") {
-            Some(Self::InverseHyperbolicCosine)
-        } else if name.eq_ignore_ascii_case("atanh") {
-            Some(Self::InverseHyperbolicTangent)
-        } else if name.eq_ignore_ascii_case("abs") {
-            Some(Self::AbsoluteValue)
-        } else if name.eq_ignore_ascii_case("sum") {
-            Some(Self::Sum)
-        } else if name.eq_ignore_ascii_case("average") || name.eq_ignore_ascii_case("avg") {
-            Some(Self::Average)
-        } else if name.eq_ignore_ascii_case("minimum") || name.eq_ignore_ascii_case("min") {
-            Some(Self::Minimum)
-        } else if name.eq_ignore_ascii_case("maximum") || name.eq_ignore_ascii_case("max") {
-            Some(Self::Maximum)
-        } else if name.eq_ignore_ascii_case("median") {
-            Some(Self::Median)
-        } else if name.eq_ignore_ascii_case("count") {
-            Some(Self::Count)
-        } else if name.eq_ignore_ascii_case("product") {
-            Some(Self::Product)
-        } else if name.eq_ignore_ascii_case("weekday")
-            || name.eq_ignore_ascii_case("dayofweek")
-            || name.eq_ignore_ascii_case("day_of_week")
-        {
-            Some(Self::Weekday)
-        } else if name.eq_ignore_ascii_case("isworkday") || name.eq_ignore_ascii_case("is_workday")
-        {
-            Some(Self::IsWorkday)
-        } else if name.eq_ignore_ascii_case("addworkdays")
-            || name.eq_ignore_ascii_case("add_workdays")
-            || name.eq_ignore_ascii_case("addbusinessdays")
-            || name.eq_ignore_ascii_case("add_business_days")
-        {
-            Some(Self::AddWorkdays)
-        } else if name.eq_ignore_ascii_case("workdaysbetween")
-            || name.eq_ignore_ascii_case("workdays_between")
-            || name.eq_ignore_ascii_case("businessdaysbetween")
-            || name.eq_ignore_ascii_case("business_days_between")
-        {
-            Some(Self::WorkdaysBetween)
-        } else if name.eq_ignore_ascii_case("nextworkday")
-            || name.eq_ignore_ascii_case("next_workday")
-        {
-            Some(Self::NextWorkday)
-        } else if name.eq_ignore_ascii_case("previousworkday")
-            || name.eq_ignore_ascii_case("previous_workday")
-        {
-            Some(Self::PreviousWorkday)
-        } else if name.eq_ignore_ascii_case("round") {
-            Some(Self::Round)
-        } else if name.eq_ignore_ascii_case("floor") {
-            Some(Self::Floor)
-        } else if name.eq_ignore_ascii_case("ceiling") || name.eq_ignore_ascii_case("ceil") {
-            Some(Self::Ceiling)
-        } else {
-            None
-        }
+        Some(match name.to_ascii_lowercase().as_str() {
+            "sales_tax" | "tax" => Self::SalesTax,
+            "add_tax" => Self::AddTax,
+            "remove_tax" => Self::RemoveTax,
+            "tax_from_total" => Self::TaxFromTotal,
+            "future_value" => Self::FutureValue,
+            "compound_interest" => Self::CompoundInterest,
+            "present_value" => Self::PresentValue,
+            "cagr" => Self::CompoundAnnualGrowthRate,
+            "roi" => Self::ReturnOnInvestment,
+            "mortgage_payment" | "loan_payment" => Self::MortgagePayment,
+            "total_repayment" => Self::TotalRepayment,
+            "total_interest" => Self::TotalInterest,
+            "purchasing_power" => Self::PurchasingPower,
+            "break_even" => Self::BreakEven,
+            "clamp" => Self::Clamp,
+            "midpoint" => Self::Midpoint,
+            "proportion" => Self::ProportionDenominator,
+            "gcd" | "greatest_common_divisor" => Self::GreatestCommonDivisor,
+            "lcm" | "least_common_multiple" => Self::LeastCommonMultiple,
+            "is_prime" | "isprime" | "prime" => Self::IsPrime,
+            "factorial" => Self::Factorial,
+            "permutation" | "permutations" | "perm" => Self::Permutation,
+            "combination" | "combinations" | "choose" => Self::Combination,
+            "bin" | "binary" => Self::Binary,
+            "oct" | "octal" => Self::Octal,
+            "hex" | "hexadecimal" => Self::Hexadecimal,
+            "int" | "integer" => Self::Integer,
+            "sqrt" => Self::SquareRoot,
+            "cbrt" => Self::CubicRoot,
+            "root" => Self::NthRoot,
+            "ln" => Self::NaturalLogarithm,
+            "log" | "log10" | "logarithm" => Self::CommonLogarithm,
+            "log2" => Self::BinaryLogarithm,
+            "sin" | "sine" => Self::Sine,
+            "cos" | "cosine" => Self::Cosine,
+            "tan" | "tangent" => Self::Tangent,
+            "asin" | "arcsine" => Self::ArcSine,
+            "acos" | "arccosine" => Self::ArcCosine,
+            "atan" | "arctangent" => Self::ArcTangent,
+            "atan2" => Self::ArcTangent2,
+            "exp" | "exponential" => Self::Exponential,
+            "sinh" => Self::HyperbolicSine,
+            "cosh" => Self::HyperbolicCosine,
+            "tanh" => Self::HyperbolicTangent,
+            "asinh" => Self::InverseHyperbolicSine,
+            "acosh" => Self::InverseHyperbolicCosine,
+            "atanh" => Self::InverseHyperbolicTangent,
+            "abs" => Self::AbsoluteValue,
+            "sum" => Self::Sum,
+            "average" | "avg" => Self::Average,
+            "minimum" | "min" => Self::Minimum,
+            "maximum" | "max" => Self::Maximum,
+            "median" => Self::Median,
+            "count" => Self::Count,
+            "product" => Self::Product,
+            "weekday" | "dayofweek" | "day_of_week" => Self::Weekday,
+            "isworkday" | "is_workday" => Self::IsWorkday,
+            "addworkdays" | "add_workdays" | "addbusinessdays" | "add_business_days" => {
+                Self::AddWorkdays
+            }
+            "workdaysbetween"
+            | "workdays_between"
+            | "businessdaysbetween"
+            | "business_days_between" => Self::WorkdaysBetween,
+            "nextworkday" | "next_workday" => Self::NextWorkday,
+            "previousworkday" | "previous_workday" => Self::PreviousWorkday,
+            "round" => Self::Round,
+            "floor" => Self::Floor,
+            "ceiling" | "ceil" => Self::Ceiling,
+            _ => return None,
+        })
     }
 }
 
