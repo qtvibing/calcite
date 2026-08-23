@@ -2,7 +2,7 @@ use super::Parser;
 use crate::{
     CalendarDuration, ClockTime, CompoundUnit, Date, DateOrder, Diagnostic, DiagnosticKind,
     Dimension, Expression, Function, Lexeme, LexemeKind, Number, OffsetClockTime, OffsetDateTime,
-    RelativeWeekdayDirection, Span, TemporalKeyword, Unit, Weekday,
+    RelativeWeekdayDirection, Span, TemporalKeyword, Unit, Weekday, ZonedClockTime,
 };
 
 #[derive(Clone, Copy)]
@@ -313,12 +313,70 @@ impl Parser<'_> {
                 value: OffsetClockTime::new(value, offset),
                 span,
             })
+        } else if let Some((zone, zone_tokens, zone_span)) = self.iana_zone_at(consumed) {
+            consumed += zone_tokens;
+            let span = start.span.join(zone_span);
+            self.position += consumed;
+            Ok(Expression::ZonedClock {
+                value: ZonedClockTime::new(value, zone),
+                span,
+            })
         } else {
             let end = self.tokens[self.position + consumed - 1];
             let span = start.span.join(end.span);
             self.position += consumed;
             Ok(Expression::Clock { value, span })
         }
+    }
+
+    pub(super) fn iana_zone_at(&self, offset: usize) -> Option<(String, usize, Span)> {
+        let first = *self.tokens.get(self.position + offset)?;
+        if first.kind != LexemeKind::Word {
+            return None;
+        }
+        let region = &self.source[first.span.start..first.span.end];
+        if ![
+            "africa",
+            "america",
+            "antarctica",
+            "arctic",
+            "asia",
+            "atlantic",
+            "australia",
+            "europe",
+            "indian",
+            "pacific",
+            "etc",
+        ]
+        .iter()
+        .any(|candidate| region.eq_ignore_ascii_case(candidate))
+        {
+            return None;
+        }
+
+        let mut consumed = 1;
+        let mut end = first.span;
+        loop {
+            let slash = self.tokens.get(self.position + offset + consumed);
+            let segment = self.tokens.get(self.position + offset + consumed + 1);
+            let Some((slash, segment)) = slash.zip(segment) else {
+                break;
+            };
+            if slash.kind != LexemeKind::Slash
+                || segment.kind != LexemeKind::Word
+                || end.end != slash.span.start
+                || slash.span.end != segment.span.start
+            {
+                break;
+            }
+            consumed += 2;
+            end = segment.span;
+        }
+        if consumed == 1 {
+            return None;
+        }
+        let span = first.span.join(end);
+        Some((self.source[span.start..span.end].to_owned(), consumed, span))
     }
 
     pub(super) fn token_u8(&self, offset: usize) -> Option<u8> {

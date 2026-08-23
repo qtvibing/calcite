@@ -12,6 +12,11 @@ pub enum DiagnosticKind {
     InvalidTime,
     InvalidCalendarDuration,
     MissingTemporalContext,
+    MissingTimeZoneData,
+    UnknownTimeZone,
+    AmbiguousLocalTime,
+    NonexistentLocalTime,
+    TimeZoneDataOutOfRange,
     UnknownVariable,
     InvalidAssignment,
     InvalidFunctionArguments,
@@ -91,6 +96,13 @@ impl Diagnostic {
             DiagnosticKind::InvalidTime => "invalid time",
             DiagnosticKind::InvalidCalendarDuration => "invalid calendar duration",
             DiagnosticKind::MissingTemporalContext => "current date or time was not provided",
+            DiagnosticKind::MissingTimeZoneData => "time-zone data was not provided",
+            DiagnosticKind::UnknownTimeZone => "time zone is not present in the snapshot",
+            DiagnosticKind::AmbiguousLocalTime => "local time occurs twice in this time zone",
+            DiagnosticKind::NonexistentLocalTime => "local time does not exist in this time zone",
+            DiagnosticKind::TimeZoneDataOutOfRange => {
+                "time is outside the time-zone snapshot's coverage"
+            }
             DiagnosticKind::UnknownVariable => "unknown variable",
             DiagnosticKind::InvalidAssignment => "invalid variable assignment",
             DiagnosticKind::InvalidFunctionArguments => "invalid function arguments",

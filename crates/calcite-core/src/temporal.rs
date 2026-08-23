@@ -842,6 +842,7 @@ pub struct TemporalContext {
     pub current_datetime: Option<OffsetDateTime>,
     pub default_offset: UtcOffset,
     pub date_order: Option<DateOrder>,
+    pub time_zones: Option<crate::TimeZoneSnapshot>,
     pub workday_calendar: WorkdayCalendar,
 }
 
@@ -851,6 +852,7 @@ impl Default for TemporalContext {
             current_datetime: None,
             default_offset: UtcOffset::UTC,
             date_order: None,
+            time_zones: None,
             workday_calendar: WorkdayCalendar::default(),
         }
     }

@@ -7,7 +7,8 @@ use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, ClockTime, Constant, Date, Diagnostic,
     DiagnosticKind, Expression, Fraction, Money, MoneyRate, Number, OffsetClockTime,
     OffsetDateTime, Percentage, RadixInteger, Rate, RelativeWeekdayDirection, TemporalKeyword,
-    TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, parse_with_context,
+    TimeSpan, UnaryOperator, UnitValue, Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime,
+    parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,7 +25,9 @@ pub enum Value {
     Date(Date),
     Clock(ClockTime),
     OffsetClock(OffsetClockTime),
+    ZonedClock(ZonedClockTime),
     OffsetDateTime(OffsetDateTime),
+    ZonedDateTime(ZonedDateTime),
     TimeSpan(TimeSpan),
     CalendarDuration(CalendarDuration),
     WorkdayDuration(WorkdayDuration),
@@ -110,9 +113,23 @@ impl Value {
         }
     }
 
+    pub const fn as_zoned_clock(&self) -> Option<&ZonedClockTime> {
+        match self {
+            Self::ZonedClock(time) => Some(time),
+            _ => None,
+        }
+    }
+
     pub const fn as_offset_datetime(&self) -> Option<OffsetDateTime> {
         match self {
             Self::OffsetDateTime(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub const fn as_zoned_datetime(&self) -> Option<&ZonedDateTime> {
+        match self {
+            Self::ZonedDateTime(value) => Some(value),
             _ => None,
         }
     }
@@ -169,7 +186,9 @@ impl fmt::Display for Value {
             Self::Date(date) => date.fmt(formatter),
             Self::Clock(time) => time.fmt(formatter),
             Self::OffsetClock(time) => time.fmt(formatter),
+            Self::ZonedClock(time) => time.fmt(formatter),
             Self::OffsetDateTime(value) => value.fmt(formatter),
+            Self::ZonedDateTime(value) => value.fmt(formatter),
             Self::TimeSpan(duration) => duration.fmt(formatter),
             Self::CalendarDuration(duration) => duration.fmt(formatter),
             Self::WorkdayDuration(duration) => duration.fmt(formatter),
@@ -224,6 +243,7 @@ pub(crate) fn evaluate_expression(
         }
         Expression::Clock { value, .. } => Ok(Value::Clock(*value)),
         Expression::OffsetClock { value, .. } => Ok(Value::OffsetClock(*value)),
+        Expression::ZonedClock { value, .. } => Ok(Value::ZonedClock(value.clone())),
         Expression::OffsetDateTime { value, .. } => Ok(Value::OffsetDateTime(*value)),
         Expression::CalendarDuration { value, .. } => Ok(Value::CalendarDuration(*value)),
         Expression::WorkdayDuration { value, .. } => Ok(Value::WorkdayDuration(*value)),
@@ -386,7 +406,9 @@ pub(crate) fn evaluate_expression(
                     Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)
+                    | Value::ZonedClock(_)
                     | Value::OffsetDateTime(_)
+                    | Value::ZonedDateTime(_)
                     | Value::Weekday(_)
                     | Value::Boolean(_),
                 )
@@ -403,7 +425,9 @@ pub(crate) fn evaluate_expression(
                     | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)
+                    | Value::ZonedClock(_)
                     | Value::OffsetDateTime(_)
+                    | Value::ZonedDateTime(_)
                     | Value::TimeSpan(_)
                     | Value::CalendarDuration(_)
                     | Value::WorkdayDuration(_)

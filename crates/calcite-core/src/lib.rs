@@ -20,6 +20,7 @@ mod session;
 mod span;
 mod syntax;
 mod temporal;
+mod timezone;
 mod unit;
 
 pub use context::{CalculationContext, NumberFormat};
@@ -53,6 +54,10 @@ pub use temporal::{
     CalendarDuration, ClockTime, Date, DateOrder, LEAP_SECOND_POLICY, LeapSecondPolicy,
     OffsetClockTime, OffsetDateTime, TemporalContext, TimeSpan, UtcOffset, Weekday,
     WorkdayCalendar, WorkdayDuration,
+};
+pub use timezone::{
+    LocalTimeResolution, TimeZoneDefinition, TimeZoneError, TimeZoneSnapshot, TimeZoneTransition,
+    ZonedClockTime, ZonedDateTime,
 };
 pub use unit::{CompoundUnit, Dimension, Unit, UnitValue};
 

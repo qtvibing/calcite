@@ -4,7 +4,7 @@ use crate::{
     Percentage, RadixInteger, Span, Unit, UnitValue,
 };
 
-use super::{classify_compound_value, unit_diagnostic, unsupported};
+use super::{classify_compound_value, time_zone_diagnostic, unit_diagnostic, unsupported};
 
 pub(crate) fn convert(
     value: Value,
@@ -25,7 +25,9 @@ pub(crate) fn convert(
             Value::Date(_)
             | Value::Clock(_)
             | Value::OffsetClock(_)
+            | Value::ZonedClock(_)
             | Value::OffsetDateTime(_)
+            | Value::ZonedDateTime(_)
             | Value::TimeSpan(_)
             | Value::CalendarDuration(_)
             | Value::WorkdayDuration(_)
@@ -58,7 +60,9 @@ pub(crate) fn convert(
             | Value::Date(_)
             | Value::Clock(_)
             | Value::OffsetClock(_)
+            | Value::ZonedClock(_)
             | Value::OffsetDateTime(_)
+            | Value::ZonedDateTime(_)
             | Value::TimeSpan(_)
             | Value::CalendarDuration(_)
             | Value::WorkdayDuration(_)
@@ -78,7 +82,9 @@ pub(crate) fn convert(
                 | Value::Date(_)
                 | Value::Clock(_)
                 | Value::OffsetClock(_)
+                | Value::ZonedClock(_)
                 | Value::OffsetDateTime(_)
+                | Value::ZonedDateTime(_)
                 | Value::TimeSpan(_)
                 | Value::CalendarDuration(_)
                 | Value::WorkdayDuration(_)
@@ -126,6 +132,24 @@ pub(crate) fn convert(
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
             _ => Err(unsupported(span)),
         },
+        ConversionTarget::TimeZone(target) => {
+            let snapshot = context
+                .temporal
+                .time_zones
+                .as_ref()
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?;
+            match value {
+                Value::OffsetDateTime(value) => snapshot
+                    .at_instant(&target, value)
+                    .map(Value::ZonedDateTime)
+                    .map_err(|error| time_zone_diagnostic(error, span)),
+                Value::ZonedDateTime(value) => value
+                    .converted_to(snapshot, &target)
+                    .map(Value::ZonedDateTime)
+                    .map_err(|error| time_zone_diagnostic(error, span)),
+                _ => Err(unsupported(span)),
+            }
+        }
         ConversionTarget::Currency(target) => match value {
             Value::Money(money) => {
                 let source = money.currency();

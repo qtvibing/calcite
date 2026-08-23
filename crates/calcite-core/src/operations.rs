@@ -123,6 +123,23 @@ pub(super) fn evaluate_binary(
         (Value::Date(date), Value::OffsetClock(time)) if operator == BinaryOperator::At => Ok(
             Value::OffsetDateTime(OffsetDateTime::new(date, time.time(), time.offset())),
         ),
+        (Value::Date(date), Value::ZonedClock(time)) if operator == BinaryOperator::At => {
+            date_zoned_clock_pair(date, time, &context.temporal, span)
+        }
+        (Value::ZonedDateTime(left), Value::ZonedDateTime(right)) => {
+            zoned_datetime_pair(operator, left, right, span)
+        }
+        (Value::ZonedDateTime(value), Value::Unit(duration)) => {
+            zoned_datetime_duration_pair(operator, value, duration, &context.temporal, span)
+        }
+        (Value::ZonedDateTime(value), Value::CalendarDuration(duration)) => {
+            zoned_datetime_calendar_pair(operator, value, duration, &context.temporal, span)
+        }
+        (Value::CalendarDuration(duration), Value::ZonedDateTime(value))
+            if operator == BinaryOperator::Add =>
+        {
+            zoned_datetime_calendar_pair(operator, value, duration, &context.temporal, span)
+        }
         (Value::OffsetClock(left), Value::OffsetClock(right)) => {
             offset_clock_pair(operator, left, right, span)
         }

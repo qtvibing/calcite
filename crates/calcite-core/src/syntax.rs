@@ -1,6 +1,6 @@
 use crate::{
     CalendarDuration, ClockTime, CompoundUnit, Currency, Date, Number, OffsetClockTime,
-    OffsetDateTime, Radix, RadixInteger, Span, UtcOffset, Weekday, WorkdayDuration,
+    OffsetDateTime, Radix, RadixInteger, Span, UtcOffset, Weekday, WorkdayDuration, ZonedClockTime,
 };
 
 pub(crate) fn identifier_key(name: &str) -> String {
@@ -270,6 +270,7 @@ pub enum ConversionTarget {
     Radix(Radix),
     CompoundUnit(CompoundUnit),
     UtcOffset(UtcOffset),
+    TimeZone(String),
     Currency(Currency),
 }
 
@@ -316,6 +317,10 @@ pub enum Expression {
     },
     OffsetClock {
         value: OffsetClockTime,
+        span: Span,
+    },
+    ZonedClock {
+        value: ZonedClockTime,
         span: Span,
     },
     OffsetDateTime {
@@ -401,6 +406,7 @@ impl Expression {
             | Self::PartialDate { span, .. }
             | Self::Clock { span, .. }
             | Self::OffsetClock { span, .. }
+            | Self::ZonedClock { span, .. }
             | Self::OffsetDateTime { span, .. }
             | Self::CalendarDuration { span, .. }
             | Self::WorkdayDuration { span, .. }

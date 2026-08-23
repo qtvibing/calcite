@@ -282,6 +282,7 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
         | Expression::PartialDate { .. }
         | Expression::Clock { .. }
         | Expression::OffsetClock { .. }
+        | Expression::ZonedClock { .. }
         | Expression::OffsetDateTime { .. }
         | Expression::CalendarDuration { .. }
         | Expression::WorkdayDuration { .. }

@@ -1,11 +1,91 @@
 use crate::evaluator::Value;
 use crate::{
-    BinaryOperator, CalendarDuration, ClockTime, Date, Diagnostic, DiagnosticKind, Number,
-    OffsetClockTime, OffsetDateTime, Span, TimeSpan, Unit, UnitValue, WorkdayCalendar,
-    WorkdayDuration,
+    BinaryOperator, CalendarDuration, ClockTime, Date, Diagnostic, DiagnosticKind,
+    LocalTimeResolution, Number, OffsetClockTime, OffsetDateTime, Span, TemporalContext, TimeSpan,
+    TimeZoneError, Unit, UnitValue, WorkdayCalendar, WorkdayDuration, ZonedClockTime,
+    ZonedDateTime,
 };
 
 use super::{compare_ordering, unit_diagnostic, unsupported};
+
+pub(super) fn date_zoned_clock_pair(
+    date: Date,
+    time: ZonedClockTime,
+    context: &TemporalContext,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let snapshot = context
+        .time_zones
+        .as_ref()
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?;
+    snapshot
+        .resolve_local(time.zone(), date, time.time(), LocalTimeResolution::Reject)
+        .map(Value::ZonedDateTime)
+        .map_err(|error| time_zone_diagnostic(error, span))
+}
+
+pub(super) fn zoned_datetime_pair(
+    operator: BinaryOperator,
+    left: ZonedDateTime,
+    right: ZonedDateTime,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    datetime_pair(operator, left.datetime(), right.datetime(), span)
+}
+
+pub(super) fn zoned_datetime_duration_pair(
+    operator: BinaryOperator,
+    value: ZonedDateTime,
+    duration: UnitValue,
+    context: &TemporalContext,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let snapshot = context
+        .time_zones
+        .as_ref()
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?;
+    let duration = duration
+        .converted_to(Unit::Nanosecond)
+        .map_err(|error| unit_diagnostic(error, span))?;
+    let mut nanoseconds = duration
+        .magnitude()
+        .exact_i64()
+        .map(i128::from)
+        .ok_or_else(|| unsupported(span))?;
+    if operator == BinaryOperator::Subtract {
+        nanoseconds = nanoseconds
+            .checked_neg()
+            .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidTime, span))?;
+    } else if operator != BinaryOperator::Add {
+        return Err(unsupported(span));
+    }
+    value
+        .add_nanoseconds(snapshot, nanoseconds)
+        .map(Value::ZonedDateTime)
+        .map_err(|error| time_zone_diagnostic(error, span))
+}
+
+pub(super) fn zoned_datetime_calendar_pair(
+    operator: BinaryOperator,
+    value: ZonedDateTime,
+    duration: CalendarDuration,
+    context: &TemporalContext,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let snapshot = context
+        .time_zones
+        .as_ref()
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?;
+    let duration = match operator {
+        BinaryOperator::Add => duration,
+        BinaryOperator::Subtract => duration.negated(),
+        _ => return Err(unsupported(span)),
+    };
+    value
+        .add_calendar_duration(snapshot, duration, LocalTimeResolution::Reject)
+        .map(Value::ZonedDateTime)
+        .map_err(|error| time_zone_diagnostic(error, span))
+}
 
 pub(super) fn datetime_pair(
     operator: BinaryOperator,
@@ -274,6 +354,19 @@ pub(super) fn clock_duration_pair(
         return Err(unsupported(span));
     }
     Ok(Value::Clock(time.add_nanoseconds(nanoseconds)))
+}
+
+pub(super) fn time_zone_diagnostic(error: TimeZoneError, span: Span) -> Diagnostic {
+    let kind = match error {
+        TimeZoneError::UnknownZone => DiagnosticKind::UnknownTimeZone,
+        TimeZoneError::OutOfRange => DiagnosticKind::TimeZoneDataOutOfRange,
+        TimeZoneError::AmbiguousLocalTime => DiagnosticKind::AmbiguousLocalTime,
+        TimeZoneError::NonexistentLocalTime => DiagnosticKind::NonexistentLocalTime,
+        TimeZoneError::InvalidDefinition | TimeZoneError::DuplicateZone => {
+            DiagnosticKind::MissingTimeZoneData
+        }
+    };
+    Diagnostic::new(kind, span)
 }
 
 fn seconds_from_nanoseconds(nanoseconds: i128) -> Number {

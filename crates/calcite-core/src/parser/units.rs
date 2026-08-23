@@ -207,6 +207,10 @@ impl Parser<'_> {
             consumed = 1 + offset_tokens;
             target_span = span;
             ConversionTarget::UtcOffset(offset)
+        } else if let Some((zone, zone_tokens, zone_span)) = self.iana_zone_at(1) {
+            consumed = 1 + zone_tokens;
+            target_span = zone_span;
+            ConversionTarget::TimeZone(zone)
         } else if let Some((unit, unit_tokens, unit_span)) = self.compound_unit_target_at(1)? {
             consumed = 1 + unit_tokens;
             target_span = unit_span;
