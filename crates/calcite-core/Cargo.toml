@@ -3,6 +3,10 @@ name = "calcite-core"
 version.workspace = true
 edition.workspace = true
 
+[[bench]]
+name = "bounded"
+harness = false
+
 [dependencies]
 dashu-float.workspace = true
 dashu-int.workspace = true
