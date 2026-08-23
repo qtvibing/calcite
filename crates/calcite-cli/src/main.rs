@@ -1,3 +1,5 @@
+mod config;
+mod history;
 mod rates;
 
 use std::{
@@ -8,9 +10,9 @@ use std::{
 };
 
 use calcite_core::{
-    CalculationContext, CalculationSession, ClockTime, Date, DateOrder, Diagnostic, DiagnosticKind,
-    DocumentCalculation, Number, NumberOutputMode, OffsetDateTime, UtcOffset, Value,
-    calculate_document_with_context,
+    CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
+    DiagnosticKind, DocumentCalculation, Number, NumberFormat, NumberOutputMode, OffsetDateTime,
+    UtcOffset, Value, calculate_document_with_context,
 };
 use jiff::{Timestamp, tz::TimeZone};
 
@@ -21,6 +23,12 @@ Options:\n\
   -f, --file <PATH>        Evaluate a Calcite document\n\
   -i, --repl               Start an interactive session\n\
       --refresh-rates      Refresh exchange rates before evaluation\n\
+      --config <PATH>      Load configuration from a JSON file\n\
+      --locale <LOCALE>    Use en-US, en-GB, de-DE, or fr-FR number syntax\n\
+      --currency <CODE>    Set the default ISO 4217 currency\n\
+      --timezone <ZONE>    Use an IANA zone for contextual dates and times\n\
+      --rate-provider <P>  Use fallback, frankfurter, or ecb\n\
+      --no-history         Disable persistent interactive history\n\
       --date-order <ORDER> Parse numeric dates as dmy, mdy, or ymd\n\
       --format <MODE>      auto, exact, fraction, mixed, decimal, significant, or scientific\n\
       --precision <N>      Digits used by decimal/scientific output\n\
@@ -35,8 +43,14 @@ struct Options {
     refresh_rates: bool,
     output: OutputMode,
     date_order: Option<DateOrder>,
+    number_format: NumberFormat,
     number_mode: NumberOutputMode,
     mark_approximate: bool,
+    default_currency: Currency,
+    custom_units: calcite_core::CustomUnitRegistry,
+    timezone: Option<String>,
+    rate_provider: rates::ProviderChoice,
+    history: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -87,7 +101,7 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let expression = match options.action {
+    let expression = match &options.action {
         Action::Help => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -96,16 +110,7 @@ async fn main() -> ExitCode {
             println!("calcite {}", env!("CARGO_PKG_VERSION"));
             return ExitCode::SUCCESS;
         }
-        Action::Repl => {
-            return run_repl(
-                options.refresh_rates,
-                options.date_order,
-                options.number_mode,
-                options.mark_approximate,
-                options.output,
-            )
-            .await;
-        }
+        Action::Repl => return run_repl(&options).await,
         Action::Calculate(expression) => expression,
     };
 
@@ -114,15 +119,7 @@ async fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    match calculate_with_rates(
-        &expression,
-        options.refresh_rates,
-        options.date_order,
-        options.number_mode,
-        options.mark_approximate,
-    )
-    .await
-    {
+    match calculate_with_rates(expression, &options).await {
         Ok(document) => {
             print_result(&document, options.output);
             ExitCode::SUCCESS
@@ -131,20 +128,18 @@ async fn main() -> ExitCode {
             if matches!(options.output, OutputMode::Json) {
                 print_json_error(&diagnostic);
             } else {
-                print_diagnostic(&expression, &diagnostic);
+                print_diagnostic(expression, &diagnostic);
             }
             ExitCode::FAILURE
         }
     }
 }
 
-async fn run_repl(
-    force_refresh: bool,
-    date_order: Option<DateOrder>,
-    number_mode: NumberOutputMode,
-    mark_approximate: bool,
-    output: OutputMode,
-) -> ExitCode {
+async fn run_repl(options: &Options) -> ExitCode {
+    let force_refresh = options.refresh_rates;
+    let timezone = options.timezone.as_deref();
+    let rate_provider = options.rate_provider;
+    let output = options.output;
     let path = rates::cache_path();
     let cached = match rates::load_cache(&path) {
         Ok(cached) => cached,
@@ -154,9 +149,12 @@ async fn run_repl(
         }
     };
     let mut context = CalculationContext::default();
-    context.temporal.date_order = date_order;
-    context.output_format.number_mode = number_mode;
-    context.output_format.mark_approximate = mark_approximate;
+    context.temporal.date_order = options.date_order;
+    context.number_format = options.number_format;
+    context.monetary.default_currency = options.default_currency;
+    context.custom_units = options.custom_units.clone();
+    context.output_format.number_mode = options.number_mode;
+    context.output_format.mark_approximate = options.mark_approximate;
     if let Some(cached) = &cached
         && cached.fresh
     {
@@ -168,7 +166,7 @@ async fn run_repl(
     let mut attempted_rates = false;
     if force_refresh {
         attempted_rates = true;
-        if let Err(error) = refresh_rates(&mut context, &path).await {
+        if let Err(error) = refresh_rates(&mut context, &path, rate_provider).await {
             eprintln!("warning: {error}");
             if let Some(cached) = &cached {
                 context
@@ -181,7 +179,18 @@ async fn run_repl(
 
     let interactive = io::stdin().is_terminal();
     let mut session = CalculationSession::new();
-    let mut history = Vec::new();
+    let mut persistent_history = if interactive && options.history {
+        match history::History::load(history::default_path()) {
+            Ok(history) => Some(history),
+            Err(error) => {
+                eprintln!("warning: could not read calculation history: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut transient_history = Vec::new();
     loop {
         if interactive {
             print!("> ");
@@ -210,13 +219,44 @@ async fn run_repl(
                 session.clear();
                 continue;
             }
+            ":clear-history" => {
+                transient_history.clear();
+                if let Some(history) = &mut persistent_history
+                    && let Err(error) = history.clear()
+                {
+                    eprintln!("warning: could not clear calculation history: {error}");
+                }
+                continue;
+            }
             ":history" => {
-                for (index, entry) in history.iter().enumerate() {
+                let entries = persistent_history
+                    .as_ref()
+                    .map_or(transient_history.as_slice(), history::History::entries);
+                for (index, entry) in entries.iter().enumerate() {
                     println!("{}  {entry}", index + 1);
                 }
                 continue;
             }
-            _ => history.push(source.to_owned()),
+            _ => {}
+        }
+        let recalled = persistent_history
+            .as_ref()
+            .and_then(|history| history.resolve(source))
+            .or_else(|| resolve_transient_history(&transient_history, source))
+            .map(str::to_owned);
+        let source = recalled.as_deref().unwrap_or(source);
+        if let Some(recalled) = &recalled
+            && interactive
+        {
+            println!("{recalled}");
+        }
+        if let Some(history) = &mut persistent_history {
+            if let Err(error) = history.push(source) {
+                eprintln!("warning: could not write calculation history: {error}");
+                persistent_history = None;
+            }
+        } else if transient_history.last().is_none_or(|entry| entry != source) {
+            transient_history.push(source.to_owned());
         }
 
         let mut result = session.calculate(source, &context);
@@ -224,7 +264,7 @@ async fn run_repl(
             .as_ref()
             .is_err_and(|error| error.kind() == DiagnosticKind::MissingTemporalContext)
         {
-            install_current_datetime(&mut context);
+            install_current_datetime(&mut context, timezone);
             result = session.calculate(source, &context);
         }
         if !attempted_rates
@@ -236,7 +276,7 @@ async fn run_repl(
             })
         {
             attempted_rates = true;
-            if let Err(error) = refresh_rates(&mut context, &path).await {
+            if let Err(error) = refresh_rates(&mut context, &path, rate_provider).await {
                 eprintln!("warning: {error}");
                 if let Some(cached) = &cached {
                     context
@@ -267,13 +307,26 @@ async fn run_repl(
     ExitCode::SUCCESS
 }
 
+fn resolve_transient_history<'a>(history: &'a [String], source: &str) -> Option<&'a str> {
+    if source == "!!" {
+        return history.last().map(String::as_str);
+    }
+    source
+        .strip_prefix('!')?
+        .parse::<usize>()
+        .ok()
+        .and_then(|index| index.checked_sub(1))
+        .and_then(|index| history.get(index))
+        .map(String::as_str)
+}
+
 async fn calculate_with_rates(
     expression: &str,
-    force_refresh: bool,
-    date_order: Option<DateOrder>,
-    number_mode: NumberOutputMode,
-    mark_approximate: bool,
+    options: &Options,
 ) -> Result<DocumentCalculation, Diagnostic> {
+    let force_refresh = options.refresh_rates;
+    let timezone = options.timezone.as_deref();
+    let rate_provider = options.rate_provider;
     let path = rates::cache_path();
     let cached = match rates::load_cache(&path) {
         Ok(cached) => cached,
@@ -283,12 +336,15 @@ async fn calculate_with_rates(
         }
     };
     let mut context = CalculationContext::default();
-    context.temporal.date_order = date_order;
-    context.output_format.number_mode = number_mode;
-    context.output_format.mark_approximate = mark_approximate;
+    context.temporal.date_order = options.date_order;
+    context.number_format = options.number_format;
+    context.monetary.default_currency = options.default_currency;
+    context.custom_units = options.custom_units.clone();
+    context.output_format.number_mode = options.number_mode;
+    context.output_format.mark_approximate = options.mark_approximate;
 
     if force_refresh {
-        if let Err(error) = refresh_rates(&mut context, &path).await {
+        if let Err(error) = refresh_rates(&mut context, &path, rate_provider).await {
             eprintln!("warning: {error}");
             if let Some(cached) = &cached {
                 context
@@ -306,7 +362,7 @@ async fn calculate_with_rates(
             .reload(cached.snapshot.clone());
     }
 
-    let mut result = calculate_with_local_time(expression, &mut context);
+    let mut result = calculate_with_local_time(expression, &mut context, timezone);
     let needs_rates = result.as_ref().is_err_and(|diagnostic| {
         matches!(
             diagnostic.kind(),
@@ -314,7 +370,7 @@ async fn calculate_with_rates(
         )
     });
     if needs_rates && !force_refresh {
-        if let Err(error) = refresh_rates(&mut context, &path).await {
+        if let Err(error) = refresh_rates(&mut context, &path, rate_provider).await {
             eprintln!("warning: {error}");
             if let Some(cached) = &cached {
                 context
@@ -323,7 +379,7 @@ async fn calculate_with_rates(
                     .reload(cached.snapshot.clone());
             }
         }
-        result = calculate_with_local_time(expression, &mut context);
+        result = calculate_with_local_time(expression, &mut context, timezone);
     }
 
     result
@@ -332,6 +388,7 @@ async fn calculate_with_rates(
 fn calculate_with_local_time(
     expression: &str,
     context: &mut CalculationContext,
+    timezone: Option<&str>,
 ) -> Result<DocumentCalculation, Diagnostic> {
     let result = calculate_document_with_context(expression, context);
     if context.temporal.current_datetime.is_none()
@@ -339,20 +396,31 @@ fn calculate_with_local_time(
             .as_ref()
             .is_err_and(|diagnostic| diagnostic.kind() == DiagnosticKind::MissingTemporalContext)
     {
-        install_current_datetime(context);
+        install_current_datetime(context, timezone);
         calculate_document_with_context(expression, context)
     } else {
         result
     }
 }
 
-fn install_current_datetime(context: &mut CalculationContext) {
-    let timezone = match TimeZone::try_system() {
-        Ok(timezone) => timezone,
-        Err(error) => {
-            eprintln!("warning: could not determine the local timezone; using UTC: {error}");
-            TimeZone::UTC
-        }
+fn install_current_datetime(context: &mut CalculationContext, configured_timezone: Option<&str>) {
+    let timezone = match configured_timezone {
+        Some(name) => match TimeZone::get(name) {
+            Ok(timezone) => timezone,
+            Err(error) => {
+                eprintln!(
+                    "warning: could not load configured timezone '{name}'; using UTC: {error}"
+                );
+                TimeZone::UTC
+            }
+        },
+        None => match TimeZone::try_system() {
+            Ok(timezone) => timezone,
+            Err(error) => {
+                eprintln!("warning: could not determine the local timezone; using UTC: {error}");
+                TimeZone::UTC
+            }
+        },
     };
     let now = Timestamp::now().to_zoned(timezone);
     let date = Date::new(
@@ -377,8 +445,9 @@ fn install_current_datetime(context: &mut CalculationContext) {
 async fn refresh_rates(
     context: &mut CalculationContext,
     path: &std::path::Path,
+    provider: rates::ProviderChoice,
 ) -> Result<(), calcite_rates::ProviderError> {
-    let snapshot = rates::fetch_rates().await?;
+    let snapshot = rates::fetch_rates(provider).await?;
     if let Err(error) = rates::save_cache(path, &snapshot) {
         eprintln!("warning: could not write exchange-rate cache: {error}");
     }
@@ -387,29 +456,85 @@ async fn refresh_rates(
 }
 
 fn read_options() -> Result<Options, String> {
+    let raw_arguments = env::args().skip(1).collect::<Vec<_>>();
+    let explicit_config = raw_arguments
+        .iter()
+        .position(|argument| argument == "--config")
+        .map(|position| {
+            raw_arguments
+                .get(position + 1)
+                .map(PathBuf::from)
+                .ok_or_else(|| "--config requires a path".to_owned())
+        })
+        .transpose()?;
+    let defaults = config::load(explicit_config)?;
     let mut refresh_rates = false;
     let mut output = OutputMode::Text;
-    let mut date_order = None;
-    let mut requested_number_mode = RequestedNumberMode::Auto;
-    let mut precision = 10;
-    let mut mark_approximate = false;
+    let mut date_order = defaults.date_order;
+    let mut number_format = defaults.number_format;
+    let mut requested_number_mode = defaults.number_mode;
+    let mut precision = defaults.precision;
+    let mut mark_approximate = defaults.approximate;
+    let mut default_currency = defaults.default_currency;
+    let custom_units = defaults.custom_units;
+    let mut timezone = defaults.timezone;
+    let mut rate_provider = defaults.rate_provider;
+    let mut history = defaults.history;
     let mut repl = false;
     let mut expression = None;
     let mut file = None;
     let mut positional = Vec::new();
-    let mut arguments = env::args().skip(1);
+    let mut arguments = raw_arguments.into_iter();
 
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--refresh-rates" => refresh_rates = true,
+            "--config" => {
+                arguments
+                    .next()
+                    .ok_or_else(|| "--config requires a path".to_owned())?;
+            }
+            "--locale" => {
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| "--locale requires a locale".to_owned())?;
+                number_format = config::parse_locale(&value)?;
+            }
+            "--currency" => {
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| "--currency requires an ISO 4217 code".to_owned())?;
+                default_currency = Currency::from_code(&value)
+                    .ok_or_else(|| "--currency requires an ISO 4217 code".to_owned())?;
+            }
+            "--timezone" => {
+                timezone = Some(
+                    arguments
+                        .next()
+                        .ok_or_else(|| "--timezone requires an IANA timezone name".to_owned())?,
+                );
+            }
+            "--rate-provider" => {
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| "--rate-provider requires a provider".to_owned())?;
+                rate_provider = config::parse_provider(&value)?;
+            }
+            "--no-history" => history = false,
             "-h" | "--help" => {
                 return Ok(Options {
                     action: Action::Help,
                     refresh_rates,
                     output,
                     date_order,
-                    number_mode: NumberOutputMode::Auto,
-                    mark_approximate: false,
+                    number_format,
+                    number_mode: requested_number_mode.resolve(precision),
+                    mark_approximate,
+                    default_currency,
+                    custom_units,
+                    timezone,
+                    rate_provider,
+                    history,
                 });
             }
             "-V" | "--version" => {
@@ -418,8 +543,14 @@ fn read_options() -> Result<Options, String> {
                     refresh_rates,
                     output,
                     date_order,
-                    number_mode: NumberOutputMode::Auto,
-                    mark_approximate: false,
+                    number_format,
+                    number_mode: requested_number_mode.resolve(precision),
+                    mark_approximate,
+                    default_currency,
+                    custom_units,
+                    timezone,
+                    rate_provider,
+                    history,
                 });
             }
             "--plain" => output = OutputMode::Plain,
@@ -428,21 +559,7 @@ fn read_options() -> Result<Options, String> {
                 let value = arguments
                     .next()
                     .ok_or_else(|| "--format requires an output mode".to_owned())?;
-                requested_number_mode = match value.to_ascii_lowercase().as_str() {
-                    "auto" => RequestedNumberMode::Auto,
-                    "exact" => RequestedNumberMode::Exact,
-                    "fraction" => RequestedNumberMode::Fraction,
-                    "mixed" => RequestedNumberMode::Mixed,
-                    "decimal" => RequestedNumberMode::Decimal,
-                    "significant" => RequestedNumberMode::Significant,
-                    "scientific" => RequestedNumberMode::Scientific,
-                    _ => {
-                        return Err(
-                            "--format requires auto, exact, fraction, mixed, decimal, significant, or scientific"
-                                .into(),
-                        );
-                    }
-                };
+                requested_number_mode = config::parse_format(&value)?;
             }
             "--precision" => {
                 let value = arguments.next().ok_or_else(|| {
@@ -461,12 +578,7 @@ fn read_options() -> Result<Options, String> {
                 let value = arguments
                     .next()
                     .ok_or_else(|| "--date-order requires dmy, mdy, or ymd".to_owned())?;
-                date_order = Some(match value.to_ascii_lowercase().as_str() {
-                    "dmy" => DateOrder::DayMonthYear,
-                    "mdy" => DateOrder::MonthDayYear,
-                    "ymd" => DateOrder::YearMonthDay,
-                    _ => return Err("--date-order requires dmy, mdy, or ymd".into()),
-                });
+                date_order = Some(config::parse_date_order(&value)?);
             }
             "-i" | "--repl" => {
                 if expression.is_some() || file.is_some() || !positional.is_empty() {
@@ -505,6 +617,9 @@ fn read_options() -> Result<Options, String> {
         }
     }
 
+    if let Some(name) = &timezone {
+        TimeZone::get(name).map_err(|error| format!("invalid timezone '{name}': {error}"))?;
+    }
     if (repl || expression.is_some() || file.is_some()) && !positional.is_empty() {
         return Err("only one input source may be specified".into());
     }
@@ -514,8 +629,14 @@ fn read_options() -> Result<Options, String> {
             refresh_rates,
             output,
             date_order,
+            number_format,
             number_mode: requested_number_mode.resolve(precision),
             mark_approximate,
+            default_currency,
+            custom_units,
+            timezone,
+            rate_provider,
+            history,
         });
     }
     let source = if let Some(expression) = expression {
@@ -531,8 +652,14 @@ fn read_options() -> Result<Options, String> {
             refresh_rates,
             output,
             date_order,
+            number_format,
             number_mode: requested_number_mode.resolve(precision),
             mark_approximate,
+            default_currency,
+            custom_units,
+            timezone,
+            rate_provider,
+            history,
         });
     } else {
         let mut source = String::new();
@@ -547,8 +674,14 @@ fn read_options() -> Result<Options, String> {
         refresh_rates,
         output,
         date_order,
+        number_format,
         number_mode: requested_number_mode.resolve(precision),
         mark_approximate,
+        default_currency,
+        custom_units,
+        timezone,
+        rate_provider,
+        history,
     })
 }
 
@@ -617,6 +750,13 @@ fn typed_json_value(value: &Value) -> serde_json::Value {
             "type": "unit",
             "magnitude": canonical_number(value.magnitude()),
             "unit": value.compound_unit().to_string(),
+        }),
+        Value::CustomUnit(value) => serde_json::json!({
+            "type": "custom_unit",
+            "magnitude": canonical_number(value.magnitude()),
+            "unit": value.definition().name(),
+            "scale": canonical_number(value.definition().scale()),
+            "defined_as": value.definition().unit().to_string(),
         }),
         Value::Money(value) => serde_json::json!({
             "type": "money",

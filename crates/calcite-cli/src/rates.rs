@@ -12,6 +12,13 @@ use calcite_rates::{
 
 const CACHE_MAX_AGE: Duration = Duration::from_secs(12 * 60 * 60);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderChoice {
+    Fallback,
+    Frankfurter,
+    Ecb,
+}
+
 pub struct CachedRates {
     pub snapshot: ExchangeRateSnapshot,
     pub fresh: bool,
@@ -47,11 +54,18 @@ pub fn load_cache(path: &Path) -> io::Result<Option<CachedRates>> {
     Ok(Some(CachedRates { snapshot, fresh }))
 }
 
-pub async fn fetch_rates() -> Result<ExchangeRateSnapshot, ProviderError> {
-    let mut providers = FallbackProvider::default();
-    providers.push(FrankfurterProvider::default());
-    providers.push(EcbProvider::default());
-    providers.fetch(&RateRequest::new(Currency::Usd, [])).await
+pub async fn fetch_rates(provider: ProviderChoice) -> Result<ExchangeRateSnapshot, ProviderError> {
+    let request = RateRequest::new(Currency::Usd, []);
+    match provider {
+        ProviderChoice::Frankfurter => FrankfurterProvider::default().fetch(&request).await,
+        ProviderChoice::Ecb => EcbProvider::default().fetch(&request).await,
+        ProviderChoice::Fallback => {
+            let mut providers = FallbackProvider::default();
+            providers.push(FrankfurterProvider::default());
+            providers.push(EcbProvider::default());
+            providers.fetch(&request).await
+        }
+    }
 }
 
 pub fn save_cache(path: &Path, snapshot: &ExchangeRateSnapshot) -> io::Result<()> {

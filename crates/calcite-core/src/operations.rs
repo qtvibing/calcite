@@ -29,11 +29,13 @@ pub(super) fn evaluate_binary(
     let left = match left {
         Value::RadixInteger(value) => Value::Number(value.into_number()),
         Value::RomanInteger(value) => Value::Number(value.into_number()),
+        Value::CustomUnit(value) => Value::Unit(value.into_unit()),
         value => value,
     };
     let right = match right {
         Value::RadixInteger(value) => Value::Number(value.into_number()),
         Value::RomanInteger(value) => Value::Number(value.into_number()),
+        Value::CustomUnit(value) => Value::Unit(value.into_unit()),
         value => value,
     };
     match (left, right) {

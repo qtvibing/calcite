@@ -5,6 +5,7 @@ use std::{
 
 fn calcite() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_calcite"));
+    command.env("CALCITE_CONFIG", "");
     command.env(
         "CALCITE_RATE_CACHE",
         std::env::temp_dir().join(format!("calcite-test-{}-rates.json", std::process::id())),
@@ -278,6 +279,51 @@ fn supports_plain_and_json_output_modes() {
 }
 
 #[test]
+fn loads_configuration_and_allows_command_line_overrides() {
+    let path =
+        std::env::temp_dir().join(format!("calcite-test-{}-config.json", std::process::id()));
+    std::fs::write(
+        &path,
+        r#"{
+            "locale": "de-DE",
+            "format": "decimal",
+            "precision": 3,
+            "approximate": true,
+            "default_currency": "CAD",
+            "date_order": "dmy",
+            "history": false,
+            "custom_units": { "smoot": "1,7 meters" }
+        }"#,
+    )
+    .unwrap();
+
+    let configured = calcite()
+        .env("CALCITE_CONFIG", &path)
+        .args(["--eval", "1,0 / 3"])
+        .output()
+        .expect("calcite should run");
+    assert!(configured.status.success());
+    assert_eq!(String::from_utf8(configured.stdout).unwrap(), "≈0,333\n");
+
+    let custom_unit = calcite()
+        .env("CALCITE_CONFIG", &path)
+        .args(["--eval", "2 smoot in meters"])
+        .output()
+        .expect("calcite should run");
+    assert!(custom_unit.status.success());
+    assert_eq!(String::from_utf8(custom_unit.stdout).unwrap(), "3,4 m\n");
+
+    let overridden = calcite()
+        .env("CALCITE_CONFIG", &path)
+        .args(["--locale", "en-US", "--eval", "1.5 + 1"])
+        .output()
+        .expect("calcite should run");
+    let _ = std::fs::remove_file(path);
+    assert!(overridden.status.success());
+    assert_eq!(String::from_utf8(overridden.stdout).unwrap(), "2.5\n");
+}
+
+#[test]
 fn configures_numeric_output_modes() {
     let exact = calcite()
         .args(["--format", "exact", "1", "/", "3"])
@@ -329,6 +375,26 @@ fn repl_preserves_variables_answers_and_session_history() {
         "4\n12\n5\n10\n1  2 + 2\n2  ans * 3\n3  x = 5\n4  X + ans\n"
     );
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn repl_replays_history_entries_without_ambient_persistence() {
+    let mut child = calcite()
+        .arg("--repl")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("calcite should run");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"2 + 2\n!!\n:quit\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "4\n4\n");
 }
 
 #[test]

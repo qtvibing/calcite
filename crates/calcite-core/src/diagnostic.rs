@@ -26,6 +26,7 @@ pub enum DiagnosticKind {
     InvalidFinanceArguments,
     InvalidRange,
     NumberTooLarge,
+    ExpressionTooComplex,
     DivisionByZero,
     ExponentTooLarge,
     PrecisionTooLarge,
@@ -120,6 +121,7 @@ impl Diagnostic {
             }
             DiagnosticKind::InvalidRange => "lower bound cannot exceed upper bound",
             DiagnosticKind::NumberTooLarge => "number is too large",
+            DiagnosticKind::ExpressionTooComplex => "expression exceeds Calcite's resource limits",
             DiagnosticKind::DivisionByZero => "cannot divide by zero",
             DiagnosticKind::ExponentTooLarge => "exponent is too large",
             DiagnosticKind::PrecisionTooLarge => "requested precision is too large",

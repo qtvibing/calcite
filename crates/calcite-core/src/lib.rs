@@ -74,7 +74,10 @@ pub use timezone::{
     LocalTimeResolution, TimeZoneDefinition, TimeZoneError, TimeZoneSnapshot, TimeZoneTransition,
     ZonedClockTime, ZonedDateTime,
 };
-pub use unit::{CompoundUnit, Dimension, Unit, UnitValue};
+pub use unit::{
+    CompoundUnit, CustomUnitDefinition, CustomUnitError, CustomUnitRegistry, CustomUnitValue,
+    Dimension, Unit, UnitValue,
+};
 pub use user_function::UserFunction;
 
 pub(crate) use number::NumericError;

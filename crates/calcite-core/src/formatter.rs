@@ -41,6 +41,11 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         }
         Value::Fraction(fraction) => render(fraction.number()),
         Value::Unit(value) => format!("{} {}", render(value.magnitude()), value.display_unit()),
+        Value::CustomUnit(value) => format!(
+            "{} {}",
+            render(value.magnitude()),
+            value.definition().name()
+        ),
         Value::Money(money) => format!("{} {}", render(money.amount()), money.currency()),
         Value::MoneyRate(rate) => rate.formatted_with(&render(rate.amount())),
         Value::Rate(rate) => rate.formatted_with(&render(rate.magnitude())),

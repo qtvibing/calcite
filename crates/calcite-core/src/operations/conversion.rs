@@ -1,7 +1,7 @@
 use crate::evaluator::Value;
 use crate::{
-    CalculationContext, ConversionTarget, Diagnostic, DiagnosticKind, Fraction, Money, Number,
-    Percentage, RadixInteger, RomanInteger, Span, Unit, UnitValue,
+    CalculationContext, ConversionTarget, CustomUnitValue, Diagnostic, DiagnosticKind, Fraction,
+    Money, Number, Percentage, RadixInteger, RomanInteger, Span, Unit, UnitValue,
 };
 
 use super::{classify_compound_value, time_zone_diagnostic, unit_diagnostic, unsupported};
@@ -12,6 +12,10 @@ pub(crate) fn convert(
     span: Span,
     context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
+    let value = match value {
+        Value::CustomUnit(value) => Value::Unit(value.into_unit()),
+        value => value,
+    };
     match target {
         ConversionTarget::Number => match value {
             Value::Number(number) => Ok(Value::Number(number)),
@@ -23,7 +27,8 @@ pub(crate) fn convert(
             Value::Money(value) => Ok(Value::Number(value.amount().clone())),
             Value::MoneyRate(value) => Ok(Value::Number(value.amount().clone())),
             Value::Rate(value) => Ok(Value::Number(value.magnitude().clone())),
-            Value::String(_)
+            Value::CustomUnit(_)
+            | Value::String(_)
             | Value::Function(_)
             | Value::Complex(_)
             | Value::Dice(_)
@@ -74,7 +79,8 @@ pub(crate) fn convert(
             Value::Fraction(fraction) => Ok(Value::Percentage(Percentage::from_ratio(
                 fraction.into_number(),
             ))),
-            Value::String(_)
+            Value::CustomUnit(_)
+            | Value::String(_)
             | Value::Function(_)
             | Value::Complex(_)
             | Value::Unit(_)
@@ -102,7 +108,8 @@ pub(crate) fn convert(
                 Value::RomanInteger(value) => value.into_number(),
                 Value::Percentage(percentage) => percentage.into_ratio(),
                 Value::Fraction(fraction) => return Ok(Value::Fraction(fraction)),
-                Value::String(_)
+                Value::CustomUnit(_)
+                | Value::String(_)
                 | Value::Function(_)
                 | Value::Complex(_)
                 | Value::Unit(_)
@@ -126,6 +133,22 @@ pub(crate) fn convert(
             Fraction::from_number(number)
                 .map(Value::Fraction)
                 .ok_or_else(|| unsupported(span))
+        }
+        ConversionTarget::CustomUnit(definition) => {
+            let Value::Unit(value) = value else {
+                return Err(unsupported(span));
+            };
+            let converted = value
+                .converted_to_compound(definition.unit())
+                .map_err(|error| unit_diagnostic(error, span))?;
+            let magnitude = converted
+                .magnitude()
+                .clone()
+                .checked_divide(definition.scale().clone())
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::DivisionByZero, span))?;
+            Ok(Value::CustomUnit(CustomUnitValue::new(
+                magnitude, definition,
+            )))
         }
         ConversionTarget::CompoundUnit(target) => match value {
             Value::Number(number) => UnitValue::from_compound(number, Default::default())

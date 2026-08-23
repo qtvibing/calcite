@@ -1,7 +1,7 @@
 use crate::{
-    CalendarDuration, ClockTime, ComplexNumber, CompoundUnit, Currency, Date, DiceDistribution,
-    Number, OffsetClockTime, OffsetDateTime, Radix, RadixInteger, RomanInteger, Span, UtcOffset,
-    Weekday, WorkdayDuration, ZonedClockTime,
+    CalendarDuration, ClockTime, ComplexNumber, CompoundUnit, Currency, CustomUnitDefinition, Date,
+    DiceDistribution, Number, OffsetClockTime, OffsetDateTime, Radix, RadixInteger, RomanInteger,
+    Span, UtcOffset, Weekday, WorkdayDuration, ZonedClockTime,
 };
 
 pub(crate) fn identifier_key(name: &str) -> String {
@@ -275,13 +275,14 @@ pub enum RelativeWeekdayDirection {
     This,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConversionTarget {
     Number,
     Percentage,
     Fraction,
     Radix(Radix),
     Roman,
+    CustomUnit(CustomUnitDefinition),
     CompoundUnit(CompoundUnit),
     UtcOffset(UtcOffset),
     TimeZone(String),
@@ -321,6 +322,11 @@ pub enum Expression {
     Unit {
         value: Number,
         unit: CompoundUnit,
+        span: Span,
+    },
+    CustomUnit {
+        value: Number,
+        definition: CustomUnitDefinition,
         span: Span,
     },
     Money {
@@ -450,6 +456,7 @@ impl Expression {
             | Self::Boolean { span, .. }
             | Self::Constant { span, .. }
             | Self::Unit { span, .. }
+            | Self::CustomUnit { span, .. }
             | Self::Money { span, .. }
             | Self::Dice { span, .. }
             | Self::Date { span, .. }

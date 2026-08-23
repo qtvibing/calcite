@@ -30,6 +30,7 @@ pub(super) fn evaluate_call(
             evaluate_expression(argument, context, variables).map(|value| match value {
                 Value::RadixInteger(value) => Value::Number(value.into_number()),
                 Value::RomanInteger(value) => Value::Number(value.into_number()),
+                Value::CustomUnit(value) => Value::Unit(value.into_unit()),
                 value => value,
             })
         })

@@ -895,6 +895,126 @@ fn format_factor(unit: Unit, exponent: u32) -> String {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomUnitRegistry {
+    definitions: BTreeMap<String, CustomUnitDefinition>,
+}
+
+impl CustomUnitRegistry {
+    pub fn define(
+        &mut self,
+        name: impl Into<String>,
+        scale: Number,
+        unit: CompoundUnit,
+    ) -> Result<Option<CustomUnitDefinition>, CustomUnitError> {
+        let name = name.into();
+        if !valid_custom_unit_name(&name) || Unit::from_alias(&name).is_some() {
+            return Err(CustomUnitError::InvalidName);
+        }
+        if scale.compare(&Number::from_i64(0)) != Some(Ordering::Greater)
+            || unit.contains_affine_unit()
+        {
+            return Err(CustomUnitError::InvalidDefinition);
+        }
+        let definition = CustomUnitDefinition {
+            name: name.clone(),
+            scale,
+            unit,
+        };
+        Ok(self.definitions.insert(name.to_lowercase(), definition))
+    }
+
+    pub fn get(&self, name: &str) -> Option<&CustomUnitDefinition> {
+        self.definitions.get(&name.to_lowercase())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &CustomUnitDefinition> {
+        self.definitions.values()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CustomUnitDefinition {
+    name: String,
+    scale: Number,
+    unit: CompoundUnit,
+}
+
+impl CustomUnitDefinition {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub const fn scale(&self) -> &Number {
+        &self.scale
+    }
+
+    pub const fn unit(&self) -> &CompoundUnit {
+        &self.unit
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CustomUnitValue {
+    magnitude: Number,
+    definition: CustomUnitDefinition,
+}
+
+impl CustomUnitValue {
+    pub const fn new(magnitude: Number, definition: CustomUnitDefinition) -> Self {
+        Self {
+            magnitude,
+            definition,
+        }
+    }
+
+    pub const fn magnitude(&self) -> &Number {
+        &self.magnitude
+    }
+
+    pub const fn definition(&self) -> &CustomUnitDefinition {
+        &self.definition
+    }
+
+    pub(crate) fn into_unit(self) -> UnitValue {
+        UnitValue::from_compound(
+            self.magnitude.multiply(self.definition.scale),
+            self.definition.unit,
+        )
+    }
+
+    pub(crate) fn negated(self) -> Self {
+        Self::new(self.magnitude.negated(), self.definition)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CustomUnitError {
+    InvalidName,
+    InvalidDefinition,
+}
+
+impl fmt::Display for CustomUnitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::InvalidName => "custom unit names must be unused identifiers",
+            Self::InvalidDefinition => {
+                "custom units require a positive scale and a non-affine compound unit"
+            }
+        })
+    }
+}
+
+impl std::error::Error for CustomUnitError {}
+
+fn valid_custom_unit_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    characters
+        .next()
+        .is_some_and(|character| character.is_alphabetic() || character == '_')
+        && characters.all(|character| character.is_alphanumeric() || character == '_')
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum UnitError {
     IncompatibleDimensions,

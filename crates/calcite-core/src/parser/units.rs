@@ -10,6 +10,7 @@ impl Parser<'_> {
             return false;
         }
         if self.unit_at(1).is_some()
+            || self.custom_unit_at(1).is_some()
             || self.currency_at(1).is_some()
             || self.utc_offset_at(1).is_some()
         {
@@ -212,6 +213,9 @@ impl Parser<'_> {
             consumed = 1 + zone_tokens;
             target_span = zone_span;
             ConversionTarget::TimeZone(zone)
+        } else if let Some((definition, unit_span)) = self.custom_unit_at(1) {
+            target_span = unit_span;
+            ConversionTarget::CustomUnit(definition)
         } else if let Some((unit, unit_tokens, unit_span)) = self.compound_unit_target_at(1)? {
             consumed = 1 + unit_tokens;
             target_span = unit_span;

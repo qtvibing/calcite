@@ -3,11 +3,14 @@ mod temporal;
 mod units;
 
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, ComplexNumber, Currency, DateOrder,
-    Diagnostic, DiagnosticKind, DiceDistribution, Expression, Function, Lexeme, LexemeKind, Number,
-    NumberFormat, NumberParseError, RadixInteger, RomanInteger, Span, UnaryOperator,
-    WorkdayDuration, lex_with_number_format,
+    BinaryOperator, CalculationContext, CalendarDuration, ComplexNumber, Currency,
+    CustomUnitDefinition, DateOrder, Diagnostic, DiagnosticKind, DiceDistribution, Expression,
+    Function, Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, RadixInteger,
+    RomanInteger, Span, UnaryOperator, WorkdayDuration, lex_with_number_format,
 };
+
+const MAX_SOURCE_BYTES: usize = 1_000_000;
+const MAX_PARSE_DEPTH: usize = 64;
 
 pub fn parse(source: &str) -> Result<Expression, Diagnostic> {
     parse_with_context(source, &CalculationContext::default())
@@ -17,6 +20,12 @@ pub fn parse_with_context(
     source: &str,
     context: &CalculationContext,
 ) -> Result<Expression, Diagnostic> {
+    if source.len() > MAX_SOURCE_BYTES {
+        return Err(Diagnostic::new(
+            DiagnosticKind::ExpressionTooComplex,
+            Span::new(0, source.len()),
+        ));
+    }
     let tokens = lex_with_number_format(source, context.number_format)?
         .into_iter()
         .filter(|token| token.kind != LexemeKind::Whitespace)
@@ -28,6 +37,8 @@ pub fn parse_with_context(
         number_format: context.number_format,
         default_currency: context.monetary.default_currency,
         date_order: context.temporal.date_order,
+        custom_units: &context.custom_units,
+        depth: 0,
     };
 
     let expression = parser.parse_expression(0)?;
@@ -47,10 +58,28 @@ struct Parser<'a> {
     number_format: NumberFormat,
     default_currency: Currency,
     date_order: Option<DateOrder>,
+    custom_units: &'a crate::CustomUnitRegistry,
+    depth: usize,
 }
 
 impl Parser<'_> {
     fn parse_expression(&mut self, minimum_binding_power: u8) -> Result<Expression, Diagnostic> {
+        if self.depth >= MAX_PARSE_DEPTH {
+            let span = self
+                .current()
+                .map_or(Span::empty(self.source.len()), |token| token.span);
+            return Err(Diagnostic::new(DiagnosticKind::ExpressionTooComplex, span));
+        }
+        self.depth += 1;
+        let result = self.parse_expression_inner(minimum_binding_power);
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_expression_inner(
+        &mut self,
+        minimum_binding_power: u8,
+    ) -> Result<Expression, Diagnostic> {
         let mut left = self.parse_prefix()?;
 
         loop {
@@ -307,6 +336,13 @@ impl Parser<'_> {
                         unit,
                         span: span.join(unit_span),
                     })
+                } else if let Some((definition, unit_span)) = self.custom_unit_at(0) {
+                    self.position += 1;
+                    Ok(Expression::CustomUnit {
+                        value,
+                        definition,
+                        span: span.join(unit_span),
+                    })
                 } else if let Some(value) = radix_value {
                     Ok(Expression::RadixInteger { value, span })
                 } else {
@@ -397,6 +433,17 @@ impl Parser<'_> {
                     self.temporal_keyword().expect("guard checked the keyword");
                 self.position += consumed;
                 Ok(Expression::TemporalKeyword { keyword, span })
+            }
+            LexemeKind::Word if self.custom_unit_at(0).is_some() => {
+                let (definition, span) = self
+                    .custom_unit_at(0)
+                    .expect("guard checked the custom unit");
+                self.position += 1;
+                Ok(Expression::CustomUnit {
+                    value: Number::from_i64(1),
+                    definition,
+                    span,
+                })
             }
             LexemeKind::Word if self.unit().is_some() => {
                 let (unit, consumed, span) = self.unit().expect("guard checked the unit");
@@ -1202,6 +1249,17 @@ impl Parser<'_> {
         Some((operator, span, consumed, left_power, right_power))
     }
 
+    pub(super) fn custom_unit_at(&self, offset: usize) -> Option<(CustomUnitDefinition, Span)> {
+        let token = *self.tokens.get(self.position + offset)?;
+        if token.kind != LexemeKind::Word {
+            return None;
+        }
+        self.custom_units
+            .get(&self.source[token.span.start..token.span.end])
+            .cloned()
+            .map(|definition| (definition, token.span))
+    }
+
     fn starts_implicit_multiplication(&self) -> bool {
         self.current().is_some_and(|token| {
             token.kind == LexemeKind::LeftParenthesis
@@ -1209,6 +1267,7 @@ impl Parser<'_> {
                     && (self.constant_at().is_some()
                         || self.function_call_at().is_some()
                         || (self.unit().is_some() && !self.in_starts_conversion())
+                        || (self.custom_unit_at(0).is_some() && !self.in_starts_conversion())
                         || self.word_is(0, "i")))
         })
     }

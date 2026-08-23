@@ -5,9 +5,9 @@ use crate::operations::{classify_compound_value, convert, evaluate_binary, unsup
 use crate::syntax::identifier_key;
 use crate::{
     BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, ComplexNumber,
-    Constant, Date, Diagnostic, DiagnosticKind, DiceDistribution, Expression, Fraction, Money,
-    MoneyRate, Number, OffsetClockTime, OffsetDateTime, Percentage, RadixInteger, Rate,
-    RelativeWeekdayDirection, RomanInteger, Span, TemporalKeyword, TimeSpan, UnaryOperator,
+    Constant, CustomUnitValue, Date, Diagnostic, DiagnosticKind, DiceDistribution, Expression,
+    Fraction, Money, MoneyRate, Number, OffsetClockTime, OffsetDateTime, Percentage, RadixInteger,
+    Rate, RelativeWeekdayDirection, RomanInteger, Span, TemporalKeyword, TimeSpan, UnaryOperator,
     UnitValue, UserFunction, Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime,
     parse_with_context,
 };
@@ -24,6 +24,7 @@ pub enum Value {
     Percentage(Percentage),
     Fraction(Fraction),
     Unit(UnitValue),
+    CustomUnit(CustomUnitValue),
     Money(Money),
     MoneyRate(MoneyRate),
     Rate(Rate),
@@ -95,6 +96,13 @@ impl Value {
     pub const fn as_fraction(&self) -> Option<&Fraction> {
         match self {
             Self::Fraction(fraction) => Some(fraction),
+            _ => None,
+        }
+    }
+
+    pub const fn as_custom_unit(&self) -> Option<&CustomUnitValue> {
+        match self {
+            Self::CustomUnit(value) => Some(value),
             _ => None,
         }
     }
@@ -237,6 +245,14 @@ impl fmt::Display for Value {
             Self::Unit(value) => {
                 write!(formatter, "{} {}", value.magnitude(), value.display_unit())
             }
+            Self::CustomUnit(value) => {
+                write!(
+                    formatter,
+                    "{} {}",
+                    value.magnitude(),
+                    value.definition().name()
+                )
+            }
             Self::Money(money) => money.fmt(formatter),
             Self::MoneyRate(rate) => rate.fmt(formatter),
             Self::Rate(rate) => rate.fmt(formatter),
@@ -289,6 +305,12 @@ pub(crate) fn evaluate_expression(
         Expression::Unit { value, unit, .. } => Ok(classify_compound_value(
             UnitValue::from_compound(value.clone(), unit.clone()),
         )),
+        Expression::CustomUnit {
+            value, definition, ..
+        } => Ok(Value::CustomUnit(CustomUnitValue::new(
+            value.clone(),
+            definition.clone(),
+        ))),
         Expression::Money {
             amount, currency, ..
         } => Ok(Value::Money(Money::new(amount.clone(), *currency))),
@@ -485,6 +507,10 @@ pub(crate) fn evaluate_expression(
                 }
                 (UnaryOperator::Positive, Value::Unit(value)) => Ok(Value::Unit(value)),
                 (UnaryOperator::Negative, Value::Unit(value)) => Ok(Value::Unit(value.negated())),
+                (UnaryOperator::Positive, Value::CustomUnit(value)) => Ok(Value::CustomUnit(value)),
+                (UnaryOperator::Negative, Value::CustomUnit(value)) => {
+                    Ok(Value::CustomUnit(value.negated()))
+                }
                 (UnaryOperator::Positive, Value::Money(money)) => Ok(Value::Money(money)),
                 (UnaryOperator::Negative, Value::Money(money)) => Ok(Value::Money(money.negated())),
                 (UnaryOperator::Positive, Value::Rate(rate)) => Ok(Value::Rate(rate)),
@@ -547,6 +573,7 @@ pub(crate) fn evaluate_expression(
                     | Value::Percentage(_)
                     | Value::Fraction(_)
                     | Value::Unit(_)
+                    | Value::CustomUnit(_)
                     | Value::Money(_)
                     | Value::MoneyRate(_)
                     | Value::Rate(_)

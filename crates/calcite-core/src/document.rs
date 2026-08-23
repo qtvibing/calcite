@@ -283,6 +283,7 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
         | Expression::Boolean { .. }
         | Expression::Constant { .. }
         | Expression::Unit { .. }
+        | Expression::CustomUnit { .. }
         | Expression::Money { .. }
         | Expression::Dice { .. }
         | Expression::Date { .. }

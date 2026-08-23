@@ -114,6 +114,7 @@ pub struct CalculationContext {
     pub output_format: OutputFormat,
     pub temporal: crate::TemporalContext,
     pub monetary: crate::MonetaryContext,
+    pub custom_units: crate::CustomUnitRegistry,
 }
 
 fn digit_count(value: &str) -> usize {
