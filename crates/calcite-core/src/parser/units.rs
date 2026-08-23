@@ -454,6 +454,21 @@ impl Parser<'_> {
             }
         }
 
+        if (first.eq_ignore_ascii_case("watt") || first.eq_ignore_ascii_case("kilowatt"))
+            && let (Some(second_token), Some(second)) = (
+                self.tokens.get(self.position + offset + 1).copied(),
+                self.word_text_at(offset + 1),
+            )
+            && (second.eq_ignore_ascii_case("hour") || second.eq_ignore_ascii_case("hours"))
+        {
+            let unit = if first.eq_ignore_ascii_case("watt") {
+                Unit::WattHour
+            } else {
+                Unit::KilowattHour
+            };
+            return Some((unit, 2, first_token.span.join(second_token.span)));
+        }
+
         if first.eq_ignore_ascii_case("metric") {
             let second_token = *self.tokens.get(self.position + offset + 1)?;
             let second = self.word_text_at(offset + 1)?;

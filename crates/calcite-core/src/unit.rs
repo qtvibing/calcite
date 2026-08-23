@@ -13,6 +13,16 @@ pub enum Dimension {
     Angle,
     Area,
     Volume,
+    Frequency,
+    Force,
+    Energy,
+    Power,
+    Pressure,
+    ElectricCurrent,
+    ElectricPotential,
+    Resistance,
+    ElectricCharge,
+    Information,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -66,6 +76,43 @@ pub enum Unit {
     MetricCup,
     MetricTablespoon,
     MetricTeaspoon,
+    Hertz,
+    Kilohertz,
+    Megahertz,
+    Gigahertz,
+    Newton,
+    Kilonewton,
+    Joule,
+    Kilojoule,
+    WattHour,
+    KilowattHour,
+    Watt,
+    Kilowatt,
+    Megawatt,
+    Pascal,
+    Kilopascal,
+    Megapascal,
+    Bar,
+    Psi,
+    Ampere,
+    Milliampere,
+    Volt,
+    Kilovolt,
+    Ohm,
+    Coulomb,
+    Bit,
+    Byte,
+    Kilobit,
+    Megabit,
+    Gigabit,
+    Kilobyte,
+    Megabyte,
+    Gigabyte,
+    Terabyte,
+    Kibibyte,
+    Mebibyte,
+    Gibibyte,
+    Tebibyte,
 }
 
 impl Unit {
@@ -114,6 +161,34 @@ impl Unit {
             | Self::MetricCup
             | Self::MetricTablespoon
             | Self::MetricTeaspoon => Dimension::Volume,
+            Self::Hertz | Self::Kilohertz | Self::Megahertz | Self::Gigahertz => {
+                Dimension::Frequency
+            }
+            Self::Newton | Self::Kilonewton => Dimension::Force,
+            Self::Joule | Self::Kilojoule | Self::WattHour | Self::KilowattHour => {
+                Dimension::Energy
+            }
+            Self::Watt | Self::Kilowatt | Self::Megawatt => Dimension::Power,
+            Self::Pascal | Self::Kilopascal | Self::Megapascal | Self::Bar | Self::Psi => {
+                Dimension::Pressure
+            }
+            Self::Ampere | Self::Milliampere => Dimension::ElectricCurrent,
+            Self::Volt | Self::Kilovolt => Dimension::ElectricPotential,
+            Self::Ohm => Dimension::Resistance,
+            Self::Coulomb => Dimension::ElectricCharge,
+            Self::Bit
+            | Self::Byte
+            | Self::Kilobit
+            | Self::Megabit
+            | Self::Gigabit
+            | Self::Kilobyte
+            | Self::Megabyte
+            | Self::Gigabyte
+            | Self::Terabyte
+            | Self::Kibibyte
+            | Self::Mebibyte
+            | Self::Gibibyte
+            | Self::Tebibyte => Dimension::Information,
         }
     }
 
@@ -181,6 +256,45 @@ impl Unit {
             "metriccup" | "metriccups" => Some(Self::MetricCup),
             "metrictbsp" | "metrictablespoon" | "metrictablespoons" => Some(Self::MetricTablespoon),
             "metrictsp" | "metricteaspoon" | "metricteaspoons" => Some(Self::MetricTeaspoon),
+            "hz" | "hertz" => Some(Self::Hertz),
+            "khz" | "kilohertz" => Some(Self::Kilohertz),
+            "mhz" | "megahertz" => Some(Self::Megahertz),
+            "ghz" | "gigahertz" => Some(Self::Gigahertz),
+            "newton" | "newtons" => Some(Self::Newton),
+            "kn" | "kilonewton" | "kilonewtons" => Some(Self::Kilonewton),
+            "joule" | "joules" => Some(Self::Joule),
+            "kj" | "kilojoule" | "kilojoules" => Some(Self::Kilojoule),
+            "wh" | "watthour" | "watthours" => Some(Self::WattHour),
+            "kwh" | "kilowatthour" | "kilowatthours" => Some(Self::KilowattHour),
+            "watt" | "watts" => Some(Self::Watt),
+            "kw" | "kilowatt" | "kilowatts" => Some(Self::Kilowatt),
+            "mw" | "megawatt" | "megawatts" => Some(Self::Megawatt),
+            "pa" | "pascal" | "pascals" => Some(Self::Pascal),
+            "kpa" | "kilopascal" | "kilopascals" => Some(Self::Kilopascal),
+            "mpa" | "megapascal" | "megapascals" => Some(Self::Megapascal),
+            "bar" | "bars" => Some(Self::Bar),
+            "psi" => Some(Self::Psi),
+            "amp" | "amps" | "ampere" | "amperes" => Some(Self::Ampere),
+            "ma" | "milliamp" | "milliamps" | "milliampere" | "milliamperes" => {
+                Some(Self::Milliampere)
+            }
+            "volt" | "volts" => Some(Self::Volt),
+            "kv" | "kilovolt" | "kilovolts" => Some(Self::Kilovolt),
+            "ohm" | "ohms" | "ω" => Some(Self::Ohm),
+            "coulomb" | "coulombs" => Some(Self::Coulomb),
+            "bit" | "bits" => Some(Self::Bit),
+            "byte" | "bytes" => Some(Self::Byte),
+            "kbit" | "kilobit" | "kilobits" => Some(Self::Kilobit),
+            "mbit" | "megabit" | "megabits" => Some(Self::Megabit),
+            "gbit" | "gigabit" | "gigabits" => Some(Self::Gigabit),
+            "kbyte" | "kilobyte" | "kilobytes" => Some(Self::Kilobyte),
+            "mbyte" | "megabyte" | "megabytes" => Some(Self::Megabyte),
+            "gbyte" | "gigabyte" | "gigabytes" => Some(Self::Gigabyte),
+            "tbyte" | "terabyte" | "terabytes" => Some(Self::Terabyte),
+            "kib" | "kibibyte" | "kibibytes" => Some(Self::Kibibyte),
+            "mib" | "mebibyte" | "mebibytes" => Some(Self::Mebibyte),
+            "gib" | "gibibyte" | "gibibytes" => Some(Self::Gibibyte),
+            "tib" | "tebibyte" | "tebibytes" => Some(Self::Tebibyte),
             _ => None,
         }
     }
@@ -236,18 +350,65 @@ impl Unit {
             Self::MetricCup => "metric cup",
             Self::MetricTablespoon => "metric tbsp",
             Self::MetricTeaspoon => "metric tsp",
+            Self::Hertz => "Hz",
+            Self::Kilohertz => "kHz",
+            Self::Megahertz => "MHz",
+            Self::Gigahertz => "GHz",
+            Self::Newton => "newton",
+            Self::Kilonewton => "kN",
+            Self::Joule => "joule",
+            Self::Kilojoule => "kJ",
+            Self::WattHour => "Wh",
+            Self::KilowattHour => "kWh",
+            Self::Watt => "watt",
+            Self::Kilowatt => "kW",
+            Self::Megawatt => "MW",
+            Self::Pascal => "Pa",
+            Self::Kilopascal => "kPa",
+            Self::Megapascal => "MPa",
+            Self::Bar => "bar",
+            Self::Psi => "psi",
+            Self::Ampere => "amp",
+            Self::Milliampere => "mA",
+            Self::Volt => "volt",
+            Self::Kilovolt => "kV",
+            Self::Ohm => "ohm",
+            Self::Coulomb => "coulomb",
+            Self::Bit => "bit",
+            Self::Byte => "byte",
+            Self::Kilobit => "kbit",
+            Self::Megabit => "Mbit",
+            Self::Gigabit => "Gbit",
+            Self::Kilobyte => "kbyte",
+            Self::Megabyte => "Mbyte",
+            Self::Gigabyte => "Gbyte",
+            Self::Terabyte => "Tbyte",
+            Self::Kibibyte => "KiB",
+            Self::Mebibyte => "MiB",
+            Self::Gibibyte => "GiB",
+            Self::Tebibyte => "TiB",
         }
     }
 
     fn dimensions(self) -> Dimensions {
         match self.dimension() {
-            Dimension::Length => Dimensions::new(1, 0, 0, 0, 0),
-            Dimension::Mass => Dimensions::new(0, 1, 0, 0, 0),
-            Dimension::Duration => Dimensions::new(0, 0, 1, 0, 0),
-            Dimension::Temperature => Dimensions::new(0, 0, 0, 1, 0),
-            Dimension::Angle => Dimensions::new(0, 0, 0, 0, 1),
-            Dimension::Area => Dimensions::new(2, 0, 0, 0, 0),
-            Dimension::Volume => Dimensions::new(3, 0, 0, 0, 0),
+            Dimension::Length => Dimensions::new(1, 0, 0, 0, 0, 0, 0),
+            Dimension::Mass => Dimensions::new(0, 1, 0, 0, 0, 0, 0),
+            Dimension::Duration => Dimensions::new(0, 0, 1, 0, 0, 0, 0),
+            Dimension::Temperature => Dimensions::new(0, 0, 0, 1, 0, 0, 0),
+            Dimension::Angle => Dimensions::new(0, 0, 0, 0, 1, 0, 0),
+            Dimension::Area => Dimensions::new(2, 0, 0, 0, 0, 0, 0),
+            Dimension::Volume => Dimensions::new(3, 0, 0, 0, 0, 0, 0),
+            Dimension::Frequency => Dimensions::new(0, 0, -1, 0, 0, 0, 0),
+            Dimension::Force => Dimensions::new(1, 1, -2, 0, 0, 0, 0),
+            Dimension::Energy => Dimensions::new(2, 1, -2, 0, 0, 0, 0),
+            Dimension::Power => Dimensions::new(2, 1, -3, 0, 0, 0, 0),
+            Dimension::Pressure => Dimensions::new(-1, 1, -2, 0, 0, 0, 0),
+            Dimension::ElectricCurrent => Dimensions::new(0, 0, 0, 0, 0, 1, 0),
+            Dimension::ElectricPotential => Dimensions::new(2, 1, -3, 0, 0, -1, 0),
+            Dimension::Resistance => Dimensions::new(2, 1, -3, 0, 0, -2, 0),
+            Dimension::ElectricCharge => Dimensions::new(0, 0, 1, 0, 0, 1, 0),
+            Dimension::Information => Dimensions::new(0, 0, 0, 0, 0, 0, 1),
         }
     }
 
@@ -269,7 +430,11 @@ impl Unit {
             | Self::Second
             | Self::Kelvin
             | Self::Radian
-            | Self::SquareMeter => ("1", "0"),
+            | Self::SquareMeter
+            | Self::Hertz
+            | Self::Ampere
+            | Self::Coulomb
+            | Self::Bit => ("1", "0"),
             Self::Kilometer => ("1000", "0"),
             Self::Centimeter => ("0.01", "0"),
             Self::Millimeter => ("0.001", "0"),
@@ -310,6 +475,33 @@ impl Unit {
             Self::MetricCup => ("0.00025", "0"),
             Self::MetricTablespoon => ("0.000015", "0"),
             Self::MetricTeaspoon => ("0.000005", "0"),
+            Self::Kilohertz => ("1000", "0"),
+            Self::Megahertz => ("1000000", "0"),
+            Self::Gigahertz => ("1000000000", "0"),
+            Self::Newton | Self::Watt | Self::Pascal | Self::Volt | Self::Ohm => ("1000", "0"),
+            Self::Kilonewton | Self::Kilojoule | Self::Kilowatt | Self::Kilopascal => {
+                ("1000000", "0")
+            }
+            Self::Joule => ("1000", "0"),
+            Self::WattHour => ("3600000", "0"),
+            Self::KilowattHour => ("3600000000", "0"),
+            Self::Megawatt | Self::Megapascal => ("1000000000", "0"),
+            Self::Bar => ("100000000", "0"),
+            Self::Psi => ("6894757.293168", "0"),
+            Self::Milliampere => ("0.001", "0"),
+            Self::Kilovolt => ("1000000", "0"),
+            Self::Byte => ("8", "0"),
+            Self::Kilobit => ("1000", "0"),
+            Self::Megabit => ("1000000", "0"),
+            Self::Gigabit => ("1000000000", "0"),
+            Self::Kilobyte => ("8000", "0"),
+            Self::Megabyte => ("8000000", "0"),
+            Self::Gigabyte => ("8000000000", "0"),
+            Self::Terabyte => ("8000000000000", "0"),
+            Self::Kibibyte => ("8192", "0"),
+            Self::Mebibyte => ("8388608", "0"),
+            Self::Gibibyte => ("8589934592", "0"),
+            Self::Tebibyte => ("8796093022208", "0"),
             Self::Fahrenheit | Self::Degree => unreachable!("handled above"),
         };
         (exact(scale), exact(offset))
@@ -323,11 +515,27 @@ impl fmt::Display for Unit {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Dimensions([i32; 5]);
+struct Dimensions([i32; 7]);
 
 impl Dimensions {
-    const fn new(length: i32, mass: i32, duration: i32, temperature: i32, angle: i32) -> Self {
-        Self([length, mass, duration, temperature, angle])
+    const fn new(
+        length: i32,
+        mass: i32,
+        duration: i32,
+        temperature: i32,
+        angle: i32,
+        current: i32,
+        information: i32,
+    ) -> Self {
+        Self([
+            length,
+            mass,
+            duration,
+            temperature,
+            angle,
+            current,
+            information,
+        ])
     }
 
     fn add_scaled(&mut self, other: Self, exponent: i32) {
@@ -437,20 +645,19 @@ impl CompoundUnit {
     }
 
     fn has_dimensional_cancellation(&self) -> bool {
-        let mut positive = Dimensions::default();
-        let mut negative = Dimensions::default();
+        let mut net = Dimensions::default();
+        let mut absolute_contributions = [0i32; 7];
         for (unit, exponent) in &self.factors {
-            if *exponent > 0 {
-                positive.add_scaled(unit.dimensions(), *exponent);
-            } else {
-                negative.add_scaled(unit.dimensions(), -*exponent);
+            let dimensions = unit.dimensions();
+            net.add_scaled(dimensions, *exponent);
+            for (total, component) in absolute_contributions.iter_mut().zip(dimensions.0) {
+                *total += component.saturating_mul(*exponent).saturating_abs();
             }
         }
-        positive
-            .0
+        net.0
             .iter()
-            .zip(negative.0)
-            .any(|(positive, negative)| *positive != 0 && negative != 0)
+            .zip(absolute_contributions)
+            .any(|(net, total)| net.saturating_abs() < total)
     }
 
     fn canonical(dimensions: Dimensions) -> Self {
@@ -460,6 +667,8 @@ impl CompoundUnit {
             Unit::Second,
             Unit::Kelvin,
             Unit::Radian,
+            Unit::Ampere,
+            Unit::Bit,
         ];
         let factors = units
             .into_iter()
