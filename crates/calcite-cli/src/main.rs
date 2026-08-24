@@ -4,7 +4,7 @@ mod rates;
 
 use std::{
     env, fs,
-    io::{self, IsTerminal, Read, Write},
+    io::{self, IsTerminal, Read},
     path::PathBuf,
     process::ExitCode,
 };
@@ -15,6 +15,11 @@ use calcite_core::{
     UtcOffset, Value, calculate_document_with_context,
 };
 use jiff::{Timestamp, tz::TimeZone};
+use rustyline::{
+    Config as ReadlineConfig, DefaultEditor,
+    error::ReadlineError,
+    history::{History as _, SearchDirection},
+};
 
 const USAGE: &str = "Usage: calcite [OPTIONS] [EXPRESSION]\n\
 \n\
@@ -181,36 +186,53 @@ async fn run_repl(options: &Options) -> ExitCode {
 
     let interactive = io::stdin().is_terminal();
     let mut session = CalculationSession::new();
-    let mut persistent_history = if interactive && options.history {
-        match history::History::load(history::default_path()) {
-            Ok(history) => Some(history),
+    let history_path = options.history.then(history::default_path);
+    let mut editor = if interactive {
+        match ReadlineConfig::builder()
+            .max_history_size(1_000)
+            .and_then(|builder| builder.history_ignore_dups(true))
+            .and_then(|builder| DefaultEditor::with_config(builder.build()))
+        {
+            Ok(mut editor) => {
+                if let Some(path) = &history_path
+                    && path.exists()
+                    && let Err(error) = editor.load_history(path)
+                {
+                    eprintln!("warning: could not read calculation history: {error}");
+                }
+                Some(editor)
+            }
             Err(error) => {
-                eprintln!("warning: could not read calculation history: {error}");
+                eprintln!("warning: interactive line editing is unavailable: {error}");
                 None
             }
         }
     } else {
         None
     };
-    let mut transient_history = Vec::new();
+    let mut transient_history = editor.as_ref().map(readline_history).unwrap_or_default();
     loop {
-        if interactive {
-            print!("> ");
-            if let Err(error) = io::stdout().flush() {
-                eprintln!("calcite: {error}");
-                return ExitCode::FAILURE;
+        let source = if let Some(editor) = &mut editor {
+            match editor.readline("> ") {
+                Ok(source) => source,
+                Err(ReadlineError::Interrupted) => continue,
+                Err(ReadlineError::Eof) => break,
+                Err(error) => {
+                    eprintln!("calcite: {error}");
+                    return ExitCode::FAILURE;
+                }
             }
-        }
-
-        let mut source = String::new();
-        match io::stdin().read_line(&mut source) {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("calcite: {error}");
-                return ExitCode::FAILURE;
+        } else {
+            let mut source = String::new();
+            match io::stdin().read_line(&mut source) {
+                Ok(0) => break,
+                Ok(_) => source,
+                Err(error) => {
+                    eprintln!("calcite: {error}");
+                    return ExitCode::FAILURE;
+                }
             }
-        }
+        };
         let source = source.trim();
         if source.is_empty() {
             continue;
@@ -223,42 +245,44 @@ async fn run_repl(options: &Options) -> ExitCode {
             }
             ":clear-history" => {
                 transient_history.clear();
-                if let Some(history) = &mut persistent_history
-                    && let Err(error) = history.clear()
-                {
-                    eprintln!("warning: could not clear calculation history: {error}");
+                if let Some(editor) = &mut editor {
+                    if let Err(error) = editor.clear_history() {
+                        eprintln!("warning: could not clear calculation history: {error}");
+                    }
+                    if let Some(path) = &history_path {
+                        let _ = fs::remove_file(path);
+                    }
                 }
                 continue;
             }
             ":history" => {
-                let entries = persistent_history
-                    .as_ref()
-                    .map_or(transient_history.as_slice(), history::History::entries);
-                for (index, entry) in entries.iter().enumerate() {
+                for (index, entry) in transient_history.iter().enumerate() {
                     println!("{}  {entry}", index + 1);
                 }
                 continue;
             }
             _ => {}
         }
-        let recalled = persistent_history
-            .as_ref()
-            .and_then(|history| history.resolve(source))
-            .or_else(|| resolve_transient_history(&transient_history, source))
-            .map(str::to_owned);
+        let recalled = resolve_transient_history(&transient_history, source).map(str::to_owned);
         let source = recalled.as_deref().unwrap_or(source);
         if let Some(recalled) = &recalled
             && interactive
         {
             println!("{recalled}");
         }
-        if let Some(history) = &mut persistent_history {
-            if let Err(error) = history.push(source) {
-                eprintln!("warning: could not write calculation history: {error}");
-                persistent_history = None;
-            }
-        } else if transient_history.last().is_none_or(|entry| entry != source) {
+        if transient_history.last().is_none_or(|entry| entry != source) {
             transient_history.push(source.to_owned());
+        }
+        if let Some(editor) = &mut editor {
+            if let Err(error) = editor.add_history_entry(source) {
+                eprintln!("warning: could not update calculation history: {error}");
+            } else if let Some(path) = &history_path
+                && let Err(error) = history::ensure_parent(path)
+                    .map_err(|error| error.to_string())
+                    .and_then(|()| editor.save_history(path).map_err(|error| error.to_string()))
+            {
+                eprintln!("warning: could not write calculation history: {error}");
+            }
         }
 
         let mut result = session.calculate(source, &context);
@@ -307,6 +331,19 @@ async fn run_repl(options: &Options) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+fn readline_history(editor: &DefaultEditor) -> Vec<String> {
+    (0..editor.history().len())
+        .filter_map(|index| {
+            editor
+                .history()
+                .get(index, SearchDirection::Forward)
+                .ok()
+                .flatten()
+                .map(|entry| entry.entry.into_owned())
+        })
+        .collect()
 }
 
 fn resolve_transient_history<'a>(history: &'a [String], source: &str) -> Option<&'a str> {

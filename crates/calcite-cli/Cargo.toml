@@ -11,5 +11,6 @@ path = "src/main.rs"
 calcite-core = { path = "../calcite-core" }
 calcite-rates = { path = "../calcite-rates", features = ["ecb", "frankfurter"] }
 jiff.workspace = true
+rustyline.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
