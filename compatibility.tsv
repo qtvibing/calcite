@@ -42,4 +42,4 @@ terminal-error-priority	intentionally-divergent	Calcite has structured values an
 terminal-pending-priority	intentionally-divergent	Calcite has no asynchronous pending value in the deterministic evaluator.
 terminal-none-exposes-value	intentionally-divergent	Calcite does not use Soulver terminal token states.
 formatting-default-dp	supported	Default approximate display is ten decimal places.
-formatting-unformatted	missing	Calcite does not yet expose a disable-formatting preference.
+formatting-unformatted	supported	The plain numeric format exposes canonical unformatted values.

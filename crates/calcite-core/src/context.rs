@@ -85,6 +85,7 @@ impl Default for NumberFormat {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumberOutputMode {
     Auto,
+    Plain,
     Exact,
     Fraction,
     Mixed,

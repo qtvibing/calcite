@@ -30,7 +30,7 @@ Options:\n\
       --rate-provider <P>  Use fallback, frankfurter, or ecb\n\
       --no-history         Disable persistent interactive history\n\
       --date-order <ORDER> Parse numeric dates as dmy, mdy, or ymd\n\
-      --format <MODE>      auto, exact, fraction, mixed, decimal, significant, or scientific\n\
+      --format <MODE>      auto, plain, exact, fraction, mixed, decimal, significant, or scientific\n\
       --precision <N>      Digits used by decimal/scientific output\n\
       --approximate        Mark rounded or approximate numbers with ≈\n\
       --plain              Print only the final result\n\
@@ -63,6 +63,7 @@ enum OutputMode {
 #[derive(Clone, Copy)]
 enum RequestedNumberMode {
     Auto,
+    Plain,
     Exact,
     Fraction,
     Mixed,
@@ -75,6 +76,7 @@ impl RequestedNumberMode {
     const fn resolve(self, precision: u8) -> NumberOutputMode {
         match self {
             Self::Auto => NumberOutputMode::Auto,
+            Self::Plain => NumberOutputMode::Plain,
             Self::Exact => NumberOutputMode::Exact,
             Self::Fraction => NumberOutputMode::Fraction,
             Self::Mixed => NumberOutputMode::Mixed,

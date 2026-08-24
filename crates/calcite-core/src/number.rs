@@ -606,10 +606,15 @@ impl Number {
         decimal_separator: char,
         mark_approximate: bool,
     ) -> String {
+        let plain = mode == NumberOutputMode::Plain;
         let (rendered, exact_rendering) = match mode {
             NumberOutputMode::Auto => {
                 (self.format_decimal(DISPLAY_DECIMAL_PLACES), self.is_exact())
             }
+            NumberOutputMode::Plain => match &self.0 {
+                Representation::Exact(value) => (value.to_string(), true),
+                Representation::Approximate(value) => (value.to_string(), false),
+            },
             NumberOutputMode::Exact | NumberOutputMode::Fraction => match &self.0 {
                 Representation::Exact(value) => (value.to_string(), true),
                 Representation::Approximate(_) => {
@@ -648,7 +653,7 @@ impl Number {
                 (rendered, exact)
             }
         };
-        let rendered = if decimal_separator == '.' {
+        let rendered = if plain || decimal_separator == '.' {
             rendered
         } else {
             rendered.replace('.', &decimal_separator.to_string())

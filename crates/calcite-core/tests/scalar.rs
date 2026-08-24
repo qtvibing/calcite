@@ -117,6 +117,14 @@ fn number_output_modes_preserve_exactness_and_mark_approximations() {
         "1/3"
     );
 
+    context.number_format = NumberFormat::decimal_comma();
+    context.output_format.number_mode = NumberOutputMode::Plain;
+    assert_eq!(
+        calculate_with_context("1,5 + 1", &context).unwrap().output,
+        "5/2"
+    );
+    context.number_format = NumberFormat::decimal_point();
+
     context.output_format.number_mode = NumberOutputMode::Mixed;
     assert_eq!(
         calculate_with_context("7 / 3", &context).unwrap().output,

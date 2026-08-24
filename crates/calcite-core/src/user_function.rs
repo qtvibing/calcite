@@ -8,7 +8,7 @@ pub struct UserFunction {
 }
 
 impl UserFunction {
-    pub fn new(parameters: Vec<String>, body: Expression) -> Self {
+    pub(crate) fn new(parameters: Vec<String>, body: Expression) -> Self {
         Self {
             parameters,
             body: Box::new(body),

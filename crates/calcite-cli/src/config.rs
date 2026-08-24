@@ -154,6 +154,7 @@ pub fn parse_date_order(value: &str) -> Result<DateOrder, String> {
 pub fn parse_format(value: &str) -> Result<RequestedNumberMode, String> {
     match value.to_ascii_lowercase().as_str() {
         "auto" => Ok(RequestedNumberMode::Auto),
+        "plain" | "unformatted" => Ok(RequestedNumberMode::Plain),
         "exact" => Ok(RequestedNumberMode::Exact),
         "fraction" => Ok(RequestedNumberMode::Fraction),
         "mixed" => Ok(RequestedNumberMode::Mixed),
@@ -161,7 +162,7 @@ pub fn parse_format(value: &str) -> Result<RequestedNumberMode, String> {
         "significant" => Ok(RequestedNumberMode::Significant),
         "scientific" => Ok(RequestedNumberMode::Scientific),
         _ => Err(
-            "format must be auto, exact, fraction, mixed, decimal, significant, or scientific"
+            "format must be auto, plain, exact, fraction, mixed, decimal, significant, or scientific"
                 .into(),
         ),
     }
