@@ -7,8 +7,6 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
-# The fuzz crate stays outside the main workspace: it only builds under
-# nightly with sanitizer coverage flags that the workspace does not use.
 [workspace]
 
 [dependencies]

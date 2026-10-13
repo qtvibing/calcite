@@ -26,6 +26,14 @@ fn double_asterisk_is_right_associative_power() {
 }
 
 #[test]
+fn huge_exact_powers_are_rejected() {
+    let error = calculate("34E55332^1111").expect_err("the result has 61 million digits");
+    assert_eq!(error.kind(), DiagnosticKind::ExponentTooLarge);
+    // A large but manageable power still evaluates.
+    assert!(output("2^100000").len() > 30_000);
+}
+
+#[test]
 fn spaced_percent_is_remainder_while_attached_percent_is_percentage() {
     assert_eq!(output("17 % 5"), "2");
     assert_eq!(output("-17 % 5"), "-2");

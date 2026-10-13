@@ -4,7 +4,10 @@ use dashu_float::{
     FBig,
     round::mode::{Down, HalfAway, Up},
 };
-use dashu_int::{IBig, ops::UnsignedAbs};
+use dashu_int::{
+    IBig,
+    ops::{EstimatedLog2, UnsignedAbs},
+};
 use dashu_ratio::RBig;
 
 use crate::{NumberOutputMode, Radix};
@@ -14,6 +17,7 @@ const DISPLAY_DECIMAL_PLACES: usize = 10;
 const MAX_LITERAL_DIGITS: usize = 10_000;
 const MAX_LITERAL_EXPONENT: u32 = 100_000;
 const MAX_INTEGER_EXPONENT: isize = 100_000;
+const MAX_POW_RESULT_BITS: f32 = 1.0e6;
 const MAX_ROUNDING_PLACES: u64 = 10_000;
 const MAX_ROOT_DEGREE: usize = 1_000;
 const MAX_EXPONENTIAL_ARGUMENT: i64 = 1_000;
@@ -565,7 +569,15 @@ impl Number {
                 }
 
                 return Ok(match self.0 {
-                    Representation::Exact(value) => Self(Representation::Exact(value.pow(integer))),
+                    Representation::Exact(value) => {
+                        // The exponent guard does not bound the base size.
+                        // An exact power with many digits does not fit in
+                        // memory. Reject it here.
+                        if !exact_power_fits(&value, integer) {
+                            return Err(NumericError::ExponentTooLarge);
+                        }
+                        Self(Representation::Exact(value.pow(integer)))
+                    }
                     Representation::Approximate(value) => {
                         let result = value.powi(integer.into());
                         // powi(0) returns a real with unlimited precision.
@@ -829,6 +841,19 @@ fn bounded_nonnegative_integer(
         .to_string()
         .parse()
         .map_err(|_| NumericError::CombinatoricsTooLarge)
+}
+
+fn exact_power_fits(base: &RBig, exponent: isize) -> bool {
+    if base == &RBig::ZERO {
+        return true;
+    }
+    let bits = base
+        .numerator()
+        .log2_bounds()
+        .1
+        .abs()
+        .max(base.denominator().log2_bounds().1.abs());
+    bits * exponent.unsigned_abs() as f32 <= MAX_POW_RESULT_BITS
 }
 
 fn into_real(value: Representation) -> Real {
