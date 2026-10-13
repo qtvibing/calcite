@@ -204,7 +204,7 @@ Deterministic finance functions include tax extraction, compound growth, present
 
 ```text
 add_tax($80, 25%)            → 100 USD
-future_value($1000, 5%, 10)  → 1628.8946267774 USD
+future_value($1000, 5%, 10)  → 1628.89 USD   (rounded to the currency's minor units)
 break_even($10000, $25)      → 400
 ```
 

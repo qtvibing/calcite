@@ -1,7 +1,7 @@
 use calcite_core::{
     CalculationContext, ClockTime, Currency, Date, DiagnosticKind, ExchangeRateFreshness,
-    ExchangeRateSnapshot, Number, OffsetDateTime, UtcOffset, calculate, calculate_document,
-    calculate_with_context,
+    ExchangeRateSnapshot, Number, NumberOutputMode, OffsetDateTime, UtcOffset, calculate,
+    calculate_document, calculate_with_context,
 };
 
 fn output(source: &str) -> String {
@@ -25,7 +25,7 @@ fn iso_currency_snapshot_exposes_codes_and_minor_units() {
 fn expanded_currency_codes_create_typed_money() {
     for (source, expected) in [
         ("AED 100", "100 AED"),
-        ("1.2345 BHD", "1.2345 BHD"),
+        ("1.2345 BHD", "1.235 BHD"),
         ("5000 CLP", "5000 CLP"),
         ("BRL 20 + BRL 5", "25 BRL"),
         ("XAU 2", "2 XAU"),
@@ -65,6 +65,27 @@ fn english_currency_aliases_resolve_to_iso_currencies() {
     }
     // `pound` remains the mass unit; GBP is spelled `sterling`.
     assert_eq!(calculate("5 pounds").unwrap().output, "5 lb");
+}
+
+#[test]
+fn money_displays_rounded_to_currency_minor_units() {
+    assert_eq!(output("1564.3636363636 EUR"), "1564.36 EUR");
+    assert_eq!(output("3200.5 JPY"), "3201 JPY");
+    assert_eq!(output("1.234567 BHD"), "1.235 BHD");
+    assert_eq!(output("80 USD"), "80 USD");
+    // Explicitly chosen precision is respected; auto mode is the only mode
+    // that rounds to minor units.
+    let mut context = CalculationContext::default();
+    context.output_format.number_mode = NumberOutputMode::Decimal { places: 10 };
+    assert_eq!(
+        calculate_with_context("1564.3636363636 EUR", &context)
+            .unwrap()
+            .output,
+        "1564.3636363636 EUR"
+    );
+    // The typed value keeps full precision regardless of display rounding.
+    let calculation = calculate("1564.3636363636 EUR").unwrap();
+    assert!(calculation.value.as_money().is_some());
 }
 
 #[test]

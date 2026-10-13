@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::{CalculationContext, ComplexNumber, Number, Value};
+use crate::{CalculationContext, ComplexNumber, Currency, Number, NumberOutputMode, Value};
 
 pub fn format(value: &Value) -> String {
     format_with_context(value, &CalculationContext::default())
@@ -46,7 +46,16 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
             render(value.magnitude()),
             value.definition().name()
         ),
-        Value::Money(money) => format!("{} {}", render(money.amount()), money.currency()),
+        Value::Money(money) => {
+            let mode = money_output_mode(context, money.currency());
+            format!(
+                "{} {}",
+                money
+                    .amount()
+                    .formatted_with_mode(mode, decimal_separator, context.output_format.mark_approximate),
+                money.currency()
+            )
+        }
         Value::MoneyRate(rate) => rate.formatted_with(&render(rate.amount())),
         Value::Rate(rate) => rate.formatted_with(&render(rate.magnitude())),
         Value::Dice(dice) => dice.to_string(),
@@ -63,6 +72,21 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         Value::WorkdayDuration(duration) => duration.to_string(),
         Value::Weekday(weekday) => weekday.to_string(),
         Value::Boolean(value) => value.to_string(),
+    }
+}
+
+/// Money renders rounded to its currency's minor units in the default auto
+/// mode. Explicitly chosen output modes are respected as-is, so
+/// `--format decimal --precision 20` opts out of rounding. The underlying
+/// value is never rounded.
+fn money_output_mode(context: &CalculationContext, currency: Currency) -> NumberOutputMode {
+    match context.output_format.number_mode {
+        NumberOutputMode::Auto => {
+            currency.minor_units().map_or(NumberOutputMode::Auto, |places| {
+                NumberOutputMode::Decimal { places }
+            })
+        }
+        mode => mode,
     }
 }
 

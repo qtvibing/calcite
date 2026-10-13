@@ -140,6 +140,6 @@ fn finance_values_flow_through_documents() {
         "principal = $10000\nrate = 6%\nyears = 6\npayment = mortgage_payment(principal, rate, years)\nround(payment, 2)",
     )
     .unwrap();
-    assert_eq!(document.lines[3].output, "165.7288789347 USD");
+    assert_eq!(document.lines[3].output, "165.73 USD");
     assert_eq!(document.lines[4].output, "165.73 USD");
 }

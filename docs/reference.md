@@ -402,6 +402,8 @@ An ISO code after a complete expression labels the result as money. The attachme
 
 Attachment requires a plain number result. A percentage or a value that already carries a currency is rejected rather than reinterpreted.
 
+In the default auto output mode, money displays rounded to its currency's minor units (two for EUR, zero for JPY, three for BHD). The typed value keeps full precision, JSON output keeps exact amounts, and any explicitly chosen output mode such as `decimal` with a precision is respected as-is.
+
 Arithmetic preserves currency:
 
 ```text
