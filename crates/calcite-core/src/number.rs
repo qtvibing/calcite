@@ -567,7 +567,14 @@ impl Number {
                 return Ok(match self.0 {
                     Representation::Exact(value) => Self(Representation::Exact(value.pow(integer))),
                     Representation::Approximate(value) => {
-                        Self(Representation::Approximate(value.powi(integer.into())))
+                        let result = value.powi(integer.into());
+                        // powi can return a real with unlimited precision
+                        // (an exponent of zero short-circuits to an exact
+                        // value), and dashu panics on arithmetic between
+                        // unlimited-precision reals. Clamp the context back.
+                        Self(Representation::Approximate(
+                            result.with_precision(WORKING_PRECISION).value(),
+                        ))
                     }
                 });
             }

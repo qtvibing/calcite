@@ -1,0 +1,32 @@
+[package]
+name = "calcite-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# The fuzz crate stays outside the main workspace: it only builds under
+# nightly with sanitizer coverage flags that the workspace does not use.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.calcite-core]
+path = "../crates/calcite-core"
+
+[[bin]]
+name = "document"
+path = "fuzz_targets/document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "surface"
+path = "fuzz_targets/surface.rs"
+test = false
+doc = false
+bench = false
