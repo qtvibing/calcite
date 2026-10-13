@@ -104,7 +104,10 @@ fn conversational_input_is_normalized_in_the_repl_too() {
     let output = child.wait_with_output().unwrap();
 
     assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "8.04672 km\n10\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "8.04672 km\n10\n"
+    );
     assert!(output.stderr.is_empty());
 }
 
@@ -270,7 +273,11 @@ fn supports_help_version_and_explicit_eval_modes() {
         .output()
         .expect("calcite should run");
     assert!(help.status.success());
-    assert!(String::from_utf8(help.stdout).unwrap().contains("Usage: calcite"));
+    assert!(
+        String::from_utf8(help.stdout)
+            .unwrap()
+            .contains("Usage: calcite")
+    );
 
     let version = calcite()
         .arg("--version")

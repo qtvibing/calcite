@@ -67,8 +67,8 @@ pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
 pub use roman::RomanInteger;
 pub use session::CalculationSession;
-pub use surface::surface_variants;
 pub use span::Span;
+pub use surface::surface_variants;
 pub use syntax::{
     BinaryOperator, Constant, ConversionTarget, Expression, Function, RelativeWeekdayDirection,
     TemporalKeyword, UnaryOperator,

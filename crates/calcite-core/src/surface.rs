@@ -36,10 +36,10 @@ pub fn surface_variants(source: &str) -> Vec<String> {
     if normalized != raw {
         variants.push(normalized);
     }
-    if let Some(rewritten) = rewrite_quantity_question(trimmed) {
-        if !variants.contains(&rewritten) {
-            variants.push(rewritten);
-        }
+    if let Some(rewritten) = rewrite_quantity_question(trimmed)
+        && !variants.contains(&rewritten)
+    {
+        variants.push(rewritten);
     }
     variants
 }
@@ -84,7 +84,9 @@ fn rewrite_quantity_question(source: &str) -> Option<String> {
         return None;
     }
     let rest = &words[2..];
-    let separator = rest.iter().position(|word| word.eq_ignore_ascii_case("in"))?;
+    let separator = rest
+        .iter()
+        .position(|word| word.eq_ignore_ascii_case("in"))?;
     let mut subject = &rest[..separator];
     let object = &rest[separator + 1..];
     // `are` is part of the quantity phrasing (`how many X are in Y`); `is`
@@ -102,9 +104,5 @@ fn rewrite_quantity_question(source: &str) -> Option<String> {
     {
         return None;
     }
-    Some(format!(
-        "{} in {}",
-        object.join(" "),
-        subject.join(" ")
-    ))
+    Some(format!("{} in {}", object.join(" "), subject.join(" ")))
 }

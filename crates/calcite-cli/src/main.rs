@@ -12,17 +12,17 @@ use std::{
 use calcite_core::{
     CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
     DiagnosticKind, DocumentCalculation, EntropySource, Function, Number, NumberFormat,
-    NumberOutputMode, OffsetDateTime, UtcOffset, Value, calculate_document_with_context_and_entropy,
-    surface_variants,
+    NumberOutputMode, OffsetDateTime, UtcOffset, Value,
+    calculate_document_with_context_and_entropy, surface_variants,
 };
 use jiff::{Timestamp, tz::TimeZone};
 use rustyline::{
     Config as ReadlineConfig, Editor,
     completion::{Completer, Pair},
     error::ReadlineError,
-    history::{FileHistory, History as _, SearchDirection},
-    hint::Hinter,
     highlight::Highlighter,
+    hint::Hinter,
+    history::{FileHistory, History as _, SearchDirection},
     validate::Validator,
 };
 
@@ -252,7 +252,14 @@ struct ReplHelper {
 }
 
 impl ReplHelper {
-    const COMMANDS: &[&str] = &[":clear", ":clear-history", ":help", ":history", ":quit", ":exit"];
+    const COMMANDS: &[&str] = &[
+        ":clear",
+        ":clear-history",
+        ":help",
+        ":history",
+        ":quit",
+        ":exit",
+    ];
 
     fn sync(&mut self, session: &CalculationSession, context: &CalculationContext) {
         self.session = session.clone();
@@ -403,9 +410,7 @@ async fn run_repl(options: &Options) -> ExitCode {
         match ReadlineConfig::builder()
             .max_history_size(1_000)
             .and_then(|builder| builder.history_ignore_dups(true))
-            .and_then(|builder| {
-                Editor::<ReplHelper, FileHistory>::with_config(builder.build())
-            })
+            .and_then(|builder| Editor::<ReplHelper, FileHistory>::with_config(builder.build()))
         {
             Ok(mut editor) => {
                 editor.set_helper(Some(helper));
@@ -1034,10 +1039,7 @@ mod tests {
     #[test]
     fn completion_matches_commands_after_colon() {
         let helper = helper_with_line("2 + 2");
-        assert_eq!(
-            helper.candidates(":q"),
-            vec![":quit".to_owned()]
-        );
+        assert_eq!(helper.candidates(":q"), vec![":quit".to_owned()]);
         assert!(helper.candidates(":c").len() >= 2);
     }
 

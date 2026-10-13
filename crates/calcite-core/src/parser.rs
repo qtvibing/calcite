@@ -1045,8 +1045,8 @@ impl Parser<'_> {
                         continue;
                     };
                     let joined = words.join(" ");
-                    if let Some(currency) = Currency::from_code(&joined)
-                        .or_else(|| Currency::from_alias(&joined))
+                    if let Some(currency) =
+                        Currency::from_code(&joined).or_else(|| Currency::from_alias(&joined))
                     {
                         let last = self.tokens[self.position + offset + count - 1];
                         return Some((currency, count, token.span.join(last.span)));

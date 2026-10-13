@@ -50,9 +50,11 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
             let mode = money_output_mode(context, money.currency());
             format!(
                 "{} {}",
-                money
-                    .amount()
-                    .formatted_with_mode(mode, decimal_separator, context.output_format.mark_approximate),
+                money.amount().formatted_with_mode(
+                    mode,
+                    decimal_separator,
+                    context.output_format.mark_approximate
+                ),
                 money.currency()
             )
         }
@@ -81,11 +83,11 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
 /// value is never rounded.
 fn money_output_mode(context: &CalculationContext, currency: Currency) -> NumberOutputMode {
     match context.output_format.number_mode {
-        NumberOutputMode::Auto => {
-            currency.minor_units().map_or(NumberOutputMode::Auto, |places| {
-                NumberOutputMode::Decimal { places }
-            })
-        }
+        NumberOutputMode::Auto => currency
+            .minor_units()
+            .map_or(NumberOutputMode::Auto, |places| NumberOutputMode::Decimal {
+                places,
+            }),
         mode => mode,
     }
 }

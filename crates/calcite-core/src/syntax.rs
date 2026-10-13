@@ -178,7 +178,10 @@ impl Function {
         (&["present_value"], Function::PresentValue),
         (&["cagr"], Function::CompoundAnnualGrowthRate),
         (&["roi"], Function::ReturnOnInvestment),
-        (&["mortgage_payment", "loan_payment"], Function::MortgagePayment),
+        (
+            &["mortgage_payment", "loan_payment"],
+            Function::MortgagePayment,
+        ),
         (&["total_repayment"], Function::TotalRepayment),
         (&["total_interest"], Function::TotalInterest),
         (&["purchasing_power"], Function::PurchasingPower),
@@ -190,11 +193,11 @@ impl Function {
             &["gcd", "greatest_common_divisor"],
             Function::GreatestCommonDivisor,
         ),
-        (&["lcm", "least_common_multiple"], Function::LeastCommonMultiple),
         (
-            &["is_prime", "isprime", "prime"],
-            Function::IsPrime,
+            &["lcm", "least_common_multiple"],
+            Function::LeastCommonMultiple,
         ),
+        (&["is_prime", "isprime", "prime"], Function::IsPrime),
         (&["probability"], Function::Probability),
         (
             &["expected_value", "expectedvalue"],
@@ -219,10 +222,7 @@ impl Function {
         (&["cbrt"], Function::CubicRoot),
         (&["root"], Function::NthRoot),
         (&["ln"], Function::NaturalLogarithm),
-        (
-            &["log", "log10", "logarithm"],
-            Function::CommonLogarithm,
-        ),
+        (&["log", "log10", "logarithm"], Function::CommonLogarithm),
         (&["log2"], Function::BinaryLogarithm),
         (&["sin", "sine"], Function::Sine),
         (&["cos", "cosine"], Function::Cosine),
@@ -235,18 +235,9 @@ impl Function {
         (&["sinh"], Function::HyperbolicSine),
         (&["cosh"], Function::HyperbolicCosine),
         (&["tanh"], Function::HyperbolicTangent),
-        (
-            &["asinh"],
-            Function::InverseHyperbolicSine,
-        ),
-        (
-            &["acosh"],
-            Function::InverseHyperbolicCosine,
-        ),
-        (
-            &["atanh"],
-            Function::InverseHyperbolicTangent,
-        ),
+        (&["asinh"], Function::InverseHyperbolicSine),
+        (&["acosh"], Function::InverseHyperbolicCosine),
+        (&["atanh"], Function::InverseHyperbolicTangent),
         (&["abs"], Function::AbsoluteValue),
         (&["sum"], Function::Sum),
         (&["average", "avg"], Function::Average),
@@ -255,10 +246,7 @@ impl Function {
         (&["median"], Function::Median),
         (&["count"], Function::Count),
         (&["product"], Function::Product),
-        (
-            &["weekday", "dayofweek", "day_of_week"],
-            Function::Weekday,
-        ),
+        (&["weekday", "dayofweek", "day_of_week"], Function::Weekday),
         (&["isworkday", "is_workday"], Function::IsWorkday),
         (
             &[
@@ -283,10 +271,7 @@ impl Function {
             &["previousworkday", "previous_workday"],
             Function::PreviousWorkday,
         ),
-        (
-            &["timebetween", "time_between"],
-            Function::TimeBetween,
-        ),
+        (&["timebetween", "time_between"], Function::TimeBetween),
         (&["timefrom", "time_from"], Function::TimeFrom),
         (&["timesince", "time_since"], Function::TimeSince),
         (&["timeuntil", "time_until"], Function::TimeUntil),

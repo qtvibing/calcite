@@ -140,9 +140,7 @@ fn random_language_forms_accept_alternative_phrasings() {
     ] {
         let mut entropy = [1].into_iter();
         assert_eq!(
-            calculate_with_entropy(source, &mut entropy)
-                .unwrap()
-                .output,
+            calculate_with_entropy(source, &mut entropy).unwrap().output,
             expected,
             "{source}"
         );
