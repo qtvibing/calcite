@@ -79,7 +79,7 @@ The REPL preserves variables and the previous result:
 25 USD
 ```
 
-It has editable persistent history, including arrow-key navigation. The built-in commands are:
+It has editable persistent history, including arrow-key navigation. Tab completion covers variables, function names, currency codes, and `:` commands, and a live hint shows the result of the current line as you type it. The built-in commands are:
 
 | Command | Effect |
 | --- | --- |

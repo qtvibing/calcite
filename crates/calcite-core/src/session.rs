@@ -77,6 +77,11 @@ impl CalculationSession {
         self.variables.clear();
     }
 
+    /// Returns the session's variable names, including `ans` and `_`.
+    pub fn variable_names(&self) -> impl Iterator<Item = &str> {
+        self.variables.keys().map(String::as_str)
+    }
+
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.variables.get(&identifier_key(name))
     }

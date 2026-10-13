@@ -166,91 +166,159 @@ impl Function {
         matches!(self, Self::CoinFlip)
     }
 
+    /// Every function name and its aliases. The first name in each entry is
+    /// the canonical form offered by completion.
+    pub(crate) const NAMES: &[(&[&str], Function)] = &[
+        (&["sales_tax", "tax"], Function::SalesTax),
+        (&["add_tax"], Function::AddTax),
+        (&["remove_tax"], Function::RemoveTax),
+        (&["tax_from_total"], Function::TaxFromTotal),
+        (&["future_value"], Function::FutureValue),
+        (&["compound_interest"], Function::CompoundInterest),
+        (&["present_value"], Function::PresentValue),
+        (&["cagr"], Function::CompoundAnnualGrowthRate),
+        (&["roi"], Function::ReturnOnInvestment),
+        (&["mortgage_payment", "loan_payment"], Function::MortgagePayment),
+        (&["total_repayment"], Function::TotalRepayment),
+        (&["total_interest"], Function::TotalInterest),
+        (&["purchasing_power"], Function::PurchasingPower),
+        (&["break_even"], Function::BreakEven),
+        (&["clamp"], Function::Clamp),
+        (&["midpoint"], Function::Midpoint),
+        (&["proportion"], Function::ProportionDenominator),
+        (
+            &["gcd", "greatest_common_divisor"],
+            Function::GreatestCommonDivisor,
+        ),
+        (&["lcm", "least_common_multiple"], Function::LeastCommonMultiple),
+        (
+            &["is_prime", "isprime", "prime"],
+            Function::IsPrime,
+        ),
+        (&["probability"], Function::Probability),
+        (
+            &["expected_value", "expectedvalue"],
+            Function::ExpectedValue,
+        ),
+        (&["roll"], Function::Roll),
+        (&["coinflip", "coin_flip"], Function::CoinFlip),
+        (&["factorial"], Function::Factorial),
+        (
+            &["permutation", "permutations", "perm"],
+            Function::Permutation,
+        ),
+        (
+            &["combination", "combinations", "choose"],
+            Function::Combination,
+        ),
+        (&["bin", "binary"], Function::Binary),
+        (&["oct", "octal"], Function::Octal),
+        (&["hex", "hexadecimal"], Function::Hexadecimal),
+        (&["int", "integer"], Function::Integer),
+        (&["sqrt"], Function::SquareRoot),
+        (&["cbrt"], Function::CubicRoot),
+        (&["root"], Function::NthRoot),
+        (&["ln"], Function::NaturalLogarithm),
+        (
+            &["log", "log10", "logarithm"],
+            Function::CommonLogarithm,
+        ),
+        (&["log2"], Function::BinaryLogarithm),
+        (&["sin", "sine"], Function::Sine),
+        (&["cos", "cosine"], Function::Cosine),
+        (&["tan", "tangent"], Function::Tangent),
+        (&["asin", "arcsine"], Function::ArcSine),
+        (&["acos", "arccosine"], Function::ArcCosine),
+        (&["atan", "arctangent"], Function::ArcTangent),
+        (&["atan2"], Function::ArcTangent2),
+        (&["exp", "exponential"], Function::Exponential),
+        (&["sinh"], Function::HyperbolicSine),
+        (&["cosh"], Function::HyperbolicCosine),
+        (&["tanh"], Function::HyperbolicTangent),
+        (
+            &["asinh"],
+            Function::InverseHyperbolicSine,
+        ),
+        (
+            &["acosh"],
+            Function::InverseHyperbolicCosine,
+        ),
+        (
+            &["atanh"],
+            Function::InverseHyperbolicTangent,
+        ),
+        (&["abs"], Function::AbsoluteValue),
+        (&["sum"], Function::Sum),
+        (&["average", "avg"], Function::Average),
+        (&["minimum", "min"], Function::Minimum),
+        (&["maximum", "max"], Function::Maximum),
+        (&["median"], Function::Median),
+        (&["count"], Function::Count),
+        (&["product"], Function::Product),
+        (
+            &["weekday", "dayofweek", "day_of_week"],
+            Function::Weekday,
+        ),
+        (&["isworkday", "is_workday"], Function::IsWorkday),
+        (
+            &[
+                "addworkdays",
+                "add_workdays",
+                "addbusinessdays",
+                "add_business_days",
+            ],
+            Function::AddWorkdays,
+        ),
+        (
+            &[
+                "workdaysbetween",
+                "workdays_between",
+                "businessdaysbetween",
+                "business_days_between",
+            ],
+            Function::WorkdaysBetween,
+        ),
+        (&["nextworkday", "next_workday"], Function::NextWorkday),
+        (
+            &["previousworkday", "previous_workday"],
+            Function::PreviousWorkday,
+        ),
+        (
+            &["timebetween", "time_between"],
+            Function::TimeBetween,
+        ),
+        (&["timefrom", "time_from"], Function::TimeFrom),
+        (&["timesince", "time_since"], Function::TimeSince),
+        (&["timeuntil", "time_until"], Function::TimeUntil),
+        (
+            &["calendarbetween", "calendar_between"],
+            Function::CalendarBetween,
+        ),
+        (&["calendarfrom", "calendar_from"], Function::CalendarFrom),
+        (
+            &["calendarsince", "calendar_since"],
+            Function::CalendarSince,
+        ),
+        (
+            &["calendaruntil", "calendar_until"],
+            Function::CalendarUntil,
+        ),
+        (&["round"], Function::Round),
+        (&["floor"], Function::Floor),
+        (&["ceiling", "ceil"], Function::Ceiling),
+    ];
+
+    /// Returns the canonical name of every function.
+    pub fn canonical_names() -> impl Iterator<Item = &'static str> {
+        Self::NAMES.iter().map(|(names, _)| names[0])
+    }
+
     pub(crate) fn from_name(name: &str) -> Option<Self> {
-        Some(match name.to_ascii_lowercase().as_str() {
-            "sales_tax" | "tax" => Self::SalesTax,
-            "add_tax" => Self::AddTax,
-            "remove_tax" => Self::RemoveTax,
-            "tax_from_total" => Self::TaxFromTotal,
-            "future_value" => Self::FutureValue,
-            "compound_interest" => Self::CompoundInterest,
-            "present_value" => Self::PresentValue,
-            "cagr" => Self::CompoundAnnualGrowthRate,
-            "roi" => Self::ReturnOnInvestment,
-            "mortgage_payment" | "loan_payment" => Self::MortgagePayment,
-            "total_repayment" => Self::TotalRepayment,
-            "total_interest" => Self::TotalInterest,
-            "purchasing_power" => Self::PurchasingPower,
-            "break_even" => Self::BreakEven,
-            "clamp" => Self::Clamp,
-            "midpoint" => Self::Midpoint,
-            "proportion" => Self::ProportionDenominator,
-            "gcd" | "greatest_common_divisor" => Self::GreatestCommonDivisor,
-            "lcm" | "least_common_multiple" => Self::LeastCommonMultiple,
-            "is_prime" | "isprime" | "prime" => Self::IsPrime,
-            "probability" => Self::Probability,
-            "expected_value" | "expectedvalue" => Self::ExpectedValue,
-            "roll" => Self::Roll,
-            "coinflip" | "coin_flip" => Self::CoinFlip,
-            "factorial" => Self::Factorial,
-            "permutation" | "permutations" | "perm" => Self::Permutation,
-            "combination" | "combinations" | "choose" => Self::Combination,
-            "bin" | "binary" => Self::Binary,
-            "oct" | "octal" => Self::Octal,
-            "hex" | "hexadecimal" => Self::Hexadecimal,
-            "int" | "integer" => Self::Integer,
-            "sqrt" => Self::SquareRoot,
-            "cbrt" => Self::CubicRoot,
-            "root" => Self::NthRoot,
-            "ln" => Self::NaturalLogarithm,
-            "log" | "log10" | "logarithm" => Self::CommonLogarithm,
-            "log2" => Self::BinaryLogarithm,
-            "sin" | "sine" => Self::Sine,
-            "cos" | "cosine" => Self::Cosine,
-            "tan" | "tangent" => Self::Tangent,
-            "asin" | "arcsine" => Self::ArcSine,
-            "acos" | "arccosine" => Self::ArcCosine,
-            "atan" | "arctangent" => Self::ArcTangent,
-            "atan2" => Self::ArcTangent2,
-            "exp" | "exponential" => Self::Exponential,
-            "sinh" => Self::HyperbolicSine,
-            "cosh" => Self::HyperbolicCosine,
-            "tanh" => Self::HyperbolicTangent,
-            "asinh" => Self::InverseHyperbolicSine,
-            "acosh" => Self::InverseHyperbolicCosine,
-            "atanh" => Self::InverseHyperbolicTangent,
-            "abs" => Self::AbsoluteValue,
-            "sum" => Self::Sum,
-            "average" | "avg" => Self::Average,
-            "minimum" | "min" => Self::Minimum,
-            "maximum" | "max" => Self::Maximum,
-            "median" => Self::Median,
-            "count" => Self::Count,
-            "product" => Self::Product,
-            "weekday" | "dayofweek" | "day_of_week" => Self::Weekday,
-            "isworkday" | "is_workday" => Self::IsWorkday,
-            "addworkdays" | "add_workdays" | "addbusinessdays" | "add_business_days" => {
-                Self::AddWorkdays
-            }
-            "workdaysbetween"
-            | "workdays_between"
-            | "businessdaysbetween"
-            | "business_days_between" => Self::WorkdaysBetween,
-            "nextworkday" | "next_workday" => Self::NextWorkday,
-            "previousworkday" | "previous_workday" => Self::PreviousWorkday,
-            "timebetween" | "time_between" => Self::TimeBetween,
-            "timefrom" | "time_from" => Self::TimeFrom,
-            "timesince" | "time_since" => Self::TimeSince,
-            "timeuntil" | "time_until" => Self::TimeUntil,
-            "calendarbetween" | "calendar_between" => Self::CalendarBetween,
-            "calendarfrom" | "calendar_from" => Self::CalendarFrom,
-            "calendarsince" | "calendar_since" => Self::CalendarSince,
-            "calendaruntil" | "calendar_until" => Self::CalendarUntil,
-            "round" => Self::Round,
-            "floor" => Self::Floor,
-            "ceiling" | "ceil" => Self::Ceiling,
-            _ => return None,
-        })
+        let lowered = name.to_ascii_lowercase();
+        Self::NAMES
+            .iter()
+            .find(|(names, _)| names.contains(&lowered.as_str()))
+            .map(|(_, function)| *function)
     }
 }
 

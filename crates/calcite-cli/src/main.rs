@@ -11,15 +11,19 @@ use std::{
 
 use calcite_core::{
     CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
-    DiagnosticKind, DocumentCalculation, EntropySource, Number, NumberFormat, NumberOutputMode,
-    OffsetDateTime, UtcOffset, Value, calculate_document_with_context_and_entropy,
+    DiagnosticKind, DocumentCalculation, EntropySource, Function, Number, NumberFormat,
+    NumberOutputMode, OffsetDateTime, UtcOffset, Value, calculate_document_with_context_and_entropy,
     surface_variants,
 };
 use jiff::{Timestamp, tz::TimeZone};
 use rustyline::{
-    Config as ReadlineConfig, DefaultEditor,
+    Config as ReadlineConfig, Editor,
+    completion::{Completer, Pair},
     error::ReadlineError,
-    history::{History as _, SearchDirection},
+    history::{FileHistory, History as _, SearchDirection},
+    hint::Hinter,
+    highlight::Highlighter,
+    validate::Validator,
 };
 
 #[derive(Default)]
@@ -237,6 +241,115 @@ async fn calculate_surface_variants(
     Err(first.expect("the raw variant is always tried first"))
 }
 
+/// REPL helper providing completion and a live result hint.
+///
+/// The helper keeps its own copy of the session and context, synchronized
+/// after every line, because rustyline's helper callbacks only receive `&self`.
+#[derive(Clone)]
+struct ReplHelper {
+    session: CalculationSession,
+    context: CalculationContext,
+}
+
+impl ReplHelper {
+    const COMMANDS: &[&str] = &[":clear", ":clear-history", ":help", ":history", ":quit", ":exit"];
+
+    fn sync(&mut self, session: &CalculationSession, context: &CalculationContext) {
+        self.session = session.clone();
+        self.context = context.clone();
+    }
+
+    /// Returns completion candidates for the word at the cursor.
+    fn candidates(&self, prefix: &str) -> Vec<String> {
+        if prefix.starts_with(':') {
+            return Self::COMMANDS
+                .iter()
+                .filter(|command| command.starts_with(prefix))
+                .map(|command| (*command).to_owned())
+                .collect();
+        }
+        let lowered = prefix.to_ascii_lowercase();
+        let mut matches: Vec<String> = self
+            .session
+            .variable_names()
+            .filter(|name| name.starts_with(&lowered))
+            .map(str::to_owned)
+            .collect();
+        matches.extend(
+            Function::canonical_names()
+                .filter(|name| name.starts_with(&lowered))
+                .map(str::to_owned),
+        );
+        matches.extend(
+            Currency::all()
+                .iter()
+                .map(|currency| currency.code())
+                .filter(|code| code.to_ascii_lowercase().starts_with(&lowered))
+                .map(str::to_owned),
+        );
+        matches.sort();
+        matches.dedup();
+        matches
+    }
+
+    /// Returns the live result hint for a complete line, if it evaluates.
+    fn live_hint(&self, line: &str) -> Option<String> {
+        let source = line.trim();
+        if source.is_empty()
+            || source.starts_with(':')
+            || source.starts_with('!')
+            || source.ends_with('=')
+        {
+            return None;
+        }
+        let mut session = self.session.clone();
+        session
+            .calculate(source, &self.context)
+            .ok()
+            .map(|calculation| format!(" = {}", calculation.output))
+    }
+}
+
+impl rustyline::Helper for ReplHelper {}
+
+impl Validator for ReplHelper {}
+
+impl Highlighter for ReplHelper {}
+
+impl Hinter for ReplHelper {
+    type Hint = String;
+
+    fn hint(&self, line: &str, pos: usize, _context: &rustyline::Context<'_>) -> Option<String> {
+        (pos >= line.len()).then(|| self.live_hint(line)).flatten()
+    }
+}
+
+impl Completer for ReplHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _context: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        let prefix = line[..pos].rsplit(char::is_whitespace).next().unwrap_or("");
+        if prefix.is_empty() {
+            return Ok((pos, Vec::new()));
+        }
+        Ok((
+            pos - prefix.len(),
+            self.candidates(prefix)
+                .into_iter()
+                .map(|candidate| Pair {
+                    display: candidate.clone(),
+                    replacement: candidate,
+                })
+                .collect(),
+        ))
+    }
+}
+
 async fn run_repl(options: &Options) -> ExitCode {
     let force_refresh = options.refresh_rates;
     let timezone = options.timezone.as_deref();
@@ -283,12 +396,19 @@ async fn run_repl(options: &Options) -> ExitCode {
     let mut session = CalculationSession::new();
     let history_path = options.history.then(history::default_path);
     let mut editor = if interactive {
+        let helper = ReplHelper {
+            session: session.clone(),
+            context: context.clone(),
+        };
         match ReadlineConfig::builder()
             .max_history_size(1_000)
             .and_then(|builder| builder.history_ignore_dups(true))
-            .and_then(|builder| DefaultEditor::with_config(builder.build()))
+            .and_then(|builder| {
+                Editor::<ReplHelper, FileHistory>::with_config(builder.build())
+            })
         {
             Ok(mut editor) => {
+                editor.set_helper(Some(helper));
                 if let Some(path) = &history_path
                     && path.exists()
                     && let Err(error) = editor.load_history(path)
@@ -307,6 +427,9 @@ async fn run_repl(options: &Options) -> ExitCode {
     };
     let mut transient_history = editor.as_ref().map(readline_history).unwrap_or_default();
     loop {
+        if let Some(helper) = editor.as_mut().and_then(Editor::helper_mut) {
+            helper.sync(&session, &context);
+        }
         let source = if let Some(editor) = &mut editor {
             match editor.readline("> ") {
                 Ok(source) => source,
@@ -447,7 +570,7 @@ async fn run_repl(options: &Options) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn readline_history(editor: &DefaultEditor) -> Vec<String> {
+fn readline_history(editor: &Editor<ReplHelper, FileHistory>) -> Vec<String> {
     (0..editor.history().len())
         .filter_map(|index| {
             editor
@@ -881,4 +1004,52 @@ fn print_diagnostic(source: &str, diagnostic: &Diagnostic) {
     let prefix_width = source[line_start..span.start].chars().count();
     let marker_width = source[span.start..marker_end].chars().count().max(1);
     eprintln!("  {}{}", " ".repeat(prefix_width), "^".repeat(marker_width));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn helper_with_line(line: &str) -> ReplHelper {
+        let mut session = CalculationSession::new();
+        session
+            .calculate(line, &CalculationContext::default())
+            .expect("seed line evaluates");
+        ReplHelper {
+            session,
+            context: CalculationContext::default(),
+        }
+    }
+
+    #[test]
+    fn completion_matches_variables_functions_and_currencies() {
+        let helper = helper_with_line("subtotal = 80");
+        assert!(helper.candidates("sub").contains(&"subtotal".to_owned()));
+        assert!(helper.candidates("sq").contains(&"sqrt".to_owned()));
+        assert!(helper.candidates("eu").contains(&"EUR".to_owned()));
+        assert!(helper.candidates("an").contains(&"ans".to_owned()));
+        assert!(helper.candidates("zz").is_empty());
+    }
+
+    #[test]
+    fn completion_matches_commands_after_colon() {
+        let helper = helper_with_line("2 + 2");
+        assert_eq!(
+            helper.candidates(":q"),
+            vec![":quit".to_owned()]
+        );
+        assert!(helper.candidates(":c").len() >= 2);
+    }
+
+    #[test]
+    fn live_hints_show_results_but_skip_commands_and_entropy() {
+        let helper = helper_with_line("x = 4");
+        assert_eq!(helper.live_hint("x * 2"), Some(" = 8".to_owned()));
+        assert_eq!(helper.live_hint("  2 + 2  "), Some(" = 4".to_owned()));
+        assert_eq!(helper.live_hint(":quit"), None);
+        assert_eq!(helper.live_hint("x ="), None);
+        assert_eq!(helper.live_hint("invalid syntax here!!"), None);
+        // Sampling needs entropy, which hints do not supply.
+        assert_eq!(helper.live_hint("flip a coin"), None);
+    }
 }
