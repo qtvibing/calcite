@@ -92,7 +92,7 @@ impl DiceDistribution {
         )
     }
 
-    pub fn roll(self, entropy: &mut impl EntropySource) -> Result<i64, DiceError> {
+    pub fn roll(self, entropy: &mut (impl EntropySource + ?Sized)) -> Result<i64, DiceError> {
         let mut total = self.modifier;
         for _ in 0..self.count {
             let value = sample_bounded(entropy, u64::from(self.sides))?;
@@ -134,7 +134,9 @@ impl fmt::Display for DiceDistribution {
     }
 }
 
+/// A caller-owned stream of uniformly distributed values used for sampling.
 pub trait EntropySource {
+    /// Returns the next random value, or `None` when the source is exhausted.
     fn next_u64(&mut self) -> Option<u64>;
 }
 
@@ -159,7 +161,7 @@ impl fmt::Display for CoinSide {
     }
 }
 
-pub fn flip_coin(entropy: &mut impl EntropySource) -> Result<CoinSide, DiceError> {
+pub fn flip_coin(entropy: &mut (impl EntropySource + ?Sized)) -> Result<CoinSide, DiceError> {
     Ok(if sample_bounded(entropy, 2)? == 0 {
         CoinSide::Heads
     } else {
@@ -190,7 +192,10 @@ impl fmt::Display for DiceError {
 
 impl std::error::Error for DiceError {}
 
-fn sample_bounded(entropy: &mut impl EntropySource, upper: u64) -> Result<u64, DiceError> {
+fn sample_bounded(
+    entropy: &mut (impl EntropySource + ?Sized),
+    upper: u64,
+) -> Result<u64, DiceError> {
     let threshold = u64::MAX - u64::MAX % upper;
     loop {
         let value = entropy.next_u64().ok_or(DiceError::EntropyExhausted)?;

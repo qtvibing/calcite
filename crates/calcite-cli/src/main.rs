@@ -11,8 +11,8 @@ use std::{
 
 use calcite_core::{
     CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
-    DiagnosticKind, DocumentCalculation, Number, NumberFormat, NumberOutputMode, OffsetDateTime,
-    UtcOffset, Value, calculate_document_with_context,
+    DiagnosticKind, DocumentCalculation, EntropySource, Number, NumberFormat, NumberOutputMode,
+    OffsetDateTime, UtcOffset, Value, calculate_document_with_context_and_entropy,
 };
 use jiff::{Timestamp, tz::TimeZone};
 use rustyline::{
@@ -42,6 +42,33 @@ Options:\n\
       --json               Print structured JSON\n\
   -h, --help               Print help\n\
   -V, --version            Print version";
+
+#[derive(Default)]
+struct OsEntropy {
+    values: Vec<u64>,
+    position: usize,
+}
+
+impl OsEntropy {
+    fn rewind(&mut self) {
+        self.position = 0;
+    }
+}
+
+impl EntropySource for OsEntropy {
+    fn next_u64(&mut self) -> Option<u64> {
+        if let Some(value) = self.values.get(self.position).copied() {
+            self.position += 1;
+            return Some(value);
+        }
+        let mut bytes = [0_u8; size_of::<u64>()];
+        getrandom::fill(&mut bytes).ok()?;
+        let value = u64::from_ne_bytes(bytes);
+        self.values.push(value);
+        self.position += 1;
+        Some(value)
+    }
+}
 
 struct Options {
     action: Action,
@@ -285,13 +312,15 @@ async fn run_repl(options: &Options) -> ExitCode {
             }
         }
 
-        let mut result = session.calculate(source, &context);
+        let mut entropy = OsEntropy::default();
+        let mut result = session.calculate_with_entropy(source, &context, &mut entropy);
         if result
             .as_ref()
             .is_err_and(|error| error.kind() == DiagnosticKind::MissingTemporalContext)
         {
             install_current_datetime(&mut context, timezone);
-            result = session.calculate(source, &context);
+            entropy.rewind();
+            result = session.calculate_with_entropy(source, &context, &mut entropy);
         }
         if !attempted_rates
             && result.as_ref().is_err_and(|error| {
@@ -311,7 +340,8 @@ async fn run_repl(options: &Options) -> ExitCode {
                         .reload(cached.snapshot.clone());
                 }
             }
-            result = session.calculate(source, &context);
+            entropy.rewind();
+            result = session.calculate_with_entropy(source, &context, &mut entropy);
         }
 
         match result {
@@ -401,7 +431,8 @@ async fn calculate_with_rates(
             .reload(cached.snapshot.clone());
     }
 
-    let mut result = calculate_with_local_time(expression, &mut context, timezone);
+    let mut entropy = OsEntropy::default();
+    let mut result = calculate_with_local_time(expression, &mut context, timezone, &mut entropy);
     let needs_rates = result.as_ref().is_err_and(|diagnostic| {
         matches!(
             diagnostic.kind(),
@@ -418,7 +449,8 @@ async fn calculate_with_rates(
                     .reload(cached.snapshot.clone());
             }
         }
-        result = calculate_with_local_time(expression, &mut context, timezone);
+        entropy.rewind();
+        result = calculate_with_local_time(expression, &mut context, timezone, &mut entropy);
     }
 
     result
@@ -428,15 +460,17 @@ fn calculate_with_local_time(
     expression: &str,
     context: &mut CalculationContext,
     timezone: Option<&str>,
+    entropy: &mut OsEntropy,
 ) -> Result<DocumentCalculation, Diagnostic> {
-    let result = calculate_document_with_context(expression, context);
+    let result = calculate_document_with_context_and_entropy(expression, context, entropy);
     if context.temporal.current_datetime.is_none()
         && result
             .as_ref()
             .is_err_and(|diagnostic| diagnostic.kind() == DiagnosticKind::MissingTemporalContext)
     {
         install_current_datetime(context, timezone);
-        calculate_document_with_context(expression, context)
+        entropy.rewind();
+        calculate_document_with_context_and_entropy(expression, context, entropy)
     } else {
         result
     }
@@ -821,6 +855,7 @@ fn typed_json_value(value: &Value) -> serde_json::Value {
             "minimum": value.minimum(),
             "maximum": value.maximum(),
         }),
+        Value::Coin(value) => textual_json("coin_side", value),
         Value::Date(value) => textual_json("date", value),
         Value::Clock(value) => textual_json("clock_time", value),
         Value::OffsetClock(value) => textual_json("offset_clock_time", value),

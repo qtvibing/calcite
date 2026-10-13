@@ -392,6 +392,7 @@ impl Parser<'_> {
                 })
             }
             LexemeKind::Word if self.function_call_at().is_some() => self.parse_function_call(),
+            LexemeKind::Word if self.starts_random_action() => self.parse_random_action(),
             LexemeKind::Word
                 if self
                     .tokens

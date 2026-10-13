@@ -4,8 +4,8 @@ use crate::assignment::parse_assignment;
 use crate::evaluator::evaluate_expression;
 use crate::syntax::identifier_key;
 use crate::{
-    CalculationContext, Diagnostic, Expression, LexemeKind, Span, Value, format_with_context,
-    lex_with_number_format, parse_with_context,
+    CalculationContext, Diagnostic, EntropySource, Expression, LexemeKind, Span, Value,
+    format_with_context, lex_with_number_format, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +51,14 @@ pub struct DocumentCalculation {
     pub entries: Vec<DocumentEntry>,
 }
 
+#[derive(Default)]
+struct DocumentState {
+    variables: HashMap<String, Value>,
+    definitions: HashMap<String, usize>,
+    lines: Vec<DocumentLine>,
+    entries: Vec<DocumentEntry>,
+}
+
 pub fn calculate_document(source: &str) -> Result<DocumentCalculation, Diagnostic> {
     calculate_document_with_context(source, &CalculationContext::default())
 }
@@ -59,42 +67,59 @@ pub fn calculate_document_with_context(
     source: &str,
     context: &CalculationContext,
 ) -> Result<DocumentCalculation, Diagnostic> {
-    let mut variables = HashMap::new();
-    let mut definitions = HashMap::new();
-    let mut lines = Vec::new();
-    let mut entries = Vec::new();
+    let mut entropy = None;
+    calculate_document_with_optional_entropy(source, context, &mut entropy)
+}
+
+/// Evaluates a document with the default context and caller-supplied entropy.
+pub fn calculate_document_with_entropy(
+    source: &str,
+    entropy: &mut impl EntropySource,
+) -> Result<DocumentCalculation, Diagnostic> {
+    calculate_document_with_context_and_entropy(source, &CalculationContext::default(), entropy)
+}
+
+/// Evaluates a document with explicit context and caller-supplied entropy.
+pub fn calculate_document_with_context_and_entropy(
+    source: &str,
+    context: &CalculationContext,
+    entropy: &mut impl EntropySource,
+) -> Result<DocumentCalculation, Diagnostic> {
+    let mut entropy = Some(entropy as &mut dyn EntropySource);
+    calculate_document_with_optional_entropy(source, context, &mut entropy)
+}
+
+fn calculate_document_with_optional_entropy(
+    source: &str,
+    context: &CalculationContext,
+    entropy: &mut Option<&mut dyn EntropySource>,
+) -> Result<DocumentCalculation, Diagnostic> {
+    let mut state = DocumentState::default();
     let mut source_offset = 0;
 
     for raw_line in source.split_inclusive('\n') {
         let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
         let line = line.strip_suffix('\r').unwrap_or(line);
-        evaluate_line(
-            line,
-            source_offset,
-            context,
-            &mut variables,
-            &mut definitions,
-            &mut lines,
-            &mut entries,
-        )?;
+        evaluate_line(line, source_offset, context, &mut state, entropy)?;
         source_offset += raw_line.len();
     }
 
-    Ok(DocumentCalculation { lines, entries })
+    Ok(DocumentCalculation {
+        lines: state.lines,
+        entries: state.entries,
+    })
 }
 
 fn evaluate_line(
     line: &str,
     source_offset: usize,
     context: &CalculationContext,
-    variables: &mut HashMap<String, Value>,
-    definitions: &mut HashMap<String, usize>,
-    lines: &mut Vec<DocumentLine>,
-    entries: &mut Vec<DocumentEntry>,
+    state: &mut DocumentState,
+    entropy: &mut Option<&mut dyn EntropySource>,
 ) -> Result<(), Diagnostic> {
     let raw_content = line.trim();
     if raw_content.is_empty() {
-        entries.push(DocumentEntry {
+        state.entries.push(DocumentEntry {
             span: Span::new(source_offset, source_offset + line.len()),
             kind: DocumentEntryKind::Blank,
         });
@@ -107,7 +132,7 @@ fn evaluate_line(
     let entry_span = Span::new(raw_content_offset, raw_content_offset + raw_content.len());
 
     if let Some(heading) = raw_content.strip_prefix('#') {
-        entries.push(DocumentEntry {
+        state.entries.push(DocumentEntry {
             span: entry_span,
             kind: DocumentEntryKind::Heading {
                 text: heading.trim_start_matches('#').trim().to_owned(),
@@ -124,7 +149,7 @@ fn evaluate_line(
         None => (raw_content, None),
     };
     if content_before_comment.is_empty() {
-        entries.push(DocumentEntry {
+        state.entries.push(DocumentEntry {
             span: entry_span,
             kind: DocumentEntryKind::Comment {
                 text: comment.unwrap_or_default(),
@@ -170,27 +195,27 @@ fn evaluate_line(
     let dependencies = references
         .into_iter()
         .map(|name| DocumentDependency {
-            source_result: definitions.get(&identifier_key(&name)).copied(),
+            source_result: state.definitions.get(&identifier_key(&name)).copied(),
             name,
         })
         .collect();
-    let value = evaluate_expression(&expression, context, variables)
+    let value = evaluate_expression(&expression, context, &state.variables, entropy)
         .map_err(|error| error.shifted(expression_offset))?;
     let output = format_with_context(&value, context);
-    let result_index = lines.len();
+    let result_index = state.lines.len();
     if let Some(name) = &name {
         let key = identifier_key(name);
-        variables.insert(key.clone(), value.clone());
-        definitions.insert(key, result_index);
+        state.variables.insert(key.clone(), value.clone());
+        state.definitions.insert(key, result_index);
     }
-    lines.push(DocumentLine {
+    state.lines.push(DocumentLine {
         name,
         dependencies,
         span: Span::new(content_offset, content_offset + content.len()),
         value,
         output,
     });
-    entries.push(DocumentEntry {
+    state.entries.push(DocumentEntry {
         span: entry_span,
         kind: DocumentEntryKind::Calculation {
             result_index,

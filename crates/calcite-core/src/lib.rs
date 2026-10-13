@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 mod assignment;
 mod complex;
 mod context;
@@ -41,8 +43,12 @@ pub use dice::{CoinSide, DiceDistribution, DiceError, EntropySource, flip_coin};
 pub use document::{
     DocumentCalculation, DocumentDependency, DocumentEntry, DocumentEntryKind, DocumentLine,
     calculate_document, calculate_document_with_context,
+    calculate_document_with_context_and_entropy, calculate_document_with_entropy,
 };
-pub use evaluator::{Value, evaluate, evaluate_with_context};
+pub use evaluator::{
+    Value, evaluate, evaluate_with_context, evaluate_with_context_and_entropy,
+    evaluate_with_entropy,
+};
 pub use finance::{AmortizationPayment, AmortizationSchedule, FinanceError, amortization_schedule};
 pub use formatter::{format, format_with_context};
 pub use fraction::Fraction;
@@ -82,21 +88,51 @@ pub use user_function::UserFunction;
 
 pub(crate) use number::NumericError;
 
+/// A successfully evaluated value together with its formatted representation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Calculation {
+    /// The typed result before presentation formatting.
     pub value: Value,
+    /// The result formatted with the calculation context.
     pub output: String,
 }
 
+/// Parses, evaluates, and formats one expression with the default context.
+///
+/// Use [`calculate_with_context`] when evaluation needs locale settings,
+/// temporal state, exchange rates, custom units, or non-default formatting.
 pub fn calculate(source: &str) -> Result<Calculation, Diagnostic> {
     calculate_with_context(source, &CalculationContext::default())
 }
 
+/// Parses, evaluates, and formats one expression with explicit context.
+///
+/// The function has no side effects: all state that can affect the result is
+/// provided by `context`.
 pub fn calculate_with_context(
     source: &str,
     context: &CalculationContext,
 ) -> Result<Calculation, Diagnostic> {
     let value = evaluate_with_context(source, context)?;
+    let output = format_with_context(&value, context);
+    Ok(Calculation { value, output })
+}
+
+/// Parses, evaluates, and formats one expression with caller-supplied entropy.
+pub fn calculate_with_entropy(
+    source: &str,
+    entropy: &mut impl EntropySource,
+) -> Result<Calculation, Diagnostic> {
+    calculate_with_context_and_entropy(source, &CalculationContext::default(), entropy)
+}
+
+/// Parses, evaluates, and formats one expression with explicit context and entropy.
+pub fn calculate_with_context_and_entropy(
+    source: &str,
+    context: &CalculationContext,
+    entropy: &mut impl EntropySource,
+) -> Result<Calculation, Diagnostic> {
+    let value = evaluate_with_context_and_entropy(source, context, entropy)?;
     let output = format_with_context(&value, context);
     Ok(Calculation { value, output })
 }

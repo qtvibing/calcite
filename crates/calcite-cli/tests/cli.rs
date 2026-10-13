@@ -43,6 +43,31 @@ fn converts_currencies_from_the_local_rate_cache() {
 }
 
 #[test]
+fn supplies_os_entropy_for_natural_dice_and_coin_actions() {
+    let roll = calcite()
+        .args(["roll", "me", "a", "3d12"])
+        .output()
+        .expect("calcite should run");
+    assert!(roll.status.success());
+    let total = String::from_utf8(roll.stdout)
+        .unwrap()
+        .trim()
+        .parse::<i64>()
+        .unwrap();
+    assert!((3..=36).contains(&total));
+    assert!(roll.stderr.is_empty());
+
+    let flip = calcite()
+        .args(["flip", "a", "coin"])
+        .output()
+        .expect("calcite should run");
+    assert!(flip.status.success());
+    let side = String::from_utf8(flip.stdout).unwrap();
+    assert!(matches!(side.trim(), "heads" | "tails"));
+    assert!(flip.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_deterministic_finance_functions() {
     let output = calcite()
         .args(["round(mortgage_payment($10000,", "6%,", "6),", "2)"])

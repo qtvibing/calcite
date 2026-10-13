@@ -4,12 +4,12 @@ use crate::functions::evaluate_call;
 use crate::operations::{classify_compound_value, convert, evaluate_binary, unsupported};
 use crate::syntax::identifier_key;
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, ComplexNumber,
-    Constant, CustomUnitValue, Date, Diagnostic, DiagnosticKind, DiceDistribution, Expression,
-    Fraction, Money, MoneyRate, Number, OffsetClockTime, OffsetDateTime, Percentage, RadixInteger,
-    Rate, RelativeWeekdayDirection, RomanInteger, Span, TemporalKeyword, TimeSpan, UnaryOperator,
-    UnitValue, UserFunction, Weekday, WorkdayDuration, ZonedClockTime, ZonedDateTime,
-    parse_with_context,
+    BinaryOperator, CalculationContext, CalendarDuration, CalendarSpan, ClockTime, CoinSide,
+    ComplexNumber, Constant, CustomUnitValue, Date, Diagnostic, DiagnosticKind, DiceDistribution,
+    EntropySource, Expression, Fraction, Money, MoneyRate, Number, OffsetClockTime, OffsetDateTime,
+    Percentage, RadixInteger, Rate, RelativeWeekdayDirection, RomanInteger, Span, TemporalKeyword,
+    TimeSpan, UnaryOperator, UnitValue, UserFunction, Weekday, WorkdayDuration, ZonedClockTime,
+    ZonedDateTime, parse_with_context,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +29,7 @@ pub enum Value {
     MoneyRate(MoneyRate),
     Rate(Rate),
     Dice(DiceDistribution),
+    Coin(CoinSide),
     Date(Date),
     Clock(ClockTime),
     OffsetClock(OffsetClockTime),
@@ -138,6 +139,13 @@ impl Value {
     pub const fn as_dice(&self) -> Option<DiceDistribution> {
         match self {
             Self::Dice(dice) => Some(*dice),
+            _ => None,
+        }
+    }
+
+    pub const fn as_coin(&self) -> Option<CoinSide> {
+        match self {
+            Self::Coin(side) => Some(*side),
             _ => None,
         }
     }
@@ -257,6 +265,7 @@ impl fmt::Display for Value {
             Self::MoneyRate(rate) => rate.fmt(formatter),
             Self::Rate(rate) => rate.fmt(formatter),
             Self::Dice(dice) => dice.fmt(formatter),
+            Self::Coin(side) => side.fmt(formatter),
             Self::Date(date) => date.fmt(formatter),
             Self::Clock(time) => time.fmt(formatter),
             Self::OffsetClock(time) => time.fmt(formatter),
@@ -281,14 +290,42 @@ pub fn evaluate_with_context(
     source: &str,
     context: &CalculationContext,
 ) -> Result<Value, Diagnostic> {
+    let mut entropy = None;
+    evaluate_with_optional_entropy(source, context, &mut entropy)
+}
+
+/// Evaluates one expression with the default context and caller-supplied entropy.
+pub fn evaluate_with_entropy(
+    source: &str,
+    entropy: &mut impl EntropySource,
+) -> Result<Value, Diagnostic> {
+    evaluate_with_context_and_entropy(source, &CalculationContext::default(), entropy)
+}
+
+/// Evaluates one expression with explicit context and caller-supplied entropy.
+pub fn evaluate_with_context_and_entropy(
+    source: &str,
+    context: &CalculationContext,
+    entropy: &mut impl EntropySource,
+) -> Result<Value, Diagnostic> {
+    let mut entropy = Some(entropy as &mut dyn EntropySource);
+    evaluate_with_optional_entropy(source, context, &mut entropy)
+}
+
+fn evaluate_with_optional_entropy(
+    source: &str,
+    context: &CalculationContext,
+    entropy: &mut Option<&mut dyn EntropySource>,
+) -> Result<Value, Diagnostic> {
     let expression = parse_with_context(source, context)?;
-    evaluate_expression(&expression, context, &HashMap::new())
+    evaluate_expression(&expression, context, &HashMap::new(), entropy)
 }
 
 pub(crate) fn evaluate_expression(
     expression: &Expression,
     context: &CalculationContext,
     variables: &HashMap<String, Value>,
+    entropy: &mut Option<&mut dyn EntropySource>,
 ) -> Result<Value, Diagnostic> {
     match expression {
         Expression::Number { value, .. } => Ok(Value::Number(value.clone())),
@@ -425,7 +462,14 @@ pub(crate) fn evaluate_expression(
             function_span,
             arguments,
             ..
-        } => evaluate_call(*function, *function_span, arguments, context, variables),
+        } => evaluate_call(
+            *function,
+            *function_span,
+            arguments,
+            context,
+            variables,
+            entropy,
+        ),
         Expression::UserCall {
             name,
             name_span,
@@ -443,6 +487,7 @@ pub(crate) fn evaluate_expression(
                 *name_span,
                 context,
                 variables,
+                entropy,
             )
         }
         Expression::Lambda {
@@ -456,14 +501,16 @@ pub(crate) fn evaluate_expression(
             arguments,
             span,
         } => {
-            let function = evaluate_expression(function, context, variables)?;
+            let function = evaluate_expression(function, context, variables, entropy)?;
             let Value::Function(function) = function else {
                 return Err(Diagnostic::new(
                     DiagnosticKind::InvalidFunctionArguments,
                     *span,
                 ));
             };
-            invoke_user_function(&function, None, arguments, *span, context, variables)
+            invoke_user_function(
+                &function, None, arguments, *span, context, variables, entropy,
+            )
         }
         Expression::Unary {
             operator,
@@ -471,7 +518,7 @@ pub(crate) fn evaluate_expression(
             operand,
             ..
         } => {
-            let operand = evaluate_expression(operand, context, variables)?;
+            let operand = evaluate_expression(operand, context, variables, entropy)?;
             match (operator, operand) {
                 (UnaryOperator::Positive, Value::Number(number)) => Ok(Value::Number(number)),
                 (UnaryOperator::Positive, Value::RadixInteger(value)) => {
@@ -553,6 +600,7 @@ pub(crate) fn evaluate_expression(
                     Value::String(_)
                     | Value::Function(_)
                     | Value::Dice(_)
+                    | Value::Coin(_)
                     | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)
@@ -578,6 +626,7 @@ pub(crate) fn evaluate_expression(
                     | Value::MoneyRate(_)
                     | Value::Rate(_)
                     | Value::Dice(_)
+                    | Value::Coin(_)
                     | Value::Date(_)
                     | Value::Clock(_)
                     | Value::OffsetClock(_)
@@ -592,12 +641,14 @@ pub(crate) fn evaluate_expression(
                 ) => Err(unsupported(*operator_span)),
             }
         }
-        Expression::Group { expression, .. } => evaluate_expression(expression, context, variables),
+        Expression::Group { expression, .. } => {
+            evaluate_expression(expression, context, variables, entropy)
+        }
         Expression::Percentage {
             expression,
             operator_span,
             ..
-        } => match evaluate_expression(expression, context, variables)? {
+        } => match evaluate_expression(expression, context, variables, entropy)? {
             Value::Number(number) => Ok(Value::Percentage(Percentage::from_ratio(
                 number
                     .divide(Number::from_i64(100))
@@ -611,7 +662,7 @@ pub(crate) fn evaluate_expression(
             target_span,
             ..
         } => convert(
-            evaluate_expression(expression, context, variables)?,
+            evaluate_expression(expression, context, variables, entropy)?,
             target.clone(),
             *target_span,
             context,
@@ -624,7 +675,8 @@ pub(crate) fn evaluate_expression(
             keyword_span,
             ..
         } => {
-            let Value::Boolean(mut condition) = evaluate_expression(condition, context, variables)?
+            let Value::Boolean(mut condition) =
+                evaluate_expression(condition, context, variables, entropy)?
             else {
                 return Err(unsupported(*keyword_span));
             };
@@ -632,9 +684,9 @@ pub(crate) fn evaluate_expression(
                 condition = !condition;
             }
             if condition {
-                evaluate_expression(then_branch, context, variables)
+                evaluate_expression(then_branch, context, variables, entropy)
             } else {
-                evaluate_expression(else_branch, context, variables)
+                evaluate_expression(else_branch, context, variables, entropy)
             }
         }
         Expression::Binary {
@@ -644,7 +696,7 @@ pub(crate) fn evaluate_expression(
             right,
             ..
         } => {
-            let left = evaluate_expression(left, context, variables)?;
+            let left = evaluate_expression(left, context, variables, entropy)?;
             if matches!(operator, BinaryOperator::And | BinaryOperator::Or) {
                 let Value::Boolean(left) = left else {
                     return Err(unsupported(*operator_span));
@@ -654,13 +706,13 @@ pub(crate) fn evaluate_expression(
                 {
                     return Ok(Value::Boolean(left));
                 }
-                return match evaluate_expression(right, context, variables)? {
+                return match evaluate_expression(right, context, variables, entropy)? {
                     Value::Boolean(right) => Ok(Value::Boolean(right)),
                     _ => Err(unsupported(*operator_span)),
                 };
             }
 
-            let right = evaluate_expression(right, context, variables)?;
+            let right = evaluate_expression(right, context, variables, entropy)?;
             evaluate_binary(*operator, left, right, *operator_span, context)
         }
     }
@@ -708,6 +760,7 @@ fn invoke_user_function(
     span: Span,
     context: &CalculationContext,
     variables: &HashMap<String, Value>,
+    entropy: &mut Option<&mut dyn EntropySource>,
 ) -> Result<Value, Diagnostic> {
     if function.is_active() {
         return Err(Diagnostic::new(DiagnosticKind::RecursiveFunction, span));
@@ -723,10 +776,10 @@ fn invoke_user_function(
             ),
         ));
     }
-    let argument_values = arguments
-        .iter()
-        .map(|argument| evaluate_expression(argument, context, variables))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut argument_values = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        argument_values.push(evaluate_expression(argument, context, variables, entropy)?);
+    }
     let mut local_variables = variables.clone();
     if let Some(name) = name {
         local_variables.insert(name, Value::Function(function.activated()));
@@ -734,5 +787,5 @@ fn invoke_user_function(
     for (parameter, value) in function.parameters().iter().zip(argument_values) {
         local_variables.insert(identifier_key(parameter), value);
     }
-    evaluate_expression(function.body(), context, &local_variables)
+    evaluate_expression(function.body(), context, &local_variables, entropy)
 }

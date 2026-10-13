@@ -50,6 +50,7 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
         Value::MoneyRate(rate) => rate.formatted_with(&render(rate.amount())),
         Value::Rate(rate) => rate.formatted_with(&render(rate.magnitude())),
         Value::Dice(dice) => dice.to_string(),
+        Value::Coin(side) => side.to_string(),
         Value::Date(date) => date.to_string(),
         Value::Clock(time) => time.to_string(),
         Value::OffsetClock(time) => time.to_string(),

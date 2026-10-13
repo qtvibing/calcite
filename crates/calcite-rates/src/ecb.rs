@@ -5,6 +5,7 @@ use quick_xml::{Reader, events::Event};
 
 use crate::{ExchangeRateProvider, ProviderError, ProviderFuture, RateRequest, date_at_utc};
 
+/// Loads the European Central Bank's daily euro reference-rate snapshot.
 #[derive(Clone, Debug)]
 pub struct EcbProvider {
     client: reqwest::Client,
@@ -12,6 +13,7 @@ pub struct EcbProvider {
 }
 
 impl EcbProvider {
+    /// Creates a provider using the official ECB daily-feed URL.
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             client,
@@ -19,6 +21,7 @@ impl EcbProvider {
         }
     }
 
+    /// Creates a provider with an alternate feed URL, primarily for controlled deployments and tests.
     pub fn with_url(client: reqwest::Client, url: impl Into<String>) -> Self {
         Self {
             client,

@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::{error::Error, fmt, future::Future, pin::Pin};
 
 #[cfg(any(feature = "ecb", feature = "frankfurter"))]
@@ -18,9 +20,14 @@ pub use file::{load_json_snapshot, save_json_snapshot};
 #[cfg(feature = "frankfurter")]
 pub use frankfurter::FrankfurterProvider;
 
+/// The boxed asynchronous result returned by an [`ExchangeRateProvider`].
 pub type ProviderFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ExchangeRateSnapshot, ProviderError>> + Send + 'a>>;
 
+/// A normalized request for quote currencies relative to one base currency.
+///
+/// Construction removes the base currency from `quotes`, sorts the remaining
+/// currencies by ISO code, and removes duplicates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RateRequest {
     base: Currency,
@@ -28,6 +35,7 @@ pub struct RateRequest {
 }
 
 impl RateRequest {
+    /// Creates a normalized request for the supplied base and quote currencies.
     pub fn new<I>(base: Currency, quotes: I) -> Self
     where
         I: IntoIterator<Item = Currency>,
@@ -41,33 +49,46 @@ impl RateRequest {
         Self { base, quotes }
     }
 
+    /// Returns the currency against which all quotes are requested.
     pub const fn base(&self) -> Currency {
         self.base
     }
 
+    /// Returns the sorted, deduplicated quote currencies.
     pub fn quotes(&self) -> &[Currency] {
         &self.quotes
     }
 }
 
+/// An asynchronous source of complete, validated exchange-rate snapshots.
+///
+/// Providers return data only; callers decide when to fetch, cache, and install
+/// a snapshot into `calcite-core`.
 pub trait ExchangeRateProvider: Send + Sync {
+    /// Fetches one coherent snapshot for `request`.
     fn fetch<'a>(&'a self, request: &'a RateRequest) -> ProviderFuture<'a>;
 }
 
+/// Tries providers in order and returns the first successful complete snapshot.
+///
+/// Snapshots from multiple providers are never merged.
 #[derive(Default)]
 pub struct FallbackProvider {
     providers: Vec<Box<dyn ExchangeRateProvider>>,
 }
 
 impl FallbackProvider {
+    /// Creates a fallback chain in attempt order.
     pub fn new(providers: Vec<Box<dyn ExchangeRateProvider>>) -> Self {
         Self { providers }
     }
 
+    /// Appends a provider to the end of the fallback chain.
     pub fn push(&mut self, provider: impl ExchangeRateProvider + 'static) {
         self.providers.push(Box::new(provider));
     }
 
+    /// Returns whether the fallback chain has no providers.
     pub fn is_empty(&self) -> bool {
         self.providers.is_empty()
     }
@@ -88,6 +109,7 @@ impl ExchangeRateProvider for FallbackProvider {
     }
 }
 
+/// A transport, decoding, validation, or fallback failure from a rate provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderError {
     Transport(String),

@@ -15,6 +15,7 @@ license = "MIT"
 dashu-float = "0.6.0"
 dashu-int = "0.6.0"
 dashu-ratio = "0.6.0"
+getrandom = "0.4.3"
 jiff = "0.2.35"
 quick-xml = "0.38.4"
 reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls"] }

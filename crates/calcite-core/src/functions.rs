@@ -13,8 +13,8 @@ use crate::finance::{
 };
 use crate::operations::{evaluate_binary, unit_diagnostic};
 use crate::{
-    BinaryOperator, CalculationContext, Diagnostic, DiagnosticKind, Expression, Function, Number,
-    Span,
+    BinaryOperator, CalculationContext, Diagnostic, DiagnosticKind, DiceError, EntropySource,
+    Expression, Function, Number, Span, flip_coin,
 };
 
 pub(super) fn evaluate_call(
@@ -23,18 +23,18 @@ pub(super) fn evaluate_call(
     arguments: &[Expression],
     context: &CalculationContext,
     variables: &HashMap<String, Value>,
+    entropy: &mut Option<&mut dyn EntropySource>,
 ) -> Result<Value, Diagnostic> {
-    let values = arguments
-        .iter()
-        .map(|argument| {
-            evaluate_expression(argument, context, variables).map(|value| match value {
-                Value::RadixInteger(value) => Value::Number(value.into_number()),
-                Value::RomanInteger(value) => Value::Number(value.into_number()),
-                Value::CustomUnit(value) => Value::Unit(value.into_unit()),
-                value => value,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut values = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let value = evaluate_expression(argument, context, variables, entropy)?;
+        values.push(match value {
+            Value::RadixInteger(value) => Value::Number(value.into_number()),
+            Value::RomanInteger(value) => Value::Number(value.into_number()),
+            Value::CustomUnit(value) => Value::Unit(value.into_unit()),
+            value => value,
+        });
+    }
 
     match function {
         Function::Probability => match values.as_slice() {
@@ -46,6 +46,20 @@ pub(super) fn evaluate_call(
         },
         Function::ExpectedValue => match values.as_slice() {
             [Value::Dice(dice)] => Ok(Value::Number(dice.mean())),
+            _ => Err(invalid_function_arguments(span)),
+        },
+        Function::Roll => match values.as_slice() {
+            [Value::Dice(dice)] => dice
+                .roll(required_entropy(entropy, span)?)
+                .map(Number::from_i64)
+                .map(Value::Number)
+                .map_err(|error| dice_error_diagnostic(error, span)),
+            _ => Err(invalid_function_arguments(span)),
+        },
+        Function::CoinFlip => match values.as_slice() {
+            [] => flip_coin(required_entropy(entropy, span)?)
+                .map(Value::Coin)
+                .map_err(|error| dice_error_diagnostic(error, span)),
             _ => Err(invalid_function_arguments(span)),
         },
         Function::Binary
@@ -319,6 +333,26 @@ pub(super) fn evaluate_call(
             Ok(result)
         }
     }
+}
+
+fn required_entropy<'a, 'b>(
+    entropy: &'a mut Option<&'b mut dyn EntropySource>,
+    span: Span,
+) -> Result<&'a mut (dyn EntropySource + 'b), Diagnostic> {
+    entropy
+        .as_deref_mut()
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingEntropy, span))
+}
+
+fn dice_error_diagnostic(error: DiceError, span: Span) -> Diagnostic {
+    let kind = match error {
+        DiceError::EntropyExhausted => DiagnosticKind::EntropyExhausted,
+        DiceError::InvalidCount | DiceError::InvalidSides | DiceError::DistributionTooLarge => {
+            DiagnosticKind::InvalidDice
+        }
+        DiceError::RollOverflow => DiagnosticKind::NumberTooLarge,
+    };
+    Diagnostic::with_detail(kind, span, error.to_string())
 }
 
 fn invalid_function_arguments(span: Span) -> Diagnostic {

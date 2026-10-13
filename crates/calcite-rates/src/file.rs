@@ -19,6 +19,7 @@ struct FileRate {
     rate: String,
 }
 
+/// Parses a validated exchange-rate snapshot from the crate's exact JSON format.
 pub fn load_json_snapshot(source: &str) -> Result<ExchangeRateSnapshot, ProviderError> {
     let file: SnapshotFile = serde_json::from_str(source)
         .map_err(|error| ProviderError::InvalidResponse(error.to_string()))?;
@@ -50,6 +51,7 @@ pub fn load_json_snapshot(source: &str) -> Result<ExchangeRateSnapshot, Provider
     ExchangeRateSnapshot::new(as_of, rates).map_err(|_| ProviderError::InvalidSnapshot)
 }
 
+/// Serializes a snapshot as deterministic pretty-printed JSON with exact rates.
 pub fn save_json_snapshot(snapshot: &ExchangeRateSnapshot) -> Result<String, ProviderError> {
     let mut rates = snapshot
         .rates()

@@ -4,8 +4,8 @@ use crate::assignment::parse_assignment;
 use crate::evaluator::{Value, evaluate_expression};
 use crate::syntax::identifier_key;
 use crate::{
-    Calculation, CalculationContext, Diagnostic, Expression, LexemeKind, format_with_context,
-    lex_with_number_format, parse_with_context,
+    Calculation, CalculationContext, Diagnostic, EntropySource, Expression, LexemeKind,
+    format_with_context, lex_with_number_format, parse_with_context,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -22,6 +22,27 @@ impl CalculationSession {
         &mut self,
         source: &str,
         context: &CalculationContext,
+    ) -> Result<Calculation, Diagnostic> {
+        let mut entropy = None;
+        self.calculate_with_optional_entropy(source, context, &mut entropy)
+    }
+
+    /// Evaluates one stateful expression with caller-supplied entropy.
+    pub fn calculate_with_entropy(
+        &mut self,
+        source: &str,
+        context: &CalculationContext,
+        entropy: &mut impl EntropySource,
+    ) -> Result<Calculation, Diagnostic> {
+        let mut entropy = Some(entropy as &mut dyn EntropySource);
+        self.calculate_with_optional_entropy(source, context, &mut entropy)
+    }
+
+    fn calculate_with_optional_entropy(
+        &mut self,
+        source: &str,
+        context: &CalculationContext,
+        entropy: &mut Option<&mut dyn EntropySource>,
     ) -> Result<Calculation, Diagnostic> {
         let tokens = lex_with_number_format(source, context.number_format)?
             .into_iter()
@@ -41,7 +62,7 @@ impl CalculationSession {
         } else {
             expression
         };
-        let value = evaluate_expression(&expression, context, &self.variables)
+        let value = evaluate_expression(&expression, context, &self.variables, entropy)
             .map_err(|error| error.shifted(assignment.expression_offset))?;
         if let Some(name) = name {
             self.variables.insert(identifier_key(&name), value.clone());

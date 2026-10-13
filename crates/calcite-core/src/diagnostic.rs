@@ -38,6 +38,8 @@ pub enum DiagnosticKind {
     InvalidCombinatorics,
     CombinatoricsTooLarge,
     InvalidDice,
+    MissingEntropy,
+    EntropyExhausted,
     InvalidShift,
     ShiftTooLarge,
     PrimalityInputTooLarge,
@@ -137,6 +139,8 @@ impl Diagnostic {
             }
             DiagnosticKind::CombinatoricsTooLarge => "combinatorics input is too large",
             DiagnosticKind::InvalidDice => "invalid or excessively large dice distribution",
+            DiagnosticKind::MissingEntropy => "random entropy was not provided",
+            DiagnosticKind::EntropyExhausted => "the supplied entropy source was exhausted",
             DiagnosticKind::InvalidShift => "shift count must be a non-negative exact integer",
             DiagnosticKind::ShiftTooLarge => "shift count is too large",
             DiagnosticKind::PrimalityInputTooLarge => {

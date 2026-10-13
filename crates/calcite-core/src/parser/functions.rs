@@ -29,6 +29,43 @@ impl Parser<'_> {
         Function::from_name(&self.source[token.span.start..token.span.end])
     }
 
+    pub(super) fn starts_random_action(&self) -> bool {
+        self.word_is(0, "roll") || self.word_is(0, "flip")
+    }
+
+    pub(super) fn parse_random_action(&mut self) -> Result<Expression, Diagnostic> {
+        let start = self.current().expect("random action is present").span;
+        if self.word_is(0, "flip") {
+            self.position += 1;
+            if self.word_is(0, "a") || self.word_is(0, "the") {
+                self.position += 1;
+            }
+            let coin = self.consume_word("coin", "expected 'coin' after 'flip'")?;
+            return Ok(Expression::Call {
+                function: Function::CoinFlip,
+                function_span: start,
+                arguments: Vec::new(),
+                span: start.join(coin.span),
+            });
+        }
+
+        self.position += 1;
+        if self.word_is(0, "me") {
+            self.position += 1;
+        }
+        if self.word_is(0, "a") || self.word_is(0, "the") {
+            self.position += 1;
+        }
+        let argument = self.parse_expression(0)?;
+        let span = start.join(argument.span());
+        Ok(Expression::Call {
+            function: Function::Roll,
+            function_span: start,
+            arguments: vec![argument],
+            span,
+        })
+    }
+
     pub(super) fn natural_function_at(&self) -> Option<(Function, usize)> {
         const PHRASES: &[(Function, &[&str])] = &[
             (

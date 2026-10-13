@@ -36,3 +36,5 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 Applications choose providers and cache locations, fetch asynchronously, then atomically install the returned `ExchangeRateSnapshot`. `FallbackProvider` selects the first complete successful snapshot; it never merges rates with different timestamps or provenance.
+
+See the [root README](../../README.md) for CLI behavior and the [language reference](../../docs/reference.md#money-and-exchange-rates) for currency semantics.

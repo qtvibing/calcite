@@ -2,6 +2,7 @@ use calcite_core::{Currency, ExchangeRateSnapshot, Number};
 
 use crate::{ExchangeRateProvider, ProviderError, ProviderFuture, RateRequest, date_at_utc};
 
+/// Loads exchange rates from the Frankfurter v2 API.
 #[derive(Clone, Debug)]
 pub struct FrankfurterProvider {
     client: reqwest::Client,
@@ -9,6 +10,7 @@ pub struct FrankfurterProvider {
 }
 
 impl FrankfurterProvider {
+    /// Creates a provider using the public Frankfurter v2 endpoint.
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             client,
@@ -16,6 +18,7 @@ impl FrankfurterProvider {
         }
     }
 
+    /// Creates a provider with an alternate base URL, primarily for controlled deployments and tests.
     pub fn with_base_url(client: reqwest::Client, base_url: impl Into<String>) -> Self {
         Self {
             client,

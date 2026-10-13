@@ -1,4 +1,7 @@
-use calcite_core::{CoinSide, DiagnosticKind, DiceDistribution, DiceError, calculate, flip_coin};
+use calcite_core::{
+    CalculationContext, CalculationSession, CoinSide, DiagnosticKind, DiceDistribution, DiceError,
+    calculate, calculate_document_with_entropy, calculate_with_entropy, flip_coin,
+};
 
 fn output(source: &str) -> String {
     calculate(source).unwrap().output
@@ -59,6 +62,122 @@ fn rolls_and_coin_flips_require_caller_supplied_entropy() {
     let mut tails = [1].into_iter();
     assert_eq!(flip_coin(&mut heads), Ok(CoinSide::Heads));
     assert_eq!(flip_coin(&mut tails), Ok(CoinSide::Tails));
+}
+
+#[test]
+fn random_language_forms_use_only_caller_supplied_entropy() {
+    for source in [
+        "roll 3d12",
+        "roll a 3d12",
+        "roll me 3d12",
+        "roll me a 3d12",
+        "roll(3d12)",
+    ] {
+        let mut entropy = [0, 11, 5].into_iter();
+        assert_eq!(
+            calculate_with_entropy(source, &mut entropy).unwrap().output,
+            "19"
+        );
+    }
+
+    let mut heads = [0].into_iter();
+    let mut tails = [1].into_iter();
+    assert_eq!(
+        calculate_with_entropy("flip a coin", &mut heads)
+            .unwrap()
+            .output,
+        "heads"
+    );
+    assert_eq!(
+        calculate_with_entropy("coinflip()", &mut tails)
+            .unwrap()
+            .output,
+        "tails"
+    );
+}
+
+#[test]
+fn random_expressions_fail_clearly_without_entropy() {
+    for source in ["roll 2d6", "flip coin"] {
+        assert_eq!(
+            calculate(source).unwrap_err().kind(),
+            DiagnosticKind::MissingEntropy
+        );
+    }
+}
+
+#[test]
+fn exhausted_entropy_sources_fail_with_a_dedicated_diagnostic() {
+    let mut exhausted = std::iter::empty::<u64>();
+    assert_eq!(
+        calculate_with_entropy("roll 2d6", &mut exhausted)
+            .unwrap_err()
+            .kind(),
+        DiagnosticKind::EntropyExhausted
+    );
+    let mut exhausted = std::iter::empty::<u64>();
+    assert_eq!(
+        calculate_with_entropy("flip a coin", &mut exhausted)
+            .unwrap_err()
+            .kind(),
+        DiagnosticKind::EntropyExhausted
+    );
+}
+
+#[test]
+fn random_language_forms_accept_definite_articles() {
+    let mut entropy = [0].into_iter();
+    assert_eq!(
+        calculate_with_entropy("roll the 1d6", &mut entropy)
+            .unwrap()
+            .output,
+        "1"
+    );
+    let mut heads = [0].into_iter();
+    assert_eq!(
+        calculate_with_entropy("flip the coin", &mut heads)
+            .unwrap()
+            .output,
+        "heads"
+    );
+}
+
+#[test]
+fn documents_and_sessions_consume_entropy_in_evaluation_order() {
+    let mut document_entropy = [0, 1, 2].into_iter();
+    let document = calculate_document_with_entropy(
+        "roll_one = roll 1d6\nroll_two = roll 1d6\nroll_one + roll_two",
+        &mut document_entropy,
+    )
+    .unwrap();
+    assert_eq!(document.lines[0].output, "1");
+    assert_eq!(document.lines[1].output, "2");
+    assert_eq!(document.lines[2].output, "3");
+
+    let mut session = CalculationSession::new();
+    let mut session_entropy = [5].into_iter();
+    assert_eq!(
+        session
+            .calculate_with_entropy(
+                "roll_die() = roll 1d6",
+                &CalculationContext::default(),
+                &mut session_entropy,
+            )
+            .unwrap()
+            .output,
+        "<function()>"
+    );
+    assert_eq!(
+        session
+            .calculate_with_entropy(
+                "roll_die()",
+                &CalculationContext::default(),
+                &mut session_entropy,
+            )
+            .unwrap()
+            .output,
+        "6"
+    );
 }
 
 #[test]
