@@ -17,7 +17,7 @@ const DISPLAY_DECIMAL_PLACES: usize = 10;
 const MAX_LITERAL_DIGITS: usize = 10_000;
 const MAX_LITERAL_EXPONENT: u32 = 100_000;
 const MAX_INTEGER_EXPONENT: isize = 100_000;
-const MAX_POW_RESULT_BITS: f32 = 1.0e6;
+const MAX_POW_RESULT_BITS: f32 = 3.0e5;
 const MAX_ROUNDING_PLACES: u64 = 10_000;
 const MAX_ROOT_DEGREE: usize = 1_000;
 const MAX_EXPONENTIAL_ARGUMENT: i64 = 1_000;
@@ -570,21 +570,13 @@ impl Number {
 
                 return Ok(match self.0 {
                     Representation::Exact(value) => {
-                        // The exponent guard does not bound the base size.
-                        // An exact power with many digits does not fit in
-                        // memory. Reject it here.
                         if !exact_power_fits(&value, integer) {
                             return Err(NumericError::ExponentTooLarge);
                         }
                         Self(Representation::Exact(value.pow(integer)))
                     }
                     Representation::Approximate(value) => {
-                        let result = value.powi(integer.into());
-                        // powi(0) returns a real with unlimited precision.
-                        // dashu refuses to divide that value.
-                        Self(Representation::Approximate(
-                            result.with_precision(WORKING_PRECISION).value(),
-                        ))
+                        Self(Representation::Approximate(value.powi(integer.into())))
                     }
                 });
             }
@@ -859,7 +851,15 @@ fn exact_power_fits(base: &RBig, exponent: isize) -> bool {
 fn into_real(value: Representation) -> Real {
     match value {
         Representation::Exact(value) => value.to_float(WORKING_PRECISION).value(),
-        Representation::Approximate(value) => value,
+        Representation::Approximate(value) => bounded(value),
+    }
+}
+
+fn bounded(value: Real) -> Real {
+    if value.context().precision() == 0 {
+        value.with_precision(WORKING_PRECISION).value()
+    } else {
+        value
     }
 }
 
