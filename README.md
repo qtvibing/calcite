@@ -79,13 +79,14 @@ The REPL preserves variables and the previous result:
 25 USD
 ```
 
-It has editable persistent history, including arrow-key navigation. Tab completion covers variables, function names, currency codes, and `:` commands, and a live hint shows the result of the current line as you type it. The built-in commands are:
+It has editable persistent history, including arrow-key navigation. Tab completion covers variables, function names, currency codes, and `:` commands, and a live hint shows the result of the current line as you type it. `:help` prints a cheat sheet inside the REPL. Colors follow the terminal and respect `NO_COLOR`. The built-in commands are:
 
 | Command | Effect |
 | --- | --- |
 | `:history` | Print calculation history |
 | `:clear-history` | Remove saved history |
 | `:clear` | Clear variables, `ans`, and `_` |
+| `:help` | Print command and input help |
 | `:quit`, `:q`, `:exit` | Leave the REPL |
 | `!!` | Repeat the latest history entry |
 | `!N` | Repeat history entry `N` |

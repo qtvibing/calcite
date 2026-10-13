@@ -3,7 +3,7 @@ mod history;
 mod rates;
 
 use std::{
-    fs,
+    env, fs,
     io::{self, IsTerminal, Read},
     path::PathBuf,
     process::ExitCode,
@@ -241,6 +241,80 @@ async fn calculate_surface_variants(
     Err(first.expect("the raw variant is always tried first"))
 }
 
+/// Wraps text in ANSI styles only when the output is a color terminal.
+struct Painter {
+    enabled: bool,
+}
+
+impl Painter {
+    const RESET: &'static str = "\x1b[0m";
+    const BOLD: &'static str = "\x1b[1m";
+    const DIM: &'static str = "\x1b[2m";
+    const CYAN: &'static str = "\x1b[36m";
+
+    fn from_env() -> Self {
+        Self {
+            enabled: io::stdout().is_terminal() && env::var_os("NO_COLOR").is_none(),
+        }
+    }
+
+    fn paint(&self, code: &str, text: &str) -> String {
+        if self.enabled {
+            format!("{code}{text}{}", Self::RESET)
+        } else {
+            text.to_owned()
+        }
+    }
+
+    fn bold(&self, text: &str) -> String {
+        self.paint(Self::BOLD, text)
+    }
+
+    fn dim(&self, text: &str) -> String {
+        self.paint(Self::DIM, text)
+    }
+
+    fn cyan(&self, text: &str) -> String {
+        self.paint(Self::CYAN, text)
+    }
+}
+
+/// A REPL `:` command.
+#[derive(Debug, PartialEq, Eq)]
+enum ReplCommand {
+    Clear,
+    ClearHistory,
+    Help,
+    History,
+    Quit,
+}
+
+impl ReplCommand {
+    /// Returns the command for a source line, if it is one.
+    fn parse(source: &str) -> Option<Self> {
+        Some(match source {
+            ":clear" => Self::Clear,
+            ":clear-history" => Self::ClearHistory,
+            ":help" => Self::Help,
+            ":history" => Self::History,
+            ":quit" | ":q" | ":exit" => Self::Quit,
+            _ => return None,
+        })
+    }
+
+    /// Returns every completion candidate, aliases included.
+    fn completion_names() -> &'static [&'static str] {
+        &[
+            ":clear",
+            ":clear-history",
+            ":help",
+            ":history",
+            ":exit",
+            ":quit",
+        ]
+    }
+}
+
 /// REPL helper that gives completion and a live result hint.
 ///
 /// Rustyline helper callbacks only receive `&self`, so the helper keeps its
@@ -250,18 +324,10 @@ async fn calculate_surface_variants(
 struct ReplHelper {
     session: CalculationSession,
     context: CalculationContext,
+    color: bool,
 }
 
 impl ReplHelper {
-    const COMMANDS: &[&str] = &[
-        ":clear",
-        ":clear-history",
-        ":help",
-        ":history",
-        ":quit",
-        ":exit",
-    ];
-
     fn sync(&mut self, session: &CalculationSession, context: &CalculationContext) {
         self.session = session.clone();
         self.context = context.clone();
@@ -270,7 +336,7 @@ impl ReplHelper {
     /// Returns completion candidates for the word at the cursor.
     fn candidates(&self, prefix: &str) -> Vec<String> {
         if prefix.starts_with(':') {
-            return Self::COMMANDS
+            return ReplCommand::completion_names()
                 .iter()
                 .filter(|command| command.starts_with(prefix))
                 .map(|command| (*command).to_owned())
@@ -322,7 +388,15 @@ impl rustyline::Helper for ReplHelper {}
 
 impl Validator for ReplHelper {}
 
-impl Highlighter for ReplHelper {}
+impl Highlighter for ReplHelper {
+    fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
+        if self.color {
+            format!("{}{hint}{}", "\x1b[2m", "\x1b[0m").into()
+        } else {
+            hint.into()
+        }
+    }
+}
 
 impl Hinter for ReplHelper {
     type Hint = String;
@@ -401,12 +475,15 @@ async fn run_repl(options: &Options) -> ExitCode {
     }
 
     let interactive = io::stdin().is_terminal();
+    let painter = Painter::from_env();
+    let prompt = painter.cyan("> ");
     let mut session = CalculationSession::new();
     let history_path = options.history.then(history::default_path);
     let mut editor = if interactive {
         let helper = ReplHelper {
             session: session.clone(),
             context: context.clone(),
+            color: painter.enabled,
         };
         match ReadlineConfig::builder()
             .max_history_size(1_000)
@@ -437,7 +514,7 @@ async fn run_repl(options: &Options) -> ExitCode {
             helper.sync(&session, &context);
         }
         let source = if let Some(editor) = &mut editor {
-            match editor.readline("> ") {
+            match editor.readline(&prompt) {
                 Ok(source) => source,
                 Err(ReadlineError::Interrupted) => break,
                 Err(ReadlineError::Eof) => break,
@@ -461,13 +538,13 @@ async fn run_repl(options: &Options) -> ExitCode {
         if source.is_empty() {
             continue;
         }
-        match source {
-            ":quit" | ":q" | ":exit" => break,
-            ":clear" => {
+        match ReplCommand::parse(source) {
+            Some(ReplCommand::Quit) => break,
+            Some(ReplCommand::Clear) => {
                 session.clear();
                 continue;
             }
-            ":clear-history" => {
+            Some(ReplCommand::ClearHistory) => {
                 transient_history.clear();
                 if let Some(editor) = &mut editor {
                     if let Err(error) = editor.clear_history() {
@@ -479,13 +556,17 @@ async fn run_repl(options: &Options) -> ExitCode {
                 }
                 continue;
             }
-            ":history" => {
+            Some(ReplCommand::History) => {
                 for (index, entry) in transient_history.iter().enumerate() {
-                    println!("{}  {entry}", index + 1);
+                    println!("{}  {entry}", painter.dim(&(index + 1).to_string()));
                 }
                 continue;
             }
-            _ => {}
+            Some(ReplCommand::Help) => {
+                print_repl_help(&painter);
+                continue;
+            }
+            None => {}
         }
         let recalled = resolve_transient_history(&transient_history, source).map(str::to_owned);
         let source = recalled.as_deref().unwrap_or(source);
@@ -574,6 +655,34 @@ async fn run_repl(options: &Options) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+fn print_repl_help(painter: &Painter) {
+    let rows = [
+        (":help", "show this help"),
+        (":quit, :q, :exit", "leave the session"),
+        (":clear", "reset variables and ans"),
+        (":clear-history", "remove saved history"),
+        (":history", "list past inputs"),
+        ("!!", "repeat the previous input"),
+        ("!n", "repeat input n from :history"),
+    ];
+    println!("{}", painter.bold("commands"));
+    for (name, description) in rows {
+        println!("  {}  {description}", painter.cyan(name));
+    }
+    println!();
+    println!("{}", painter.bold("input"));
+    println!("  {}", painter.dim("press tab to complete words"));
+    println!(
+        "  {}",
+        painter.dim("a dim = result hint appears as you type")
+    );
+    println!();
+    println!("{}", painter.bold("examples"));
+    for example in ["15% of 240", "100 eur to jpy", "hotel = $199 * 3"] {
+        println!("  {example}");
+    }
 }
 
 fn readline_history(editor: &Editor<ReplHelper, FileHistory>) -> Vec<String> {
@@ -1024,7 +1133,31 @@ mod tests {
         ReplHelper {
             session,
             context: CalculationContext::default(),
+            color: false,
         }
+    }
+
+    #[test]
+    fn commands_parse_from_their_aliases() {
+        assert_eq!(ReplCommand::parse(":quit"), Some(ReplCommand::Quit));
+        assert_eq!(ReplCommand::parse(":q"), Some(ReplCommand::Quit));
+        assert_eq!(ReplCommand::parse(":exit"), Some(ReplCommand::Quit));
+        assert_eq!(
+            ReplCommand::parse(":clear-history"),
+            Some(ReplCommand::ClearHistory)
+        );
+        assert_eq!(ReplCommand::parse(":help"), Some(ReplCommand::Help));
+        assert_eq!(ReplCommand::parse(":quitting"), None);
+        assert_eq!(ReplCommand::parse("2 + 2"), None);
+    }
+
+    #[test]
+    fn help_mentions_every_command() {
+        for name in ReplCommand::completion_names() {
+            assert!(name.starts_with(':'));
+        }
+        assert!(ReplCommand::completion_names().contains(&":help"));
+        assert!(!ReplCommand::completion_names().contains(&":q"));
     }
 
     #[test]
