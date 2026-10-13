@@ -26,6 +26,7 @@ mod rate;
 mod roman;
 mod session;
 mod span;
+mod surface;
 mod syntax;
 mod temporal;
 mod timezone;
@@ -66,6 +67,7 @@ pub use radix::{Radix, RadixInteger};
 pub use rate::Rate;
 pub use roman::RomanInteger;
 pub use session::CalculationSession;
+pub use surface::surface_variants;
 pub use span::Span;
 pub use syntax::{
     BinaryOperator, Constant, ConversionTarget, Expression, Function, RelativeWeekdayDirection,

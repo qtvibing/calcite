@@ -3,7 +3,7 @@ mod history;
 mod rates;
 
 use std::{
-    env, fs,
+    fs,
     io::{self, IsTerminal, Read},
     path::PathBuf,
     process::ExitCode,
@@ -13,6 +13,7 @@ use calcite_core::{
     CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
     DiagnosticKind, DocumentCalculation, EntropySource, Number, NumberFormat, NumberOutputMode,
     OffsetDateTime, UtcOffset, Value, calculate_document_with_context_and_entropy,
+    surface_variants,
 };
 use jiff::{Timestamp, tz::TimeZone};
 use rustyline::{
@@ -20,28 +21,6 @@ use rustyline::{
     error::ReadlineError,
     history::{History as _, SearchDirection},
 };
-
-const USAGE: &str = "Usage: calcite [OPTIONS] [EXPRESSION]\n\
-\n\
-Options:\n\
-  -e, --eval <EXPRESSION>  Evaluate one expression\n\
-  -f, --file <PATH>        Evaluate a Calcite document\n\
-  -i, --repl               Start an interactive session\n\
-      --refresh-rates      Refresh exchange rates before evaluation\n\
-      --config <PATH>      Load configuration from a JSON file\n\
-      --locale <LOCALE>    Use en-US, en-GB, de-DE, or fr-FR number syntax\n\
-      --currency <CODE>    Set the default ISO 4217 currency\n\
-      --timezone <ZONE>    Use an IANA zone for contextual dates and times\n\
-      --rate-provider <P>  Use fallback, frankfurter, or ecb\n\
-      --no-history         Disable persistent interactive history\n\
-      --date-order <ORDER> Parse numeric dates as dmy, mdy, or ymd\n\
-      --format <MODE>      auto, plain, exact, fraction, mixed, decimal, significant, or scientific\n\
-      --precision <N>      Digits used by decimal/scientific output\n\
-      --approximate        Mark rounded or approximate numbers with ≈\n\
-      --plain              Print only the final result\n\
-      --json               Print structured JSON\n\
-  -h, --help               Print help\n\
-  -V, --version            Print version";
 
 #[derive(Default)]
 struct OsEntropy {
@@ -119,10 +98,86 @@ impl RequestedNumberMode {
     }
 }
 
+use clap::{CommandFactory as _, Parser as _};
+
+#[derive(clap::Parser)]
+#[command(
+    name = "calcite",
+    version,
+    about = "A calculator for expressions written the way people write them"
+)]
+struct Cli {
+    /// Evaluate one expression
+    #[arg(short = 'e', long)]
+    eval: Option<String>,
+
+    /// Evaluate a Calcite document from a file
+    #[arg(short = 'f', long)]
+    file: Option<PathBuf>,
+
+    /// Start an interactive session
+    #[arg(short = 'i', long)]
+    repl: bool,
+
+    /// Refresh exchange rates before evaluation
+    #[arg(long)]
+    refresh_rates: bool,
+
+    /// Load configuration from a JSON file
+    #[arg(long)]
+    config: Option<PathBuf>,
+
+    /// Use en-US, en-GB, de-DE, or fr-FR number syntax
+    #[arg(long)]
+    locale: Option<String>,
+
+    /// Set the default ISO 4217 currency
+    #[arg(long)]
+    currency: Option<String>,
+
+    /// Use an IANA zone for contextual dates and times
+    #[arg(long)]
+    timezone: Option<String>,
+
+    /// Use fallback, frankfurter, or ecb
+    #[arg(long = "rate-provider")]
+    rate_provider: Option<String>,
+
+    /// Disable persistent interactive history
+    #[arg(long)]
+    no_history: bool,
+
+    /// Parse numeric dates as dmy, mdy, or ymd
+    #[arg(long = "date-order")]
+    date_order: Option<String>,
+
+    /// auto, plain, exact, fraction, mixed, decimal, significant, or scientific
+    #[arg(long)]
+    format: Option<String>,
+
+    /// Digits used by decimal/scientific output (1 through 100)
+    #[arg(long)]
+    precision: Option<String>,
+
+    /// Mark rounded or approximate numbers with ≈
+    #[arg(long)]
+    approximate: bool,
+
+    /// Print only the final result
+    #[arg(long)]
+    plain: bool,
+
+    /// Print structured JSON
+    #[arg(long)]
+    json: bool,
+
+    /// Expression to evaluate; multiple words are joined
+    #[arg(allow_hyphen_values = true)]
+    expression: Vec<String>,
+}
+
 enum Action {
     Calculate(String),
-    Help,
-    Version,
     Repl,
 }
 
@@ -131,29 +186,21 @@ async fn main() -> ExitCode {
     let options = match read_options() {
         Ok(options) => options,
         Err(error) => {
-            eprintln!("calcite: {error}\n\n{USAGE}");
+            eprintln!("calcite: {error}");
             return ExitCode::from(2);
         }
     };
-    let expression = match &options.action {
-        Action::Help => {
-            println!("{USAGE}");
-            return ExitCode::SUCCESS;
-        }
-        Action::Version => {
-            println!("calcite {}", env!("CARGO_PKG_VERSION"));
-            return ExitCode::SUCCESS;
-        }
+    let expression = match options.action {
         Action::Repl => return run_repl(&options).await,
-        Action::Calculate(expression) => expression,
+        Action::Calculate(ref expression) => expression.clone(),
     };
 
     if expression.is_empty() {
-        eprintln!("{USAGE}");
+        eprintln!("{}", Cli::command().render_usage());
         return ExitCode::from(2);
     }
 
-    match calculate_with_rates(expression, &options).await {
+    match calculate_surface_variants(&expression, &options).await {
         Ok(document) => {
             print_result(&document, options.output);
             ExitCode::SUCCESS
@@ -162,11 +209,32 @@ async fn main() -> ExitCode {
             if matches!(options.output, OutputMode::Json) {
                 print_json_error(&diagnostic);
             } else {
-                print_diagnostic(expression, &diagnostic);
+                print_diagnostic(&expression, &diagnostic);
             }
             ExitCode::FAILURE
         }
     }
+}
+
+/// Tries the raw input, then normalized conversational variants.
+///
+/// Normalized variants only ever rescue input the language rejects, and the
+/// reported diagnostic always comes from the raw input so error spans match
+/// what the user typed.
+async fn calculate_surface_variants(
+    expression: &str,
+    options: &Options,
+) -> Result<DocumentCalculation, Diagnostic> {
+    let mut first = None;
+    for variant in surface_variants(expression) {
+        match calculate_with_rates(&variant, options).await {
+            Ok(document) => return Ok(document),
+            Err(diagnostic) => {
+                first.get_or_insert(diagnostic);
+            }
+        }
+    }
+    Err(first.expect("the raw variant is always tried first"))
 }
 
 async fn run_repl(options: &Options) -> ExitCode {
@@ -242,7 +310,7 @@ async fn run_repl(options: &Options) -> ExitCode {
         let source = if let Some(editor) = &mut editor {
             match editor.readline("> ") {
                 Ok(source) => source,
-                Err(ReadlineError::Interrupted) => continue,
+                Err(ReadlineError::Interrupted) => break,
                 Err(ReadlineError::Eof) => break,
                 Err(error) => {
                     eprintln!("calcite: {error}");
@@ -265,7 +333,7 @@ async fn run_repl(options: &Options) -> ExitCode {
             continue;
         }
         match source {
-            ":quit" | ":exit" => break,
+            ":quit" | ":q" | ":exit" => break,
             ":clear" => {
                 session.clear();
                 continue;
@@ -312,37 +380,53 @@ async fn run_repl(options: &Options) -> ExitCode {
             }
         }
 
-        let mut entropy = OsEntropy::default();
-        let mut result = session.calculate_with_entropy(source, &context, &mut entropy);
-        if result
-            .as_ref()
-            .is_err_and(|error| error.kind() == DiagnosticKind::MissingTemporalContext)
-        {
-            install_current_datetime(&mut context, timezone);
-            entropy.rewind();
-            result = session.calculate_with_entropy(source, &context, &mut entropy);
-        }
-        if !attempted_rates
-            && result.as_ref().is_err_and(|error| {
-                matches!(
-                    error.kind(),
-                    DiagnosticKind::MissingExchangeRate | DiagnosticKind::StaleExchangeRate
-                )
-            })
-        {
-            attempted_rates = true;
-            if let Err(error) = refresh_rates(&mut context, &path, rate_provider).await {
-                eprintln!("warning: {error}");
-                if let Some(cached) = &cached {
-                    context
-                        .monetary
-                        .exchange_rates
-                        .reload(cached.snapshot.clone());
+        let mut first_diagnostic = None;
+        let mut result = None;
+        for variant in surface_variants(source) {
+            let mut entropy = OsEntropy::default();
+            let mut outcome = session.calculate_with_entropy(&variant, &context, &mut entropy);
+            if outcome
+                .as_ref()
+                .is_err_and(|error| error.kind() == DiagnosticKind::MissingTemporalContext)
+            {
+                install_current_datetime(&mut context, timezone);
+                entropy.rewind();
+                outcome = session.calculate_with_entropy(&variant, &context, &mut entropy);
+            }
+            if !attempted_rates
+                && outcome.as_ref().is_err_and(|error| {
+                    matches!(
+                        error.kind(),
+                        DiagnosticKind::MissingExchangeRate | DiagnosticKind::StaleExchangeRate
+                    )
+                })
+            {
+                attempted_rates = true;
+                if let Err(error) = refresh_rates(&mut context, &path, rate_provider).await {
+                    eprintln!("warning: {error}");
+                    if let Some(cached) = &cached {
+                        context
+                            .monetary
+                            .exchange_rates
+                            .reload(cached.snapshot.clone());
+                    }
+                }
+                entropy.rewind();
+                outcome = session.calculate_with_entropy(&variant, &context, &mut entropy);
+            }
+            match outcome {
+                Ok(calculation) => {
+                    result = Some(Ok(calculation));
+                    break;
+                }
+                Err(diagnostic) => {
+                    first_diagnostic.get_or_insert(diagnostic);
                 }
             }
-            entropy.rewind();
-            result = session.calculate_with_entropy(source, &context, &mut entropy);
         }
+        let result = result.unwrap_or_else(|| {
+            Err(first_diagnostic.expect("the raw variant is always tried first"))
+        });
 
         match result {
             Ok(calculation) if matches!(output, OutputMode::Json) => println!(
@@ -529,232 +613,107 @@ async fn refresh_rates(
 }
 
 fn read_options() -> Result<Options, String> {
-    let raw_arguments = env::args().skip(1).collect::<Vec<_>>();
-    let explicit_config = raw_arguments
-        .iter()
-        .position(|argument| argument == "--config")
-        .map(|position| {
-            raw_arguments
-                .get(position + 1)
-                .map(PathBuf::from)
-                .ok_or_else(|| "--config requires a path".to_owned())
-        })
-        .transpose()?;
-    let defaults = config::load(explicit_config)?;
-    let mut refresh_rates = false;
-    let mut output = OutputMode::Text;
-    let mut date_order = defaults.date_order;
-    let mut number_format = defaults.number_format;
-    let mut requested_number_mode = defaults.number_mode;
-    let mut precision = defaults.precision;
-    let mut mark_approximate = defaults.approximate;
-    let mut default_currency = defaults.default_currency;
-    let custom_units = defaults.custom_units;
-    let mut timezone = defaults.timezone;
-    let mut rate_provider = defaults.rate_provider;
-    let mut history = defaults.history;
-    let mut repl = false;
-    let mut expression = None;
-    let mut file = None;
-    let mut positional = Vec::new();
-    let mut arguments = raw_arguments.into_iter();
+    let cli = Cli::parse();
+    let defaults = config::load(cli.config.clone())?;
 
-    while let Some(argument) = arguments.next() {
-        match argument.as_str() {
-            "--refresh-rates" => refresh_rates = true,
-            "--config" => {
-                arguments
-                    .next()
-                    .ok_or_else(|| "--config requires a path".to_owned())?;
-            }
-            "--locale" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--locale requires a locale".to_owned())?;
-                number_format = config::parse_locale(&value)?;
-            }
-            "--currency" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--currency requires an ISO 4217 code".to_owned())?;
-                default_currency = Currency::from_code(&value)
-                    .ok_or_else(|| "--currency requires an ISO 4217 code".to_owned())?;
-            }
-            "--timezone" => {
-                timezone = Some(
-                    arguments
-                        .next()
-                        .ok_or_else(|| "--timezone requires an IANA timezone name".to_owned())?,
-                );
-            }
-            "--rate-provider" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--rate-provider requires a provider".to_owned())?;
-                rate_provider = config::parse_provider(&value)?;
-            }
-            "--no-history" => history = false,
-            "-h" | "--help" => {
-                return Ok(Options {
-                    action: Action::Help,
-                    refresh_rates,
-                    output,
-                    date_order,
-                    number_format,
-                    number_mode: requested_number_mode.resolve(precision),
-                    mark_approximate,
-                    default_currency,
-                    custom_units,
-                    timezone,
-                    rate_provider,
-                    history,
-                });
-            }
-            "-V" | "--version" => {
-                return Ok(Options {
-                    action: Action::Version,
-                    refresh_rates,
-                    output,
-                    date_order,
-                    number_format,
-                    number_mode: requested_number_mode.resolve(precision),
-                    mark_approximate,
-                    default_currency,
-                    custom_units,
-                    timezone,
-                    rate_provider,
-                    history,
-                });
-            }
-            "--plain" => output = OutputMode::Plain,
-            "--json" => output = OutputMode::Json,
-            "--format" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--format requires an output mode".to_owned())?;
-                requested_number_mode = config::parse_format(&value)?;
-            }
-            "--precision" => {
-                let value = arguments.next().ok_or_else(|| {
-                    "--precision requires an integer from 1 through 100".to_owned()
-                })?;
-                precision = value
-                    .parse::<u8>()
-                    .ok()
-                    .filter(|value| (1..=100).contains(value))
-                    .ok_or_else(|| {
-                        "--precision requires an integer from 1 through 100".to_owned()
-                    })?;
-            }
-            "--approximate" => mark_approximate = true,
-            "--date-order" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--date-order requires dmy, mdy, or ymd".to_owned())?;
-                date_order = Some(config::parse_date_order(&value)?);
-            }
-            "-i" | "--repl" => {
-                if expression.is_some() || file.is_some() || !positional.is_empty() {
-                    return Err("only one input source may be specified".into());
-                }
-                repl = true;
-            }
-            "-e" | "--eval" => {
-                if repl || expression.is_some() || file.is_some() || !positional.is_empty() {
-                    return Err("only one input source may be specified".into());
-                }
-                expression = Some(
-                    arguments
-                        .next()
-                        .ok_or_else(|| format!("{argument} requires an expression"))?,
-                );
-            }
-            "-f" | "--file" => {
-                if repl || expression.is_some() || file.is_some() || !positional.is_empty() {
-                    return Err("only one input source may be specified".into());
-                }
-                file = Some(PathBuf::from(
-                    arguments
-                        .next()
-                        .ok_or_else(|| format!("{argument} requires a path"))?,
-                ));
-            }
-            "--" => {
-                positional.extend(arguments);
-                break;
-            }
-            _ if argument.starts_with("--") => {
-                return Err(format!("unknown option: {argument}"));
-            }
-            _ => positional.push(argument),
+    let number_format = match cli.locale.as_deref() {
+        Some(value) => config::parse_locale(value)?,
+        None => defaults.number_format,
+    };
+    let requested_number_mode = match cli.format.as_deref() {
+        Some(value) => config::parse_format(value)?,
+        None => defaults.number_mode,
+    };
+    let precision = match cli.precision.as_deref() {
+        Some(value) => value
+            .parse::<u8>()
+            .ok()
+            .filter(|value| (1..=100).contains(value))
+            .ok_or_else(|| "--precision requires an integer from 1 through 100".to_owned())?,
+        None => defaults.precision,
+    };
+    let date_order = match cli.date_order.as_deref() {
+        Some(value) => Some(config::parse_date_order(value)?),
+        None => defaults.date_order,
+    };
+    let default_currency = match cli.currency.as_deref() {
+        Some(value) => Currency::from_code(value)
+            .ok_or_else(|| "--currency requires an ISO 4217 code".to_owned())?,
+        None => defaults.default_currency,
+    };
+    let timezone = match cli.timezone.as_deref() {
+        Some(value) => {
+            TimeZone::get(value).map_err(|error| format!("invalid timezone '{value}': {error}"))?;
+            Some(value.to_owned())
         }
-    }
-
-    if let Some(name) = &timezone {
-        TimeZone::get(name).map_err(|error| format!("invalid timezone '{name}': {error}"))?;
-    }
-    if (repl || expression.is_some() || file.is_some()) && !positional.is_empty() {
+        None => defaults.timezone,
+    };
+    let rate_provider = match cli.rate_provider.as_deref() {
+        Some(value) => config::parse_provider(value)?,
+        None => defaults.rate_provider,
+    };
+    let output = if cli.json {
+        OutputMode::Json
+    } else if cli.plain {
+        OutputMode::Plain
+    } else {
+        OutputMode::Text
+    };
+    let inputs = [
+        cli.repl,
+        cli.eval.is_some(),
+        cli.file.is_some(),
+        !cli.expression.is_empty(),
+    ]
+    .iter()
+    .filter(|specified| **specified)
+    .count();
+    if inputs > 1 {
         return Err("only one input source may be specified".into());
     }
-    if repl {
-        return Ok(Options {
-            action: Action::Repl,
-            refresh_rates,
-            output,
-            date_order,
-            number_format,
-            number_mode: requested_number_mode.resolve(precision),
-            mark_approximate,
-            default_currency,
-            custom_units,
-            timezone,
-            rate_provider,
-            history,
-        });
-    }
-    let source = if let Some(expression) = expression {
-        expression
-    } else if let Some(path) = file {
-        fs::read_to_string(&path)
-            .map_err(|error| format!("could not read {}: {error}", path.display()))?
-    } else if !positional.is_empty() {
-        positional.join(" ")
+
+    let action = if cli.repl {
+        Action::Repl
+    } else if let Some(expression) = cli.eval {
+        Action::Calculate(expression)
+    } else if let Some(path) = cli.file {
+        Action::Calculate(
+            fs::read_to_string(&path)
+                .map_err(|error| format!("could not read {}: {error}", path.display()))?,
+        )
+    } else if !cli.expression.is_empty() {
+        Action::Calculate(cli.expression.join(" "))
     } else if io::stdin().is_terminal() {
-        return Ok(Options {
-            action: Action::Repl,
-            refresh_rates,
-            output,
-            date_order,
-            number_format,
-            number_mode: requested_number_mode.resolve(precision),
-            mark_approximate,
-            default_currency,
-            custom_units,
-            timezone,
-            rate_provider,
-            history,
-        });
+        Action::Repl
     } else {
         let mut source = String::new();
         io::stdin()
             .read_to_string(&mut source)
             .map_err(|error| error.to_string())?;
-        source
+        Action::Calculate(source.trim().to_owned())
     };
 
+    if let Some(argument) = cli
+        .expression
+        .iter()
+        .find(|argument| argument.starts_with("--"))
+    {
+        return Err(format!("unknown option: {argument}"));
+    }
+
     Ok(Options {
-        action: Action::Calculate(source.trim().to_owned()),
-        refresh_rates,
+        action,
+        refresh_rates: cli.refresh_rates,
         output,
         date_order,
         number_format,
         number_mode: requested_number_mode.resolve(precision),
-        mark_approximate,
+        mark_approximate: cli.approximate || defaults.approximate,
         default_currency,
-        custom_units,
+        custom_units: defaults.custom_units,
         timezone,
         rate_provider,
-        history,
+        history: defaults.history && !cli.no_history,
     })
 }
 

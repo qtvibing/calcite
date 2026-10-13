@@ -35,6 +35,87 @@ fn expanded_currency_codes_create_typed_money() {
 }
 
 #[test]
+fn currency_postfix_labels_any_plain_number_result() {
+    for (source, expected) in [
+        ("(100 - 20%) EUR", "80 EUR"),
+        ("100 - 20% EUR", "80 EUR"),
+        ("(5 + 5) USD", "10 USD"),
+        ("(2 * 3) EUR", "6 EUR"),
+    ] {
+        assert_eq!(output(source), expected);
+    }
+    let diagnostic = calculate("(100 - 20%) EUR EUR").unwrap_err();
+    assert_eq!(diagnostic.kind(), DiagnosticKind::CurrencyMismatch);
+    let diagnostic = calculate("20% EUR").unwrap_err();
+    assert_eq!(diagnostic.kind(), DiagnosticKind::UnsupportedOperation);
+}
+
+#[test]
+fn english_currency_aliases_resolve_to_iso_currencies() {
+    for (source, expected) in [
+        ("100 dollars", "100 USD"),
+        ("dollar 100", "100 USD"),
+        ("25 euros", "25 EUR"),
+        ("sterling 40", "40 GBP"),
+        ("50 rmb", "50 CNY"),
+        ("3000 yen + 200 yen", "3200 JPY"),
+        ("(30 - 10%) rupees", "27 INR"),
+    ] {
+        assert_eq!(output(source), expected);
+    }
+    // `pound` remains the mass unit; GBP is spelled `sterling`.
+    assert_eq!(calculate("5 pounds").unwrap().output, "5 lb");
+}
+
+#[test]
+fn qualified_currency_names_disambiguate_pesos_and_krona() {
+    for (source, expected) in [
+        ("100 mexican pesos", "100 MXN"),
+        ("swedish krona 250", "250 SEK"),
+        ("30 philippine peso", "30 PHP"),
+        ("(30 - 10%) danish kroner", "27 DKK"),
+        ("british pounds 12", "12 GBP"),
+        ("new zealand dollars 99", "99 NZD"),
+        ("hong kong dollar 75", "75 HKD"),
+    ] {
+        assert_eq!(output(source), expected);
+    }
+}
+
+#[test]
+fn multi_word_currency_aliases_work_as_conversion_targets() {
+    let mut context = CalculationContext::default();
+    context.monetary.exchange_rates.reload(
+        ExchangeRateSnapshot::new(
+            None,
+            [
+                (
+                    Currency::Usd,
+                    Currency::from_code("MXN").unwrap(),
+                    Number::parse_decimal("17.0").unwrap(),
+                ),
+                (
+                    Currency::Usd,
+                    Currency::from_code("HKD").unwrap(),
+                    Number::parse_decimal("7.8").unwrap(),
+                ),
+            ],
+        )
+        .unwrap(),
+    );
+    for (source, expected) in [
+        ("100 USD in mexican pesos", "1700 MXN"),
+        ("100 USD to hong kong dollars", "780 HKD"),
+        ("(100 - 50%) us dollars in mexican pesos", "850 MXN"),
+    ] {
+        assert_eq!(
+            calculate_with_context(source, &context).unwrap().output,
+            expected
+        );
+    }
+}
+
+#[test]
 fn currency_codes_are_case_insensitive() {
     assert_eq!(output("usd 10 + UsD 5"), "15 USD");
     assert_eq!(output("cup 10 + 5 CuP"), "15 CUP");

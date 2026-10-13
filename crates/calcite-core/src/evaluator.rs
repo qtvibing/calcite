@@ -351,6 +351,27 @@ pub(crate) fn evaluate_expression(
         Expression::Money {
             amount, currency, ..
         } => Ok(Value::Money(Money::new(amount.clone(), *currency))),
+        Expression::CurrencyAttach {
+            expression,
+            currency,
+            span,
+            ..
+        } => {
+            let value = evaluate_expression(expression, context, variables, entropy)?;
+            match value {
+                Value::Number(amount) => Ok(Value::Money(Money::new(amount, *currency))),
+                Value::Money(money) => Err(Diagnostic::with_detail(
+                    DiagnosticKind::CurrencyMismatch,
+                    *span,
+                    format!("this value already has {}", money.currency()),
+                )),
+                _ => Err(Diagnostic::with_detail(
+                    DiagnosticKind::UnsupportedOperation,
+                    *span,
+                    "a currency can only label a plain number",
+                )),
+            }
+        }
         Expression::Dice { value, .. } => Ok(Value::Dice(*value)),
         Expression::Date { value, .. } => Ok(Value::Date(*value)),
         Expression::PartialDate { month, day, span } => {

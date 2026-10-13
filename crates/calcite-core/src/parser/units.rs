@@ -202,8 +202,9 @@ impl Parser<'_> {
 
         let mut consumed = 2;
         let mut target_span = target_token.span;
-        let target = if let Some((currency, token)) = self.currency_at(1) {
-            target_span = token.span;
+        let target = if let Some((currency, tokens, span)) = self.currency_at(1) {
+            consumed = 1 + tokens;
+            target_span = span;
             ConversionTarget::Currency(currency)
         } else if let Some((offset, offset_tokens, span)) = self.utc_offset_at(1) {
             consumed = 1 + offset_tokens;

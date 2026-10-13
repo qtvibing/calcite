@@ -30,6 +30,91 @@ impl Currency {
             .find(|currency| currency.code.eq_ignore_ascii_case(code))
     }
 
+    /// Resolves common English currency names, such as `rmb` for CNY.
+    ///
+    /// Ambiguous names are excluded unless qualified: `peso`, `krona`, and
+    /// `krone` need a leading adjective (`mexican pesos`, `swedish krona`).
+    /// `pound` on its own stays a mass unit.
+    pub fn from_alias(name: &str) -> Option<Self> {
+        const ALIASES: &[(&str, &str)] = &[
+            ("rmb", "CNY"),
+            ("renminbi", "CNY"),
+            ("yuan", "CNY"),
+            ("dollar", "USD"),
+            ("dollars", "USD"),
+            ("us dollar", "USD"),
+            ("us dollars", "USD"),
+            ("euro", "EUR"),
+            ("euros", "EUR"),
+            ("sterling", "GBP"),
+            ("pound sterling", "GBP"),
+            ("british pound", "GBP"),
+            ("british pounds", "GBP"),
+            ("yen", "JPY"),
+            ("won", "KRW"),
+            ("rupee", "INR"),
+            ("rupees", "INR"),
+            ("indian rupee", "INR"),
+            ("indian rupees", "INR"),
+            ("franc", "CHF"),
+            ("francs", "CHF"),
+            ("swiss franc", "CHF"),
+            ("swiss francs", "CHF"),
+            ("ruble", "RUB"),
+            ("rouble", "RUB"),
+            ("rubles", "RUB"),
+            ("russian ruble", "RUB"),
+            ("russian rubles", "RUB"),
+            ("rand", "ZAR"),
+            ("baht", "THB"),
+            ("ringgit", "MYR"),
+            ("rupiah", "IDR"),
+            ("shekel", "ILS"),
+            ("shekels", "ILS"),
+            ("israeli shekel", "ILS"),
+            ("israeli shekels", "ILS"),
+            ("lira", "TRY"),
+            ("lire", "TRY"),
+            ("turkish lira", "TRY"),
+            ("zloty", "PLN"),
+            ("zlotys", "PLN"),
+            ("forint", "HUF"),
+            ("koruna", "CZK"),
+            ("czech koruna", "CZK"),
+            ("dong", "VND"),
+            ("mexican peso", "MXN"),
+            ("mexican pesos", "MXN"),
+            ("argentine peso", "ARS"),
+            ("argentine pesos", "ARS"),
+            ("philippine peso", "PHP"),
+            ("philippine pesos", "PHP"),
+            ("colombian peso", "COP"),
+            ("colombian pesos", "COP"),
+            ("uruguayan peso", "UYU"),
+            ("uruguayan pesos", "UYU"),
+            ("swedish krona", "SEK"),
+            ("swedish kronor", "SEK"),
+            ("danish krone", "DKK"),
+            ("danish kroner", "DKK"),
+            ("norwegian krone", "NOK"),
+            ("norwegian kroner", "NOK"),
+            ("australian dollar", "AUD"),
+            ("australian dollars", "AUD"),
+            ("canadian dollar", "CAD"),
+            ("canadian dollars", "CAD"),
+            ("new zealand dollar", "NZD"),
+            ("new zealand dollars", "NZD"),
+            ("hong kong dollar", "HKD"),
+            ("hong kong dollars", "HKD"),
+            ("singapore dollar", "SGD"),
+            ("singapore dollars", "SGD"),
+        ];
+        ALIASES
+            .iter()
+            .find(|(alias, _)| alias.eq_ignore_ascii_case(name))
+            .and_then(|(_, code)| Self::from_code(code))
+    }
+
     pub fn from_symbol(symbol: &str, default_currency: Self) -> Option<Self> {
         match symbol {
             "$" => Some(default_currency),

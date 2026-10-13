@@ -285,6 +285,10 @@ fn collect_variable_references(expression: &Expression, references: &mut Vec<Str
         | Expression::Conversion {
             expression: operand,
             ..
+        }
+        | Expression::CurrencyAttach {
+            expression: operand,
+            ..
         } => collect_variable_references(operand, references),
         Expression::Conditional {
             condition,

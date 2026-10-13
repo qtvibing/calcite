@@ -125,7 +125,7 @@ fn exhausted_entropy_sources_fail_with_a_dedicated_diagnostic() {
 }
 
 #[test]
-fn random_language_forms_accept_definite_articles() {
+fn random_language_forms_accept_alternative_phrasings() {
     let mut entropy = [0].into_iter();
     assert_eq!(
         calculate_with_entropy("roll the 1d6", &mut entropy)
@@ -133,9 +133,30 @@ fn random_language_forms_accept_definite_articles() {
             .output,
         "1"
     );
-    let mut heads = [0].into_iter();
+    for (source, expected) in [
+        ("flip the coin", "tails"),
+        ("coin flip", "tails"),
+        ("coinflip", "tails"),
+    ] {
+        let mut entropy = [1].into_iter();
+        assert_eq!(
+            calculate_with_entropy(source, &mut entropy)
+                .unwrap()
+                .output,
+            expected,
+            "{source}"
+        );
+    }
+    let mut bare = [0].into_iter();
     assert_eq!(
-        calculate_with_entropy("flip the coin", &mut heads)
+        calculate_with_entropy("coinflip", &mut bare)
+            .unwrap()
+            .output,
+        "heads"
+    );
+    let mut parenthesized = [0].into_iter();
+    assert_eq!(
+        calculate_with_entropy("coinflip()", &mut parenthesized)
             .unwrap()
             .output,
         "heads"

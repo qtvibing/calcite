@@ -68,6 +68,47 @@ fn supplies_os_entropy_for_natural_dice_and_coin_actions() {
 }
 
 #[test]
+fn conversational_input_is_normalized_to_answers() {
+    for (source, expected) in [
+        ("what is 5% of 200", "10"),
+        ("What's 2+2?", "4"),
+        ("convert 5 miles to km", "8.04672 km"),
+        ("how many km in 5 miles", "8.04672 km"),
+    ] {
+        let output = calcite()
+            .args([source])
+            .output()
+            .expect("calcite should run");
+        assert!(output.status.success(), "{source} failed");
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+        assert!(output.stderr.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn conversational_input_is_normalized_in_the_repl_too() {
+    let mut child = calcite()
+        .arg("--repl")
+        .arg("--no-history")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("calcite should run");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"convert 5 miles to km\nwhat is 5% of 200\n:quit\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "8.04672 km\n10\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn evaluates_deterministic_finance_functions() {
     let output = calcite()
         .args(["round(mortgage_payment($10000,", "6%,", "6),", "2)"])
@@ -229,11 +270,7 @@ fn supports_help_version_and_explicit_eval_modes() {
         .output()
         .expect("calcite should run");
     assert!(help.status.success());
-    assert!(
-        String::from_utf8(help.stdout)
-            .unwrap()
-            .starts_with("Usage: calcite")
-    );
+    assert!(String::from_utf8(help.stdout).unwrap().contains("Usage: calcite"));
 
     let version = calcite()
         .arg("--version")

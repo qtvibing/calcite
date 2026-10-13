@@ -388,7 +388,19 @@ EUR 25.50                    → 25.5 EUR
 
 Calcite includes the 178 currencies and funds from the 2026-01-01 SIX ISO 4217 List One snapshot, including each currency's minor-unit metadata. Codes are case-insensitive.
 
+Common English names resolve to their ISO currency: `dollars` (USD), `euros` (EUR), `sterling` (GBP), `yen` (JPY), `won` (KRW), `rmb`/`renminbi`/`yuan` (CNY), `rupees` (INR), `francs` (CHF), `rubles` (RUB), `rand` (ZAR), `baht` (THB), `ringgit` (MYR), `rupiah` (IDR), `shekels` (ILS), `lira` (TRY), `zloty` (PLN), `forint` (HUF), `koruna` (CZK), and `dong` (VND). Ambiguous names resolve when qualified: `mexican pesos` (MXN), `argentine pesos` (ARS), `philippine pesos` (PHP), `colombian pesos` (COP), `uruguayan pesos` (UYU), `swedish krona` (SEK), `danish krone` (DKK), `norwegian krone` (NOK), `australian dollars` (AUD), `canadian dollars` (CAD), `new zealand dollars` (NZD), `hong kong dollars` (HKD), and `singapore dollars` (SGD). Qualified names work wherever a currency is read: `mexican pesos 100`, `100 mexican pesos`, and `100 USD in philippine pesos`. `pound` on its own remains the mass unit; GBP is `sterling` or `british pounds`.
+
 `$` uses `MonetaryContext::default_currency` (USD by default). `¥` resolves to CNY when that is the configured default and JPY otherwise; `₩` similarly selects KPW when configured and KRW otherwise. An explicit ISO code is always unambiguous.
+
+An ISO code after a complete expression labels the result as money. The attachment binds looser than addition and subtraction, so it applies to the whole result:
+
+```text
+(1955.45 - 20%) EUR        → 1564.36 EUR
+1955.45 - 20% EUR          → 1564.36 EUR
+(5 + 5) USD to CHF         → (requires an exchange-rate snapshot)
+```
+
+Attachment requires a plain number result. A percentage or a value that already carries a currency is rejected rather than reinterpreted.
 
 Arithmetic preserves currency:
 
@@ -604,10 +616,14 @@ roll(3d12)
 flip coin
 flip a coin
 flip the coin
+coin flip
+coinflip
 coinflip()
 ```
 
-The seven roll forms are equivalent, as are the four coin forms. A roll produces an integer; a flip produces the typed value `heads` or `tails`. Modifiers are part of the sampled distribution, so `roll 2d6 + 3` samples `2d6+3`.
+The roll forms are equivalent, as are the coin forms. A roll produces an integer; a flip produces the typed value `heads` or `tails`. Modifiers are part of the sampled distribution, so `roll 2d6 + 3` samples `2d6+3`.
+
+The words `roll`, `flip`, and `coin` (when followed by `flip`) are reserved and cannot be used as variable or function names.
 
 Probabilities are exact internally. Entropy is not: sampling requires an explicit source. The CLI uses operating-system entropy. Rust callers use `calculate_with_entropy`, `calculate_with_context_and_entropy`, `CalculationSession::calculate_with_entropy`, or the corresponding document functions. Calling an ordinary deterministic evaluation function with a sampling expression produces `MissingEntropy`.
 

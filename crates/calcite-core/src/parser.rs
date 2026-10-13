@@ -158,6 +158,20 @@ impl Parser<'_> {
                 continue;
             }
 
+            if minimum_binding_power == 0
+                && let Some((currency, consumed, currency_span)) = self.currency_at(0)
+            {
+                self.position += consumed;
+                let span = left.span().join(currency_span);
+                left = Expression::CurrencyAttach {
+                    expression: Box::new(left),
+                    currency,
+                    currency_span,
+                    span,
+                };
+                continue;
+            }
+
             if 17 >= minimum_binding_power && self.starts_implicit_multiplication() {
                 let operator_span = Span::empty(left.span().end);
                 let right = self.parse_expression(18)?;
@@ -288,14 +302,14 @@ impl Parser<'_> {
                     span = span.join(fraction.span);
                     self.position += 1;
                 }
-                if let Some((currency, currency_token)) =
+                if let Some((currency, consumed, currency_span)) =
                     self.currency_at(0).filter(|_| self.unit().is_none())
                 {
-                    self.position += 1;
+                    self.position += consumed;
                     Ok(Expression::Money {
                         amount: value,
                         currency,
-                        span: span.join(currency_token.span),
+                        span: span.join(currency_span),
                     })
                 } else if let Some((consumed, workday_span)) = self.workday_unit() {
                     let days = value.exact_i64().ok_or_else(|| {
@@ -496,9 +510,18 @@ impl Parser<'_> {
                 })
             }
             LexemeKind::Word => {
+                let name = &self.source[token.span.start..token.span.end];
                 self.position += 1;
+                if let Some(function) = Function::from_name(name).filter(|f| f.zero_argument()) {
+                    return Ok(Expression::Call {
+                        function,
+                        function_span: token.span,
+                        arguments: Vec::new(),
+                        span: token.span,
+                    });
+                }
                 Ok(Expression::Variable {
-                    name: self.source[token.span.start..token.span.end].to_owned(),
+                    name: name.to_owned(),
                     span: token.span,
                 })
             }
@@ -967,10 +990,10 @@ impl Parser<'_> {
     }
 
     fn parse_prefixed_money(&mut self) -> Result<Expression, Diagnostic> {
-        let (currency, currency_token) = self
+        let (currency, consumed, currency_span) = self
             .currency_at(0)
             .expect("money prefix is a recognized currency");
-        self.position += 1;
+        self.position += consumed;
         let Some(number_token) = self.current() else {
             return Err(Diagnostic::with_detail(
                 DiagnosticKind::UnexpectedEnd,
@@ -987,7 +1010,7 @@ impl Parser<'_> {
         }
         let mut amount = self.parse_number_value(number_token)?;
         self.position += 1;
-        let mut span = currency_token.span.join(number_token.span);
+        let mut span = currency_span.join(number_token.span);
         if let Some((factor, scalar)) = self.scalar() {
             amount = amount.multiply(Number::from_i64(factor));
             span = span.join(scalar.span);
@@ -1000,15 +1023,39 @@ impl Parser<'_> {
         })
     }
 
-    fn currency_at(&self, offset: usize) -> Option<(Currency, Lexeme)> {
+    fn currency_at(&self, offset: usize) -> Option<(Currency, usize, Span)> {
         let token = *self.tokens.get(self.position + offset)?;
-        let source = &self.source[token.span.start..token.span.end];
-        let currency = match token.kind {
-            LexemeKind::CurrencySymbol => Currency::from_symbol(source, self.default_currency)?,
-            LexemeKind::Word if source.len() == 3 => Currency::from_code(source)?,
-            _ => return None,
-        };
-        Some((currency, token))
+        match token.kind {
+            LexemeKind::CurrencySymbol => {
+                let source = &self.source[token.span.start..token.span.end];
+                Some((
+                    Currency::from_symbol(source, self.default_currency)?,
+                    1,
+                    token.span,
+                ))
+            }
+            LexemeKind::Word => {
+                // Multi-word aliases such as `philippine pesos` are matched
+                // greedily longest-first so the fewest tokens are left over.
+                for count in [3, 2, 1] {
+                    let Some(words) = (0..count)
+                        .map(|index| self.word_text_at(offset + index))
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        continue;
+                    };
+                    let joined = words.join(" ");
+                    if let Some(currency) = Currency::from_code(&joined)
+                        .or_else(|| Currency::from_alias(&joined))
+                    {
+                        let last = self.tokens[self.position + offset + count - 1];
+                        return Some((currency, count, token.span.join(last.span)));
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     fn parse_conditional(&mut self) -> Result<Expression, Diagnostic> {

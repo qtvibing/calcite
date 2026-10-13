@@ -161,6 +161,11 @@ pub enum Function {
 }
 
 impl Function {
+    /// Returns whether the function can be called without parentheses or arguments.
+    pub const fn zero_argument(self) -> bool {
+        matches!(self, Self::CoinFlip)
+    }
+
     pub(crate) fn from_name(name: &str) -> Option<Self> {
         Some(match name.to_ascii_lowercase().as_str() {
             "sales_tax" | "tax" => Self::SalesTax,
@@ -338,6 +343,12 @@ pub enum Expression {
         currency: Currency,
         span: Span,
     },
+    CurrencyAttach {
+        expression: Box<Expression>,
+        currency: Currency,
+        currency_span: Span,
+        span: Span,
+    },
     Dice {
         value: DiceDistribution,
         span: Span,
@@ -462,6 +473,7 @@ impl Expression {
             | Self::Unit { span, .. }
             | Self::CustomUnit { span, .. }
             | Self::Money { span, .. }
+            | Self::CurrencyAttach { span, .. }
             | Self::Dice { span, .. }
             | Self::Date { span, .. }
             | Self::PartialDate { span, .. }

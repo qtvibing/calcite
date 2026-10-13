@@ -30,11 +30,23 @@ impl Parser<'_> {
     }
 
     pub(super) fn starts_random_action(&self) -> bool {
-        self.word_is(0, "roll") || self.word_is(0, "flip")
+        self.word_is(0, "roll")
+            || self.word_is(0, "flip")
+            || (self.word_is(0, "coin") && self.word_is(1, "flip"))
     }
 
     pub(super) fn parse_random_action(&mut self) -> Result<Expression, Diagnostic> {
         let start = self.current().expect("random action is present").span;
+        if self.word_is(0, "coin") {
+            let second = self.tokens[self.position + 1];
+            self.position += 2;
+            return Ok(Expression::Call {
+                function: Function::CoinFlip,
+                function_span: start,
+                arguments: Vec::new(),
+                span: start.join(second.span),
+            });
+        }
         if self.word_is(0, "flip") {
             self.position += 1;
             if self.word_is(0, "a") || self.word_is(0, "the") {

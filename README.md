@@ -86,7 +86,7 @@ It has editable persistent history, including arrow-key navigation. The built-in
 | `:history` | Print calculation history |
 | `:clear-history` | Remove saved history |
 | `:clear` | Clear variables, `ans`, and `_` |
-| `:quit`, `:exit` | Leave the REPL |
+| `:quit`, `:q`, `:exit` | Leave the REPL |
 | `!!` | Repeat the latest history entry |
 | `!N` | Repeat history entry `N` |
 
@@ -105,6 +105,8 @@ error: cannot divide by zero
 ```
 
 Run `calcite --help` for the complete option list.
+
+Conversational input is accepted for one-shot expressions. If the raw input is not valid Calcite, the CLI retries with leading question phrases (`what is`, `how much is`, `calculate`, `convert`, ...) stripped and quantity questions (`how many km in 5 miles`) rewritten as conversions. Input the language already accepts is never rewritten.
 
 ## A tour of the language
 
@@ -191,6 +193,9 @@ $80 + 25%                    → 100 USD
 $100/hour * 90 minutes       → 150 USD
 $500 at $20/hour             → 25 h
 $120/hour in minute          → 2 USD/min
+100 dollars + 25%            → 125 USD
+(1955.45 - 20%) EUR to CHF
+                              → (a conversion using an exchange-rate snapshot)
 ```
 
 Currency conversion only works when the application has installed an exchange-rate snapshot. The CLI loads a fresh local cache first and contacts a configured provider only when conversion needs rates or `--refresh-rates` is used.
@@ -265,7 +270,7 @@ roll me a 3d12                 → 19        (example roll)
 flip a coin                    → heads     (example flip)
 ```
 
-`roll 3d12`, `roll a 3d12`, `roll me 3d12`, `roll me a 3d12`, and `roll(3d12)` are equivalent (each also accepts `the` in place of `a`). Coin flips accept `flip coin`, `flip a coin`, `flip the coin`, and `coinflip()`. The CLI supplies operating-system entropy, so sampled results vary. Library callers use the explicit entropy-aware evaluation APIs; the ordinary deterministic APIs return an error when an expression requests sampling.
+`roll 3d12`, `roll a 3d12`, `roll me 3d12`, `roll me a 3d12`, and `roll(3d12)` are equivalent (each also accepts `the` in place of `a`). Coin flips accept `flip coin`, `flip a coin`, `flip the coin`, `coin flip`, `coinflip`, and `coinflip()`. The CLI supplies operating-system entropy, so sampled results vary. Library callers use the explicit entropy-aware evaluation APIs; the ordinary deterministic APIs return an error when an expression requests sampling.
 
 ## Configuration
 
