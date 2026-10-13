@@ -63,7 +63,7 @@ fn english_currency_aliases_resolve_to_iso_currencies() {
     ] {
         assert_eq!(output(source), expected);
     }
-    // `pound` remains the mass unit; GBP is spelled `sterling`.
+    // `pound` is the mass unit. Use `sterling` for GBP.
     assert_eq!(calculate("5 pounds").unwrap().output, "5 lb");
 }
 
@@ -73,8 +73,7 @@ fn money_displays_rounded_to_currency_minor_units() {
     assert_eq!(output("3200.5 JPY"), "3201 JPY");
     assert_eq!(output("1.234567 BHD"), "1.235 BHD");
     assert_eq!(output("80 USD"), "80 USD");
-    // Explicitly chosen precision is respected; auto mode is the only mode
-    // that rounds to minor units.
+    // An explicit precision mode is the opt-out. Auto is the only mode that rounds.
     let mut context = CalculationContext::default();
     context.output_format.number_mode = NumberOutputMode::Decimal { places: 10 };
     assert_eq!(
@@ -83,7 +82,7 @@ fn money_displays_rounded_to_currency_minor_units() {
             .output,
         "1564.3636363636 EUR"
     );
-    // The typed value keeps full precision regardless of display rounding.
+    // The typed value keeps full precision. Display rounding does not apply.
     let calculation = calculate("1564.3636363636 EUR").unwrap();
     assert!(calculation.value.as_money().is_some());
 }

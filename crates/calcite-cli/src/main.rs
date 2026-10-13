@@ -175,7 +175,7 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
-    /// Expression to evaluate; multiple words are joined
+    /// Expression to evaluate. Multiple words are joined.
     #[arg(allow_hyphen_values = true)]
     expression: Vec<String>,
 }
@@ -222,9 +222,9 @@ async fn main() -> ExitCode {
 
 /// Tries the raw input, then normalized conversational variants.
 ///
-/// Normalized variants only ever rescue input the language rejects, and the
-/// reported diagnostic always comes from the raw input so error spans match
-/// what the user typed.
+/// Normalized variants rescue only input that the language rejects. The
+/// reported diagnostic always comes from the raw input. Error spans then
+/// match what the user typed.
 async fn calculate_surface_variants(
     expression: &str,
     options: &Options,
@@ -241,10 +241,11 @@ async fn calculate_surface_variants(
     Err(first.expect("the raw variant is always tried first"))
 }
 
-/// REPL helper providing completion and a live result hint.
+/// REPL helper that gives completion and a live result hint.
 ///
-/// The helper keeps its own copy of the session and context, synchronized
-/// after every line, because rustyline's helper callbacks only receive `&self`.
+/// Rustyline helper callbacks only receive `&self`, so the helper keeps its
+/// own copy of the session and context. The code syncs the copy after every
+/// line.
 #[derive(Clone)]
 struct ReplHelper {
     session: CalculationSession,
@@ -1051,7 +1052,7 @@ mod tests {
         assert_eq!(helper.live_hint(":quit"), None);
         assert_eq!(helper.live_hint("x ="), None);
         assert_eq!(helper.live_hint("invalid syntax here!!"), None);
-        // Sampling needs entropy, which hints do not supply.
+        // Sampling needs entropy. A hint does not supply it.
         assert_eq!(helper.live_hint("flip a coin"), None);
     }
 }

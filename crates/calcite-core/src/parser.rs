@@ -1035,8 +1035,7 @@ impl Parser<'_> {
                 ))
             }
             LexemeKind::Word => {
-                // Multi-word aliases such as `philippine pesos` are matched
-                // greedily longest-first so the fewest tokens are left over.
+                // Multi-word aliases match greedily longest-first.
                 for count in [3, 2, 1] {
                     let Some(words) = (0..count)
                         .map(|index| self.word_text_at(offset + index))

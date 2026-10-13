@@ -167,7 +167,7 @@ impl Function {
     }
 
     /// Every function name and its aliases. The first name in each entry is
-    /// the canonical form offered by completion.
+    /// the canonical form for completion.
     pub(crate) const NAMES: &[(&[&str], Function)] = &[
         (&["sales_tax", "tax"], Function::SalesTax),
         (&["add_tax"], Function::AddTax),

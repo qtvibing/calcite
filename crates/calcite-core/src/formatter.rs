@@ -77,10 +77,10 @@ pub fn format_with_context(value: &Value, context: &CalculationContext) -> Strin
     }
 }
 
-/// Money renders rounded to its currency's minor units in the default auto
-/// mode. Explicitly chosen output modes are respected as-is, so
-/// `--format decimal --precision 20` opts out of rounding. The underlying
-/// value is never rounded.
+/// Money rounds to the minor unit of its currency in the default auto mode.
+/// An explicitly chosen output mode applies as-is. For example,
+/// `--format decimal --precision 20` opts out of rounding. The code never
+/// rounds the underlying value.
 fn money_output_mode(context: &CalculationContext, currency: Currency) -> NumberOutputMode {
     match context.output_format.number_mode {
         NumberOutputMode::Auto => currency

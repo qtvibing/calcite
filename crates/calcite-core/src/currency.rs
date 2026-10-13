@@ -32,9 +32,9 @@ impl Currency {
 
     /// Resolves common English currency names, such as `rmb` for CNY.
     ///
-    /// Ambiguous names are excluded unless qualified: `peso`, `krona`, and
-    /// `krone` need a leading adjective (`mexican pesos`, `swedish krona`).
-    /// `pound` on its own stays a mass unit.
+    /// Ambiguous names need a leading adjective (`mexican pesos`,
+    /// `swedish krona`). Calcite rejects `peso`, `krona`, and `krone` on
+    /// their own. `pound` on its own stays a mass unit.
     pub fn from_alias(name: &str) -> Option<Self> {
         const ALIASES: &[(&str, &str)] = &[
             ("rmb", "CNY"),
@@ -148,8 +148,7 @@ impl fmt::Display for Currency {
     }
 }
 
-// ISO 4217 List One, published by SIX on 2026-01-01. Minor-unit metadata is
-// descriptive; Calcite preserves exact entered amounts and never rounds implicitly.
+// ISO 4217 List One from SIX, dated 2026-01-01. Minor units apply to display only.
 const CURRENCIES: &[Currency] = &[
     Currency::new("AED", Some(2)),
     Currency::new("AFN", Some(2)),

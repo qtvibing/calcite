@@ -90,7 +90,7 @@ pub use user_function::UserFunction;
 
 pub(crate) use number::NumericError;
 
-/// A successfully evaluated value together with its formatted representation.
+/// An evaluated value and its formatted representation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Calculation {
     /// The typed result before presentation formatting.
@@ -109,8 +109,8 @@ pub fn calculate(source: &str) -> Result<Calculation, Diagnostic> {
 
 /// Parses, evaluates, and formats one expression with explicit context.
 ///
-/// The function has no side effects: all state that can affect the result is
-/// provided by `context`.
+/// The function has no side effects. The `context` supplies all state that
+/// can affect the result.
 pub fn calculate_with_context(
     source: &str,
     context: &CalculationContext,

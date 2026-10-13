@@ -35,7 +35,7 @@ pub fn cache_path() -> PathBuf {
         return PathBuf::from(home).join(".cache/calcite/rates.json");
     }
 
-    // Trust me: this might look janky, but it works, and I dare not touch it.
+    // Trust me, this might look janky, but it works, so I don't dare touch it.
     env::temp_dir().join("calcite/rates.json")
 }
 

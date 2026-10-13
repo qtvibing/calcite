@@ -20,7 +20,7 @@ pub use file::{load_json_snapshot, save_json_snapshot};
 #[cfg(feature = "frankfurter")]
 pub use frankfurter::FrankfurterProvider;
 
-/// The boxed asynchronous result returned by an [`ExchangeRateProvider`].
+/// The boxed asynchronous result of an [`ExchangeRateProvider`].
 pub type ProviderFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ExchangeRateSnapshot, ProviderError>> + Send + 'a>>;
 
@@ -54,7 +54,7 @@ impl RateRequest {
         self.base
     }
 
-    /// Returns the sorted, deduplicated quote currencies.
+    /// Returns the sorted quote currencies, without duplicates.
     pub fn quotes(&self) -> &[Currency] {
         &self.quotes
     }
@@ -62,7 +62,7 @@ impl RateRequest {
 
 /// An asynchronous source of complete, validated exchange-rate snapshots.
 ///
-/// Providers return data only; callers decide when to fetch, cache, and install
+/// Providers return data only. Callers decide when to fetch, cache, and install
 /// a snapshot into `calcite-core`.
 pub trait ExchangeRateProvider: Send + Sync {
     /// Fetches one coherent snapshot for `request`.
@@ -71,7 +71,7 @@ pub trait ExchangeRateProvider: Send + Sync {
 
 /// Tries providers in order and returns the first successful complete snapshot.
 ///
-/// Snapshots from multiple providers are never merged.
+/// The chain never merges snapshots from multiple providers.
 #[derive(Default)]
 pub struct FallbackProvider {
     providers: Vec<Box<dyn ExchangeRateProvider>>,

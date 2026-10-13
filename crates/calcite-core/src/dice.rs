@@ -134,9 +134,10 @@ impl fmt::Display for DiceDistribution {
     }
 }
 
-/// A caller-owned stream of uniformly distributed values used for sampling.
+/// A caller-owned stream of uniformly distributed values for sampling.
 pub trait EntropySource {
-    /// Returns the next random value, or `None` when the source is exhausted.
+    /// Returns the next random value. Returns `None` when the source has no
+    /// values left.
     fn next_u64(&mut self) -> Option<u64>;
 }
 

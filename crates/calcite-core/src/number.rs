@@ -568,10 +568,8 @@ impl Number {
                     Representation::Exact(value) => Self(Representation::Exact(value.pow(integer))),
                     Representation::Approximate(value) => {
                         let result = value.powi(integer.into());
-                        // powi can return a real with unlimited precision
-                        // (an exponent of zero short-circuits to an exact
-                        // value), and dashu panics on arithmetic between
-                        // unlimited-precision reals. Clamp the context back.
+                        // powi(0) returns a real with unlimited precision.
+                        // dashu refuses to divide that value.
                         Self(Representation::Approximate(
                             result.with_precision(WORKING_PRECISION).value(),
                         ))

@@ -20,8 +20,7 @@ fn double_asterisk_is_right_associative_power() {
     assert_eq!(output("2 ** 3 ** 2"), "512");
     assert_eq!(output("-2 ** 2"), "-4");
     assert_eq!(output("2 * 3 ** 2"), "18");
-    // A zero exponent must not leave an unlimited-precision real behind:
-    // dashu panics when dividing two of those.
+    // A zero exponent must not leave an unlimited-precision real behind.
     assert_eq!(output("(e ** 0%) / (e ** 0%)"), "1");
     assert_eq!(output("e**0%.e**0"), "1");
 }

@@ -5,7 +5,8 @@
 //! the first that parses, so a normalization mistake can add an
 //! interpretation but never change an existing correct one.
 
-/// Leading conversational phrases that are removed before parsing.
+/// Leading conversational phrases. surface_variants removes them before
+/// parsing.
 const LEADING_PHRASES: &[&[&str]] = &[
     &["what", "is"],
     &["what's"],
@@ -24,8 +25,8 @@ const LEADING_PHRASES: &[&[&str]] = &[
 
 /// Returns the raw input followed by normalized variants worth trying.
 ///
-/// The first entry is always the trimmed original, so callers that try
-/// variants in order never change behavior for input the language already
+/// The first entry is always the trimmed original. Callers that try the
+/// variants in order get no behavior change for input the language already
 /// accepts.
 pub fn surface_variants(source: &str) -> Vec<String> {
     let raw = source.trim();
@@ -73,8 +74,8 @@ fn strip_leading_phrases(source: &str) -> String {
 
 /// Rewrites `how many X in Y` and `how much X in Y` questions as `Y in X`.
 ///
-/// Runs on the collapsed input with the question mark removed, before leading
-/// phrases are stripped, because the quantity prefix is part of the pattern.
+/// Runs on the collapsed input, without the question mark, before phrase
+/// stripping. The quantity prefix is part of the pattern.
 fn rewrite_quantity_question(source: &str) -> Option<String> {
     let words: Vec<&str> = source.split(' ').collect();
     let quantity = words.get(1)?;
@@ -89,9 +90,8 @@ fn rewrite_quantity_question(source: &str) -> Option<String> {
         .position(|word| word.eq_ignore_ascii_case("in"))?;
     let mut subject = &rest[..separator];
     let object = &rest[separator + 1..];
-    // `are` is part of the quantity phrasing (`how many X are in Y`); `is`
-    // marks a statement question (`how much is X in Y`) that the phrase
-    // stripping already handles.
+    // `are` is part of the quantity phrasing. `is` marks a statement.
+    // The phrase stripping already handles statements.
     if subject
         .last()
         .is_some_and(|word| word.eq_ignore_ascii_case("are"))
