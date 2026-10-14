@@ -3,9 +3,9 @@ mod temporal;
 mod units;
 
 use crate::{
-    BinaryOperator, CalculationContext, CalendarDuration, ComplexNumber, Currency,
-    CustomUnitDefinition, DateOrder, Diagnostic, DiagnosticKind, DiceDistribution, Expression,
-    Function, Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, RadixInteger,
+    BinaryOperator, CalculationContext, CalendarDuration, ComplexNumber, CompoundUnit, Currency,
+    CustomUnitDefinition, DateOrder, Diagnostic, DiagnosticKind, DiceDistribution, Dimension,
+    Expression, Function, Lexeme, LexemeKind, Number, NumberFormat, NumberParseError, RadixInteger,
     RomanInteger, Span, UnaryOperator, WorkdayDuration, lex_with_number_format,
 };
 
@@ -344,14 +344,38 @@ impl Parser<'_> {
                 } else if let Some((unit, consumed, unit_span)) =
                     self.unit().filter(|_| !self.in_starts_conversion())
                 {
+                    let plain_consumed = consumed;
+                    let dimension = unit.dimension();
                     let (unit, consumed, unit_span) =
                         self.compound_unit_factor(unit, consumed, unit_span, 0)?;
                     self.position += consumed;
-                    Ok(Expression::Unit {
+                    let mut expression = Expression::Unit {
                         value,
                         unit,
                         span: span.join(unit_span),
-                    })
+                    };
+                    // Mixed forms such as `6 ft 2 in` sum same-dimension
+                    // parts into the leading unit.
+                    if consumed == plain_consumed {
+                        while let Some((part_value, part_unit, consumed, part_span)) =
+                            self.mixed_unit_part(dimension)
+                        {
+                            self.position += consumed;
+                            let total_span = expression.span().join(part_span);
+                            expression = Expression::Binary {
+                                operator: BinaryOperator::Add,
+                                operator_span: Span::empty(part_span.start),
+                                left: Box::new(expression),
+                                right: Box::new(Expression::Unit {
+                                    value: part_value,
+                                    unit: part_unit,
+                                    span: part_span,
+                                }),
+                                span: total_span,
+                            };
+                        }
+                    }
+                    Ok(expression)
                 } else if let Some((definition, unit_span)) = self.custom_unit_at(0) {
                     self.position += 1;
                     Ok(Expression::CustomUnit {
@@ -969,6 +993,26 @@ impl Parser<'_> {
                 .map_err(|_| Diagnostic::new(DiagnosticKind::InvalidNumber, span))
         })();
         Some(result)
+    }
+
+    /// A same-dimension continuation part of a mixed form, as the `2 in` of
+    /// `6 ft 2 in`.
+    fn mixed_unit_part(&self, dimension: Dimension) -> Option<(Number, CompoundUnit, usize, Span)> {
+        let number = *self.tokens.get(self.position)?;
+        if number.kind != LexemeKind::Number {
+            return None;
+        }
+        let (unit, consumed, unit_span) = self.unit_at(1)?;
+        if consumed != 1 || unit.dimension() != dimension {
+            return None;
+        }
+        let value = self.parse_number_value(number).ok()?;
+        Some((
+            value,
+            CompoundUnit::from_unit(unit),
+            consumed + 1,
+            number.span.join(unit_span),
+        ))
     }
 
     fn parse_number_value(&self, token: Lexeme) -> Result<Number, Diagnostic> {

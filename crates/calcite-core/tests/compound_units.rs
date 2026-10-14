@@ -5,6 +5,16 @@ fn output(source: &str) -> String {
 }
 
 #[test]
+fn mixed_unit_forms_sum_same_dimension_parts() {
+    assert_eq!(output("6 ft 2 in in cm"), "187.96 cm");
+    assert_eq!(output("6 ft 2 in"), "6.1666666667 ft");
+    assert_eq!(output("2 lb 3 oz in kg"), "0.9922333094 kg");
+    assert_eq!(output("1 hr 30 min"), "1.5 h");
+    assert_eq!(output("1 h 45 min 30 s in s"), "6330 s");
+    assert_eq!(output("3 kg 500 g in lb"), "7.7161791765 lb");
+}
+
+#[test]
 fn unit_products_powers_and_cancellation_are_structural() {
     assert_eq!(output("2 m * 3 m"), "6 m²");
     assert_eq!(output("2 m ^ 3"), "2 m³");

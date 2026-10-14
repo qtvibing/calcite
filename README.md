@@ -166,6 +166,7 @@ Calcite checks dimensions and converts with exact factors where possible:
 
 ```text
 1 km + 500 m                 → 1.5 km
+6 ft 2 in in cm               → 187.96 cm
 1 acre in square meters      → 4046.8564224 m²
 32 F to C                    → 0 °C
 1 kilowatt hour in joules    → 3600000 joule
