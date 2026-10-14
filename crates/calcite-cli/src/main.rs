@@ -45,7 +45,7 @@ impl EntropySource for OsEntropy {
             return Some(value);
         }
         let mut bytes = [0_u8; size_of::<u64>()];
-        getrandom::fill(&mut bytes).ok()?;
+        getrandom::getrandom(&mut bytes).ok()?;
         let value = u64::from_ne_bytes(bytes);
         self.values.push(value);
         self.position += 1;
@@ -187,6 +187,11 @@ enum Action {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    #[cfg(unix)]
+    // let a closed pipe end the process by signal instead of panicking on write
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let options = match read_options() {
         Ok(options) => options,
         Err(error) => {
