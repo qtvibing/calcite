@@ -413,6 +413,22 @@ pub(crate) fn evaluate_expression(
                 .current_datetime
                 .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
+            TemporalKeyword::Holiday { month, day } => {
+                let current = context
+                    .temporal
+                    .current_datetime
+                    .map(OffsetDateTime::date)
+                    .ok_or_else(|| {
+                        Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)
+                    })?;
+                let occurrence = |year: i32| Date::new(year, *month, *day);
+                let date = occurrence(current.year())
+                    .filter(|date| *date >= current)
+                    .or_else(|| occurrence(current.year().checked_add(1)?))
+                    .map(Value::Date)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))?;
+                Ok(date)
+            }
             TemporalKeyword::NextMonth
             | TemporalKeyword::PreviousMonth
             | TemporalKeyword::NextYear

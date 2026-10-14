@@ -220,6 +220,8 @@ Dates use Gregorian calendar arithmetic. Months and years are calendar durations
                               → 2025-02-28
 days between 2025-01-01 and 2025-01-10
                               → 9 days
+time until christmas          → 72 days
+new years eve                 → 2026-12-31
 time from 10:00 to 12:30     → 2 h 30 min
 2025-03-08 at 10:00 CET      → 2025-03-08T10:00+01:00[CET]
 2026-10-14 at 9pm CET to Tokyo time
@@ -233,7 +235,7 @@ calcite --date-order mdy '3/8/2025'
 # 2025-03-08
 ```
 
-Contextual expressions such as `today`, `now`, `next month`, `time since ...`, and `time until ...` require a current time. The CLI supplies it from the host; library callers must supply it explicitly.
+Contextual expressions such as `today`, `now`, `next month`, `time since ...`, and `time until ...` require a current time. The CLI supplies it from the host; library callers must supply it explicitly. Named holidays (`christmas`, `halloween`, `new years day`, `valentines day`, `st patricks day`, `fourth of july`, and their eves) resolve to their next occurrence.
 
 ### Documents, variables, and functions
 

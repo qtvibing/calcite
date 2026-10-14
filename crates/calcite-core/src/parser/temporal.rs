@@ -627,8 +627,38 @@ impl Parser<'_> {
         })
     }
 
+    /// Fixed-date holidays, longest phrasing first so `christmas eve` is
+    /// not read as `christmas`.
+    fn named_holiday(&self) -> Option<(TemporalKeyword, usize, Span)> {
+        const HOLIDAYS: &[(&[&str], u8, u8)] = &[
+            (&["new", "years", "day"], 1, 1),
+            (&["new", "years", "eve"], 12, 31),
+            (&["st", "patricks", "day"], 3, 17),
+            (&["fourth", "of", "july"], 7, 4),
+            (&["christmas", "eve"], 12, 24),
+            (&["christmas", "day"], 12, 25),
+            (&["valentines", "day"], 2, 14),
+            (&["independence", "day"], 7, 4),
+            (&["christmas"], 12, 25),
+            (&["halloween"], 10, 31),
+        ];
+        HOLIDAYS.iter().find_map(|&(words, month, day)| {
+            words
+                .iter()
+                .enumerate()
+                .all(|(offset, word)| self.word_is(offset, word))
+                .then(|| {
+                    let span = self.phrase_span(words.len());
+                    (TemporalKeyword::Holiday { month, day }, words.len(), span)
+                })
+        })
+    }
+
     pub(super) fn temporal_keyword(&self) -> Option<(TemporalKeyword, usize, Span)> {
         let first = self.current()?;
+        if let Some((keyword, consumed, span)) = self.named_holiday() {
+            return Some((keyword, consumed, span));
+        }
         let single = if self.word_is(0, "today") {
             Some(TemporalKeyword::Today)
         } else if self.word_is(0, "tomorrow") {

@@ -322,6 +322,12 @@ pub enum TemporalKeyword {
     Tomorrow,
     Yesterday,
     Now,
+    /// A fixed-date holiday such as Christmas; resolves to its next
+    /// occurrence at evaluation time.
+    Holiday {
+        month: u8,
+        day: u8,
+    },
     NextMonth,
     PreviousMonth,
     NextYear,

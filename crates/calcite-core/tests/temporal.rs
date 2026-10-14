@@ -522,3 +522,50 @@ fn invalid_and_ambiguous_temporal_input_is_not_guessed() {
     );
     assert_eq!(output("2025 - 3 - 8"), "2014");
 }
+
+#[test]
+fn named_holidays_resolve_to_their_next_occurrence() {
+    let june = context_at(2026, 6, 1, 12, 0, 0);
+    assert_eq!(
+        calculate_with_context("christmas", &june).unwrap().output,
+        "2026-12-25"
+    );
+    assert_eq!(
+        calculate_with_context("christmas eve", &june)
+            .unwrap()
+            .output,
+        "2026-12-24"
+    );
+    assert_eq!(
+        calculate_with_context("halloween", &june).unwrap().output,
+        "2026-10-31"
+    );
+    assert_eq!(
+        calculate_with_context("time until valentines day", &june)
+            .unwrap()
+            .output,
+        "258 days"
+    );
+
+    let new_years_eve = context_at(2026, 12, 31, 23, 0, 0);
+    assert_eq!(
+        calculate_with_context("new years day", &new_years_eve)
+            .unwrap()
+            .output,
+        "2027-01-01"
+    );
+    assert_eq!(
+        calculate_with_context("time until new years eve", &new_years_eve)
+            .unwrap()
+            .output,
+        "0 s"
+    );
+
+    let without_context = CalculationContext::default();
+    assert_eq!(
+        calculate_with_context("christmas", &without_context)
+            .unwrap_err()
+            .kind(),
+        DiagnosticKind::MissingTemporalContext
+    );
+}
