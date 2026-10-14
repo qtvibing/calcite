@@ -72,3 +72,36 @@ fn statements_with_is_are_not_rewritten_as_conversions() {
     let variants = surface_variants("how much is 1 mile in km");
     assert!(!variants.contains(&"km in 1 mile".to_owned()));
 }
+
+#[test]
+fn percent_questions_are_rewritten_as_percent_of() {
+    for (source, expected) in [
+        ("what % of 50 is 10", "10 as a percentage of 50"),
+        ("what percentage of 50 is 10", "10 as a percentage of 50"),
+        ("what percent of 80 is 20", "20 as a percentage of 80"),
+    ] {
+        let variants = surface_variants(source);
+        assert!(
+            variants.contains(&expected.to_owned()),
+            "{source}: variants {variants:?} should contain {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn directional_change_phrasing_is_rewritten_as_arithmetic() {
+    for (source, expected) in [
+        ("increase 80 by 15%", "80 + 15%"),
+        ("decrease 80 by 15%", "80 - 15%"),
+        ("reduce 80 by 25%", "80 - 25%"),
+        ("80 increased by 15%", "80 + 15%"),
+        ("80 reduced by 25%", "80 - 25%"),
+        ("raise 100 by 20", "100 + 20"),
+    ] {
+        let variants = surface_variants(source);
+        assert!(
+            variants.contains(&expected.to_owned()),
+            "{source}: variants {variants:?} should contain {expected:?}"
+        );
+    }
+}

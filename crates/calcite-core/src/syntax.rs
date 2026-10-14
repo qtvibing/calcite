@@ -29,6 +29,7 @@ pub enum BinaryOperator {
     CombinationsOf,
     Power,
     Of,
+    AsPercentageOf,
     On,
     Off,
     At,
@@ -72,6 +73,7 @@ impl BinaryOperator {
             | Self::PermutationsOf
             | Self::CombinationsOf
             | Self::Of
+            | Self::AsPercentageOf
             | Self::On
             | Self::Off => (17, 18),
             Self::Power => (19, 19),

@@ -35,9 +35,39 @@ impl Parser<'_> {
     }
 
     pub(super) fn is_conversion_operator(&self) -> bool {
-        self.word_is(0, "as")
+        self.word_is(0, "as") && self.percent_of_phrase().is_none()
             || self.word_is(0, "in")
             || (self.word_is(0, "to") && !self.word_is(1, "the"))
+    }
+
+    /// The `as a percentage of` family, as it appears after an operand:
+    /// `as % of`, `as percent of`, `as a percent of`, and their longer
+    /// spellings. Returns the phrase span and token count.
+    pub(super) fn percent_of_phrase(&self) -> Option<(Span, usize)> {
+        if !self.word_is(0, "as") {
+            return None;
+        }
+        let percent_word =
+            |offset: usize| self.word_is(offset, "percent") || self.word_is(offset, "percentage");
+        if self.percent_token_at(1) && self.word_is(2, "of") {
+            return Some((self.phrase_span(3), 3));
+        }
+        if percent_word(1) && self.word_is(2, "of") {
+            return Some((self.phrase_span(3), 3));
+        }
+        if self.word_is(1, "a") && percent_word(2) && self.word_is(3, "of") {
+            return Some((self.phrase_span(4), 4));
+        }
+        if self.word_is(1, "a") && self.percent_token_at(2) && self.word_is(3, "of") {
+            return Some((self.phrase_span(4), 4));
+        }
+        None
+    }
+
+    fn percent_token_at(&self, offset: usize) -> bool {
+        self.tokens
+            .get(self.position + offset)
+            .is_some_and(|token| token.kind == LexemeKind::Percent)
     }
 
     pub(super) fn compound_unit_target_at(

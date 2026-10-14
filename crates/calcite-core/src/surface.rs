@@ -42,6 +42,16 @@ pub fn surface_variants(source: &str) -> Vec<String> {
     {
         variants.push(rewritten);
     }
+    for rewritten in [
+        rewrite_percent_question(trimmed),
+        rewrite_directional_change(trimmed),
+    ] {
+        if let Some(rewritten) = rewritten
+            && !variants.contains(&rewritten)
+        {
+            variants.push(rewritten);
+        }
+    }
     variants
 }
 
@@ -105,4 +115,84 @@ fn rewrite_quantity_question(source: &str) -> Option<String> {
         return None;
     }
     Some(format!("{} in {}", object.join(" "), subject.join(" ")))
+}
+
+/// Rewrites `what % of 50 is 10` questions as `10 as a percentage of 50`.
+fn rewrite_percent_question(source: &str) -> Option<String> {
+    let words: Vec<&str> = source.split(' ').collect();
+    let percent = words.get(1)?;
+    let is_percent = *percent == "%"
+        || percent.eq_ignore_ascii_case("percent")
+        || percent.eq_ignore_ascii_case("percentage");
+    if !words.first()?.eq_ignore_ascii_case("what")
+        || !is_percent
+        || !words.get(2)?.eq_ignore_ascii_case("of")
+    {
+        return None;
+    }
+    let separator = words[3..]
+        .iter()
+        .position(|word| word.eq_ignore_ascii_case("is"))?;
+    let object = &words[3..separator + 3];
+    let subject = &words[separator + 4..];
+    if object.is_empty() || subject.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} as a percentage of {}",
+        subject.join(" "),
+        object.join(" ")
+    ))
+}
+
+fn change_sign(word: &str) -> Option<&'static str> {
+    match word.to_ascii_lowercase().as_str() {
+        "increase" | "increases" | "increased" | "raise" | "raised" | "grow" | "grew" | "grown" => {
+            Some("+")
+        }
+        "decrease" | "decreases" | "decreased" | "reduce" | "reduced" | "lower" | "lowered" => {
+            Some("-")
+        }
+        _ => None,
+    }
+}
+
+/// Rewrites directional change phrasing as arithmetic: `increase 80 by
+/// 15%` becomes `80 + 15%`, and `80 increased by 15%` becomes `80 + 15%`.
+fn rewrite_directional_change(source: &str) -> Option<String> {
+    let words: Vec<&str> = source.split(' ').collect();
+    if let Some(sign) = words.first().copied().and_then(change_sign) {
+        let separator = words
+            .iter()
+            .skip(1)
+            .position(|word| word.eq_ignore_ascii_case("by"))?;
+        let subject = &words[1..separator + 1];
+        let change = &words[separator + 2..];
+        if !subject.is_empty() && !change.is_empty() {
+            return Some(format!(
+                "{} {} {}",
+                subject.join(" "),
+                sign,
+                change.join(" ")
+            ));
+        }
+    }
+    let mut rewritten: Vec<&str> = Vec::with_capacity(words.len());
+    let mut changed = false;
+    let mut index = 0;
+    while index < words.len() {
+        if let Some(sign) = words.get(index).copied().and_then(change_sign)
+            && words
+                .get(index + 1)
+                .is_some_and(|word| word.eq_ignore_ascii_case("by"))
+        {
+            rewritten.push(sign);
+            index += 2;
+            changed = true;
+        } else {
+            rewritten.push(words[index]);
+            index += 1;
+        }
+    }
+    changed.then(|| rewritten.join(" "))
 }

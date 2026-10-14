@@ -155,10 +155,11 @@ Percentages remain percentages until an operation calls for their ratio:
 10% on 200                   → 220
 10% off 200                  → 180
 200 + 10%                    → 220
+80 as a percentage of 50     → 160%
 50% as fraction              → 1/2
 ```
 
-Whitespace matters around `%`: `10%` is a percentage, while `17 % 5` is integer remainder.
+Whitespace matters around `%`: `10%` is a percentage, while `17 % 5` is integer remainder. Conversational forms work too: `what % of 50 is 10` and `increase 80 by 15%` are accepted alongside the forms above.
 
 ### Units and rates
 

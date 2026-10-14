@@ -69,6 +69,10 @@ pub(super) fn number_pair(
             .pow(right)
             .map(Value::Number)
             .map_err(|error| numeric_diagnostic(error, span)),
+        BinaryOperator::AsPercentageOf => left
+            .divide(right)
+            .map(|ratio| Value::Percentage(Percentage::from_ratio(ratio)))
+            .map_err(|error| numeric_diagnostic(error, span)),
         BinaryOperator::Equal
         | BinaryOperator::NotEqual
         | BinaryOperator::Greater
@@ -125,6 +129,7 @@ pub(super) fn percentage_pair(
         | BinaryOperator::Combination
         | BinaryOperator::PermutationsOf
         | BinaryOperator::CombinationsOf
+        | BinaryOperator::AsPercentageOf
         | BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
@@ -172,6 +177,7 @@ pub(super) fn number_percentage_pair(
         | BinaryOperator::Combination
         | BinaryOperator::PermutationsOf
         | BinaryOperator::CombinationsOf
+        | BinaryOperator::AsPercentageOf
         | BinaryOperator::Of
         | BinaryOperator::On
         | BinaryOperator::Off
@@ -223,6 +229,7 @@ pub(super) fn percentage_number_pair(
         | BinaryOperator::Combination
         | BinaryOperator::PermutationsOf
         | BinaryOperator::CombinationsOf
+        | BinaryOperator::AsPercentageOf
         | BinaryOperator::At
         | BinaryOperator::And
         | BinaryOperator::Or => Err(unsupported(span)),

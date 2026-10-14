@@ -1273,6 +1273,10 @@ impl Parser<'_> {
                 (BinaryOperator::Combination, current.span, 1)
             }
             LexemeKind::Word if self.word_is(0, "of") => (BinaryOperator::Of, current.span, 1),
+            LexemeKind::Word if self.percent_of_phrase().is_some() => {
+                let (span, consumed) = self.percent_of_phrase().expect("the guard matched");
+                (BinaryOperator::AsPercentageOf, span, consumed)
+            }
             LexemeKind::Word if self.word_is(0, "on") => (BinaryOperator::On, current.span, 1),
             LexemeKind::Word if self.word_is(0, "off") => (BinaryOperator::Off, current.span, 1),
             LexemeKind::Word

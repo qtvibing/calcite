@@ -268,6 +268,15 @@ fn percentages_can_modify_or_measure_a_base_value() {
 }
 
 #[test]
+fn percentages_can_be_expressed_relative_to_a_base() {
+    assert_eq!(output("80 as a percentage of 50"), "160%");
+    assert_eq!(output("80 as % of 50"), "160%");
+    assert_eq!(output("80 as percent of 50"), "160%");
+    assert_eq!(output("10 as a percentage of 50"), "20%");
+    assert_eq!(output("5 as a % of 20"), "25%");
+}
+
+#[test]
 fn comparisons_and_boolean_logic_are_typed() {
     let comparison = calculate("20 > 10").unwrap();
     assert_eq!(comparison.output, "true");
