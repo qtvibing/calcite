@@ -568,4 +568,62 @@ fn named_holidays_resolve_to_their_next_occurrence() {
             .kind(),
         DiagnosticKind::MissingTemporalContext
     );
+    // An explicit year pins the date and needs no current time.
+    assert_eq!(
+        calculate_with_context("christmas 2024", &without_context)
+            .unwrap()
+            .output,
+        "2024-12-25"
+    );
+}
+
+#[test]
+fn last_holidays_resolve_to_their_previous_occurrence() {
+    let june = context_at(2026, 6, 1, 12, 0, 0);
+    assert_eq!(
+        calculate_with_context("last christmas", &june)
+            .unwrap()
+            .output,
+        "2025-12-25"
+    );
+    assert_eq!(
+        calculate_with_context("last halloween", &june)
+            .unwrap()
+            .output,
+        "2025-10-31"
+    );
+    assert_eq!(
+        calculate_with_context("time since last christmas", &june)
+            .unwrap()
+            .output,
+        "158 days"
+    );
+    // `since` looks backward on its own.
+    assert_eq!(
+        calculate_with_context("time since christmas", &june)
+            .unwrap()
+            .output,
+        "158 days"
+    );
+    // An explicit year is never flipped.
+    assert_eq!(
+        calculate_with_context("time since christmas 2027", &june)
+            .unwrap()
+            .output,
+        "-572 days"
+    );
+
+    let on_christmas = context_at(2026, 12, 25, 9, 0, 0);
+    assert_eq!(
+        calculate_with_context("christmas", &on_christmas)
+            .unwrap()
+            .output,
+        "2026-12-25"
+    );
+    assert_eq!(
+        calculate_with_context("last christmas", &on_christmas)
+            .unwrap()
+            .output,
+        "2025-12-25"
+    );
 }

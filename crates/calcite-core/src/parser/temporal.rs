@@ -582,7 +582,22 @@ impl Parser<'_> {
                 | Function::CalendarBetween
                 | Function::CalendarFrom
         );
-        let first = self.parse_expression(if has_second_argument { 4 } else { 0 })?;
+        let mut first = self.parse_expression(if has_second_argument { 4 } else { 0 })?;
+        // `since` looks backward, so a bare holiday resolves to its previous
+        // occurrence instead of reporting a negative difference.
+        if matches!(function, Function::TimeSince | Function::CalendarSince)
+            && let Expression::TemporalKeyword {
+                keyword:
+                    TemporalKeyword::Holiday {
+                        previous,
+                        year: None,
+                        ..
+                    },
+                ..
+            } = &mut first
+        {
+            *previous = true;
+        }
         let mut arguments = vec![first];
         if has_second_argument {
             let (separator, detail) =
@@ -628,7 +643,8 @@ impl Parser<'_> {
     }
 
     /// Fixed-date holidays, longest phrasing first so `christmas eve` is
-    /// not read as `christmas`.
+    /// not read as `christmas`. An optional `last` prefix selects the
+    /// previous occurrence, and a trailing year pins a specific one.
     fn named_holiday(&self) -> Option<(TemporalKeyword, usize, Span)> {
         const HOLIDAYS: &[(&[&str], u8, u8)] = &[
             (&["new", "years", "day"], 1, 1),
@@ -642,14 +658,36 @@ impl Parser<'_> {
             (&["christmas"], 12, 25),
             (&["halloween"], 10, 31),
         ];
+        let previous = self.word_is(0, "last");
+        let offset = usize::from(previous);
         HOLIDAYS.iter().find_map(|&(words, month, day)| {
             words
                 .iter()
                 .enumerate()
-                .all(|(offset, word)| self.word_is(offset, word))
+                .all(|(index, word)| self.word_is(offset + index, word))
                 .then(|| {
-                    let span = self.phrase_span(words.len());
-                    (TemporalKeyword::Holiday { month, day }, words.len(), span)
+                    let year = self
+                        .tokens
+                        .get(self.position + offset + words.len())
+                        .filter(|token| token.kind == LexemeKind::Number)
+                        .and_then(|token| {
+                            self.source[token.span.start..token.span.end]
+                                .parse::<i32>()
+                                .ok()
+                        })
+                        .filter(|year| (1000..=9999).contains(year));
+                    let consumed = offset + words.len() + usize::from(year.is_some());
+                    let span = self.phrase_span(consumed);
+                    (
+                        TemporalKeyword::Holiday {
+                            month,
+                            day,
+                            year,
+                            previous,
+                        },
+                        consumed,
+                        span,
+                    )
                 })
         })
     }

@@ -413,7 +413,17 @@ pub(crate) fn evaluate_expression(
                 .current_datetime
                 .map(Value::OffsetDateTime)
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)),
-            TemporalKeyword::Holiday { month, day } => {
+            TemporalKeyword::Holiday {
+                month,
+                day,
+                year,
+                previous,
+            } => {
+                if let Some(year) = *year {
+                    let date = Date::new(year, *month, *day)
+                        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))?;
+                    return Ok(Value::Date(date));
+                }
                 let current = context
                     .temporal
                     .current_datetime
@@ -422,11 +432,17 @@ pub(crate) fn evaluate_expression(
                         Diagnostic::new(DiagnosticKind::MissingTemporalContext, *span)
                     })?;
                 let occurrence = |year: i32| Date::new(year, *month, *day);
-                let date = occurrence(current.year())
-                    .filter(|date| *date >= current)
-                    .or_else(|| occurrence(current.year().checked_add(1)?))
-                    .map(Value::Date)
-                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))?;
+                let date = if *previous {
+                    occurrence(current.year())
+                        .filter(|date| *date < current)
+                        .or_else(|| occurrence(current.year() - 1))
+                } else {
+                    occurrence(current.year())
+                        .filter(|date| *date >= current)
+                        .or_else(|| occurrence(current.year() + 1))
+                }
+                .map(Value::Date)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, *span))?;
                 Ok(date)
             }
             TemporalKeyword::NextMonth

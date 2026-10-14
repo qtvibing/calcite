@@ -235,7 +235,7 @@ calcite --date-order mdy '3/8/2025'
 # 2025-03-08
 ```
 
-Contextual expressions such as `today`, `now`, `next month`, `time since ...`, and `time until ...` require a current time. The CLI supplies it from the host; library callers must supply it explicitly. Named holidays (`christmas`, `halloween`, `new years day`, `valentines day`, `st patricks day`, `fourth of july`, and their eves) resolve to their next occurrence.
+Contextual expressions such as `today`, `now`, `next month`, `time since ...`, and `time until ...` require a current time. The CLI supplies it from the host; library callers must supply it explicitly. Named holidays (`christmas`, `halloween`, `new years day`, `valentines day`, `st patricks day`, `fourth of july`, and their eves) resolve to their next occurrence. `last christmas` selects the previous one, and a year pins a specific date: `christmas 2024`.
 
 ### Documents, variables, and functions
 
