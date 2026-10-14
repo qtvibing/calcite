@@ -45,6 +45,10 @@ pub fn surface_variants(source: &str) -> Vec<String> {
     for rewritten in [
         rewrite_percent_question(trimmed),
         rewrite_directional_change(trimmed),
+        rewrite_zone_time(trimmed),
+        rewrite_offset_from_now(trimmed),
+        rewrite_in_offset(trimmed),
+        rewrite_percentage_change(trimmed),
     ] {
         if let Some(rewritten) = rewritten
             && !variants.contains(&rewritten)
@@ -195,4 +199,80 @@ fn rewrite_directional_change(source: &str) -> Option<String> {
         }
     }
     changed.then(|| rewritten.join(" "))
+}
+
+/// Rewrites `time in tokyo` as `now in Tokyo`.
+fn rewrite_zone_time(source: &str) -> Option<String> {
+    let words: Vec<&str> = source.split(' ').collect();
+    if !words.first()?.eq_ignore_ascii_case("time")
+        || !words.get(1)?.eq_ignore_ascii_case("in")
+        || words.len() < 3
+    {
+        return None;
+    }
+    let zone = words[2..].join(" ");
+    Some(format!("now in {zone}"))
+}
+
+/// Rewrites `2 weeks from today` as `today + 2 weeks`.
+fn rewrite_offset_from_now(source: &str) -> Option<String> {
+    let words: Vec<&str> = source.split(' ').collect();
+    let separator = words
+        .iter()
+        .position(|word| word.eq_ignore_ascii_case("from"))?;
+    let anchor = words.get(separator + 1).copied()?;
+    let is_anchor = anchor.eq_ignore_ascii_case("today")
+        || anchor.eq_ignore_ascii_case("tomorrow")
+        || anchor.eq_ignore_ascii_case("yesterday")
+        || anchor.eq_ignore_ascii_case("now");
+    if !is_anchor {
+        return None;
+    }
+    let offset = &words[..separator];
+    if offset.is_empty() {
+        return None;
+    }
+    let suffix = words[separator + 2..].join(" ");
+    let suffix = if suffix.is_empty() {
+        String::new()
+    } else {
+        format!(" {suffix}")
+    };
+    Some(format!("{anchor} + {}{suffix}", offset.join(" ")))
+}
+
+/// Rewrites `in 2 weeks` as `today + 2 weeks`.
+fn rewrite_in_offset(source: &str) -> Option<String> {
+    let rest = source.strip_prefix("in ")?;
+    if rest.is_empty() {
+        return None;
+    }
+    Some(format!("today + {rest}"))
+}
+
+/// Rewrites `percentage change from 50 to 80` as
+/// `(80 - 50) as a percentage of 50`.
+fn rewrite_percentage_change(source: &str) -> Option<String> {
+    let words: Vec<&str> = source.split(' ').collect();
+    let is_change = matches!(words.first(), Some(word) if word.eq_ignore_ascii_case("percentage")
+        || word.eq_ignore_ascii_case("percent"))
+        && words.get(1)?.eq_ignore_ascii_case("change")
+        && words.get(2)?.eq_ignore_ascii_case("from");
+    if !is_change {
+        return None;
+    }
+    let to = words[3..]
+        .iter()
+        .position(|word| word.eq_ignore_ascii_case("to"))?;
+    let before = &words[3..to + 3];
+    let after = &words[to + 4..];
+    if before.is_empty() || after.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "({} - {}) as a percentage of {}",
+        after.join(" "),
+        before.join(" "),
+        before.join(" ")
+    ))
 }

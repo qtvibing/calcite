@@ -105,3 +105,58 @@ fn directional_change_phrasing_is_rewritten_as_arithmetic() {
         );
     }
 }
+
+#[test]
+fn zone_time_queries_are_rewritten_as_now_conversions() {
+    for (source, expected) in [
+        ("time in tokyo", "now in tokyo"),
+        ("time in new york", "now in new york"),
+    ] {
+        let variants = surface_variants(source);
+        assert!(
+            variants.contains(&expected.to_owned()),
+            "{source}: variants {variants:?} should contain {expected:?}"
+        );
+    }
+    // Time differences are statements, not zone queries.
+    assert!(
+        surface_variants("time from 10:00 to 12:30")
+            .iter()
+            .all(|variant| variant != "now from 10:00 to 12:30")
+    );
+}
+
+#[test]
+fn offsets_from_contextual_dates_are_rewritten_as_addition() {
+    for (source, expected) in [
+        ("2 weeks from today", "today + 2 weeks"),
+        ("in 2 weeks", "today + 2 weeks"),
+        ("in 3 days", "today + 3 days"),
+        ("3 days from tomorrow", "tomorrow + 3 days"),
+    ] {
+        let variants = surface_variants(source);
+        assert!(
+            variants.contains(&expected.to_owned()),
+            "{source}: variants {variants:?} should contain {expected:?}"
+        );
+    }
+    // `from` between explicit dates is a difference, not an offset.
+    assert!(
+        !surface_variants("days from 2025-01-01 to 2025-01-10")
+            .contains(&"2025-01-01 + days".to_owned())
+    );
+}
+
+#[test]
+fn percentage_change_questions_are_rewritten_as_percent_of() {
+    let variants = surface_variants("percentage change from 50 to 80");
+    assert!(
+        variants.contains(&"(80 - 50) as a percentage of 50".to_owned()),
+        "variants {variants:?}"
+    );
+    let variants = surface_variants("percent change from 80 to 50");
+    assert!(
+        variants.contains(&"(50 - 80) as a percentage of 80".to_owned()),
+        "variants {variants:?}"
+    );
+}

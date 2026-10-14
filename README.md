@@ -168,13 +168,17 @@ Calcite checks dimensions and converts with exact factors where possible:
 ```text
 1 km + 500 m                 → 1.5 km
 6 ft 2 in in cm               → 187.96 cm
+5 GB in MB                   → 5000 Mbyte
 1 acre in square meters      → 4046.8564224 m²
 32 F to C                    → 0 °C
+100 F - 20 F                 → 80 °F
 1 kilowatt hour in joules    → 3600000 joule
 1 mebibyte in bytes          → 1048576 byte
 100 megabits / second in megabytes/minute
                               → 750 Mbyte/min
 ```
+
+Temperature differences are deltas in the first operand's scale; converting the right side keeps its point value (`20C - 68F` is `0 °C`). Conversational date and zone phrasing is accepted too: `2 weeks from today`, `in 2 weeks`, `time in tokyo`, and `percentage change from 50 to 80` → `60%`.
 
 Compound units are structural rather than a list of special cases:
 

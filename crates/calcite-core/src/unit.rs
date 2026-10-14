@@ -287,10 +287,10 @@ impl Unit {
             "kbit" | "kilobit" | "kilobits" => Some(Self::Kilobit),
             "mbit" | "megabit" | "megabits" => Some(Self::Megabit),
             "gbit" | "gigabit" | "gigabits" => Some(Self::Gigabit),
-            "kbyte" | "kilobyte" | "kilobytes" => Some(Self::Kilobyte),
-            "mbyte" | "megabyte" | "megabytes" => Some(Self::Megabyte),
-            "gbyte" | "gigabyte" | "gigabytes" => Some(Self::Gigabyte),
-            "tbyte" | "terabyte" | "terabytes" => Some(Self::Terabyte),
+            "kbyte" | "kb" | "kilobyte" | "kilobytes" => Some(Self::Kilobyte),
+            "mbyte" | "mb" | "megabyte" | "megabytes" => Some(Self::Megabyte),
+            "gbyte" | "gb" | "gigabyte" | "gigabytes" => Some(Self::Gigabyte),
+            "tbyte" | "tb" | "terabyte" | "terabytes" => Some(Self::Terabyte),
             "kib" | "kibibyte" | "kibibytes" => Some(Self::Kibibyte),
             "mib" | "mebibyte" | "mebibytes" => Some(Self::Mebibyte),
             "gib" | "gibibyte" | "gibibytes" => Some(Self::Gibibyte),
@@ -787,6 +787,15 @@ impl UnitValue {
     }
 
     pub(crate) fn add(self, right: Self) -> Result<Self, UnitError> {
+        // Temperatures combine as deltas: `100 F - 20 F` is a difference
+        // in degrees, not an affine combination of points on a scale.
+        if self.is_atomic_temperature() && right.is_atomic_temperature() {
+            let right = right.converted_to_compound(&self.unit)?;
+            return Ok(Self::from_compound(
+                self.magnitude.add(right.magnitude),
+                self.unit,
+            ));
+        }
         self.ensure_arithmetic_dimension(&right)?;
         let right = right.converted_to_compound(&self.unit)?;
         Ok(Self::from_compound(
@@ -796,12 +805,25 @@ impl UnitValue {
     }
 
     pub(crate) fn subtract(self, right: Self) -> Result<Self, UnitError> {
+        if self.is_atomic_temperature() && right.is_atomic_temperature() {
+            let right = right.converted_to_compound(&self.unit)?;
+            return Ok(Self::from_compound(
+                self.magnitude.subtract(right.magnitude),
+                self.unit,
+            ));
+        }
         self.ensure_arithmetic_dimension(&right)?;
         let right = right.converted_to_compound(&self.unit)?;
         Ok(Self::from_compound(
             self.magnitude.subtract(right.magnitude),
             self.unit,
         ))
+    }
+
+    fn is_atomic_temperature(&self) -> bool {
+        self.unit
+            .atomic_unit()
+            .is_some_and(|unit| unit.dimension() == Dimension::Temperature)
     }
 
     pub(crate) fn multiply_number(self, number: Number) -> Self {

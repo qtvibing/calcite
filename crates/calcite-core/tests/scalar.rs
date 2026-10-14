@@ -424,6 +424,19 @@ fn affine_temperature_units_convert_without_losing_precision() {
 }
 
 #[test]
+fn temperatures_combine_as_deltas() {
+    assert_eq!(output("100 F - 20 F"), "80 °F");
+    assert_eq!(output("20C + 5"), "25 °C");
+    assert_eq!(output("20C - 5"), "15 °C");
+    assert_eq!(output("20C + 5C"), "25 °C");
+    assert_eq!(output("20C - 68F"), "0 °C");
+    assert_eq!(output("100 F - 20C"), "32 °F");
+    assert_eq!(output("300 K - 273.15 K"), "26.85 K");
+    // Scalar multiplication scales the reading (pre-existing behavior).
+    assert_eq!(output("20C * 2"), "40 °C");
+}
+
+#[test]
 fn number_punctuation_is_explicitly_contextual() {
     assert_eq!(output("1,234.5 + 0.5"), "1235");
 

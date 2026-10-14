@@ -28,6 +28,11 @@ fn data_units_use_unambiguous_case_insensitive_aliases() {
     assert_eq!(output("1 byte in bits"), "8 bit");
     assert_eq!(output("1 mebibyte in bytes"), "1048576 byte");
     assert_eq!(output("1 GIBIBYTE in MEBIBYTES"), "1024 MiB");
+    assert_eq!(output("1 KB in bytes"), "1000 byte");
+    assert_eq!(output("1 MB in KB"), "1000 kbyte");
+    assert_eq!(output("5 GB in MB"), "5000 Mbyte");
+    assert_eq!(output("2 TB in GB"), "2000 Gbyte");
+    assert_eq!(output("1 KB in KiB"), "0.9765625 KiB");
     assert_eq!(
         output("100 megabits / second in megabytes/minute"),
         "750 Mbyte/min"
