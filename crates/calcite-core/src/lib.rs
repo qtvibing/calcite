@@ -74,9 +74,9 @@ pub use syntax::{
     TemporalKeyword, UnaryOperator,
 };
 pub use temporal::{
-    CalendarDuration, CalendarSpan, ClockTime, Date, DateOrder, HolidayCalendarError,
-    LEAP_SECOND_POLICY, LeapSecondPolicy, OffsetClockTime, OffsetDateTime, TemporalContext,
-    TimeSpan, UtcOffset, Weekday, WorkdayCalendar, WorkdayDuration,
+    CalendarDuration, CalendarDurationUnit, CalendarSpan, ClockTime, Date, DateOrder,
+    HolidayCalendarError, LEAP_SECOND_POLICY, LeapSecondPolicy, OffsetClockTime, OffsetDateTime,
+    TemporalContext, TimeSpan, UtcOffset, Weekday, WorkdayCalendar, WorkdayDuration,
 };
 pub use timezone::{
     LocalTimeResolution, TimeZoneAbbreviation, TimeZoneCode, TimeZoneDefinition, TimeZoneError,

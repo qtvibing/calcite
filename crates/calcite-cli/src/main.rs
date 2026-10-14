@@ -11,11 +11,11 @@ use std::{
 };
 
 use calcite_core::{
-    CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
-    DiagnosticKind, DocumentCalculation, EntropySource, Function, Number, NumberFormat,
-    NumberOutputMode, OffsetDateTime, TimeZoneCode, TimeZoneDefinition, TimeZoneSnapshot,
-    TimeZoneTransition, UtcOffset, Value, calculate_document_with_context_and_entropy,
-    surface_variants,
+    CalculationContext, CalculationSession, CalendarDurationUnit, ClockTime, Currency, Date,
+    DateOrder, Diagnostic, DiagnosticKind, DocumentCalculation, EntropySource, Function, Number,
+    NumberFormat, NumberOutputMode, OffsetDateTime, TimeZoneCode, TimeZoneDefinition,
+    TimeZoneSnapshot, TimeZoneTransition, UtcOffset, Value,
+    calculate_document_with_context_and_entropy, surface_variants,
 };
 use jiff::{Timestamp, civil, tz::TimeZone};
 use rustyline::{
@@ -1288,19 +1288,103 @@ fn typed_json_value(value: &Value) -> serde_json::Value {
             "modifier": value.modifier(),
             "minimum": value.minimum(),
             "maximum": value.maximum(),
+            "mean": canonical_number(&value.mean()),
+            "outcomes": value
+                .outcome_probabilities()
+                .into_iter()
+                .map(|(total, probability)| serde_json::json!({
+                    "value": total,
+                    "probability": canonical_number(probability.ratio()),
+                }))
+                .collect::<Vec<_>>(),
         }),
         Value::Coin(value) => textual_json("coin_side", value),
-        Value::Date(value) => textual_json("date", value),
-        Value::Clock(value) => textual_json("clock_time", value),
-        Value::OffsetClock(value) => textual_json("offset_clock_time", value),
-        Value::ZonedClock(value) => textual_json("zoned_clock_time", value),
-        Value::OffsetDateTime(value) => textual_json("offset_date_time", value),
-        Value::ZonedDateTime(value) => textual_json("zoned_date_time", value),
-        Value::TimeSpan(value) => textual_json("time_span", value),
-        Value::CalendarDuration(value) => textual_json("calendar_duration", value),
-        Value::CalendarSpan(value) => textual_json("calendar_span", value),
-        Value::WorkdayDuration(value) => textual_json("workday_duration", value),
-        Value::Weekday(value) => textual_json("weekday", value),
+        Value::Date(value) => serde_json::json!({
+            "type": "date",
+            "value": value.to_string(),
+            "year": value.year(),
+            "month": value.month(),
+            "day": value.day(),
+        }),
+        Value::Clock(value) => serde_json::json!({
+            "type": "clock_time",
+            "value": value.to_string(),
+            "hour": value.hour(),
+            "minute": value.minute(),
+            "second": value.second(),
+            "nanosecond": value.nanosecond(),
+        }),
+        Value::OffsetClock(value) => serde_json::json!({
+            "type": "offset_clock_time",
+            "value": value.to_string(),
+            "hour": value.time().hour(),
+            "minute": value.time().minute(),
+            "second": value.time().second(),
+            "nanosecond": value.time().nanosecond(),
+            "offset_seconds": value.offset().seconds(),
+        }),
+        Value::ZonedClock(value) => serde_json::json!({
+            "type": "zoned_clock_time",
+            "value": value.to_string(),
+            "hour": value.time().hour(),
+            "minute": value.time().minute(),
+            "second": value.time().second(),
+            "nanosecond": value.time().nanosecond(),
+            "zone": value.zone(),
+        }),
+        Value::OffsetDateTime(value) => serde_json::json!({
+            "type": "offset_date_time",
+            "value": value.to_string(),
+            "year": value.date().year(),
+            "month": value.date().month(),
+            "day": value.date().day(),
+            "hour": value.time().hour(),
+            "minute": value.time().minute(),
+            "second": value.time().second(),
+            "nanosecond": value.time().nanosecond(),
+            "offset_seconds": value.offset().seconds(),
+        }),
+        Value::ZonedDateTime(value) => serde_json::json!({
+            "type": "zoned_date_time",
+            "value": value.to_string(),
+            "year": value.datetime().date().year(),
+            "month": value.datetime().date().month(),
+            "day": value.datetime().date().day(),
+            "hour": value.datetime().time().hour(),
+            "minute": value.datetime().time().minute(),
+            "second": value.datetime().time().second(),
+            "nanosecond": value.datetime().time().nanosecond(),
+            "offset_seconds": value.datetime().offset().seconds(),
+            "zone": value.zone(),
+        }),
+        Value::TimeSpan(value) => serde_json::json!({
+            "type": "time_span",
+            "value": value.to_string(),
+            "nanoseconds": value.nanoseconds().to_string(),
+            "seconds": exact_seconds(value.nanoseconds()),
+        }),
+        Value::CalendarDuration(value) => serde_json::json!({
+            "type": "calendar_duration",
+            "value": value.to_string(),
+            "months": value.total_months(),
+            "unit": if matches!(value.unit(), CalendarDurationUnit::Year) { "years" } else { "months" },
+        }),
+        Value::CalendarSpan(value) => serde_json::json!({
+            "type": "calendar_span",
+            "value": value.to_string(),
+            "months": value.total_months(),
+            "days": value.remaining_days(),
+        }),
+        Value::WorkdayDuration(value) => serde_json::json!({
+            "type": "workday_duration",
+            "value": value.to_string(),
+            "days": value.days(),
+        }),
+        Value::Weekday(value) => serde_json::json!({
+            "type": "weekday",
+            "value": value.to_string(),
+            "index_from_monday": value.number_from_monday(),
+        }),
         Value::Boolean(value) => serde_json::json!({ "type": "boolean", "value": value }),
         _ => serde_json::json!({ "type": "unknown" }),
     }
@@ -1316,6 +1400,19 @@ fn number_json(kind: &str, value: &Number) -> serde_json::Value {
 
 fn canonical_number(value: &Number) -> String {
     value.exact_fraction().unwrap_or_else(|| value.to_string())
+}
+
+fn exact_seconds(nanoseconds: i128) -> String {
+    let sign = if nanoseconds < 0 { "-" } else { "" };
+    let magnitude = nanoseconds.unsigned_abs();
+    let seconds = magnitude / 1_000_000_000;
+    let fraction = format!("{:09}", magnitude % 1_000_000_000);
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        format!("{sign}{seconds}")
+    } else {
+        format!("{sign}{seconds}.{fraction}")
+    }
 }
 
 fn textual_json(kind: &str, value: &impl ToString) -> serde_json::Value {

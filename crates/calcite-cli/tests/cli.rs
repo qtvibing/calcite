@@ -391,6 +391,49 @@ fn supports_plain_and_json_output_modes() {
 }
 
 #[test]
+fn json_output_structures_temporal_and_dice_values() {
+    let run = |expression: &str| -> serde_json::Value {
+        let output = calcite()
+            .args(["--json", expression])
+            .output()
+            .expect("calcite should run");
+        assert!(output.status.success());
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+
+    let date = run("2025-06-15");
+    let value = &date["results"][0]["value"];
+    assert_eq!(value["type"], "date");
+    assert_eq!(value["year"], 2025);
+    assert_eq!(value["month"], 6);
+    assert_eq!(value["day"], 15);
+
+    let span = run("time from 10:00:00.5 to 10:00:00");
+    let value = &span["results"][0]["value"];
+    assert_eq!(value["type"], "time_span");
+    assert_eq!(value["nanoseconds"], "-500000000");
+    assert_eq!(value["seconds"], "-0.5");
+
+    let zoned = run("2025-03-08 at 10:00 CET to Tokyo time");
+    let value = &zoned["results"][0]["value"];
+    assert_eq!(value["type"], "zoned_date_time");
+    assert_eq!(value["zone"], "Asia/Tokyo");
+    assert_eq!(value["offset_seconds"], 32400);
+    assert_eq!(value["hour"], 18);
+
+    let dice = run("2d6 + 1");
+    let value = &dice["results"][0]["value"];
+    assert_eq!(value["type"], "dice_distribution");
+    assert_eq!(value["mean"], "8");
+    let outcomes = value["outcomes"].as_array().unwrap();
+    assert_eq!(outcomes.len(), 11);
+    assert_eq!(outcomes[0]["value"], 3);
+    assert_eq!(outcomes[0]["probability"], "1/36");
+    assert_eq!(outcomes[10]["value"], 13);
+    assert_eq!(outcomes[10]["probability"], "1/36");
+}
+
+#[test]
 fn loads_configuration_and_allows_command_line_overrides() {
     let path =
         std::env::temp_dir().join(format!("calcite-test-{}-config.json", std::process::id()));

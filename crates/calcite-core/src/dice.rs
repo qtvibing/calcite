@@ -92,6 +92,28 @@ impl DiceDistribution {
         )
     }
 
+    /// `(total, probability)` for every reachable total, ascending.
+    pub fn outcome_probabilities(self) -> Vec<(i64, Percentage)> {
+        let counts = self.outcome_counts();
+        let outcomes = Number::from_i64(i64::from(self.sides))
+            .pow(Number::from_i64(i64::from(self.count)))
+            .expect("bounded positive dice have a representable outcome count");
+        counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| !count.is_zero())
+            .map(|(total, count)| {
+                let probability = Percentage::from_ratio(
+                    count
+                        .clone()
+                        .divide(outcomes.clone())
+                        .expect("dice have at least one outcome"),
+                );
+                (total as i64 + self.modifier, probability)
+            })
+            .collect()
+    }
+
     pub fn roll(self, entropy: &mut (impl EntropySource + ?Sized)) -> Result<i64, DiceError> {
         let mut total = self.modifier;
         for _ in 0..self.count {
@@ -103,7 +125,7 @@ impl DiceDistribution {
         Ok(total)
     }
 
-    fn outcome_counts(self) -> Vec<Number> {
+    pub fn outcome_counts(self) -> Vec<Number> {
         let maximum = self.count as usize * self.sides as usize;
         let mut counts = vec![Number::from_i64(0); maximum + 1];
         counts[0] = Number::from_i64(1);

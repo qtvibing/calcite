@@ -91,7 +91,7 @@ It has editable persistent history, including arrow-key navigation. Tab completi
 | `!!` | Repeat the latest history entry |
 | `!N` | Repeat history entry `N` |
 
-Use `--plain` to print only the last result of a document, or `--json` for structured output with typed value data and source spans.
+Use `--plain` to print only the last result of a document, or `--json` for structured output with typed value data and source spans. Temporal values carry structured fields (calendar date parts, nanosecond durations, zone and offset data) and dice distributions include the mean and per-outcome probabilities.
 
 ```sh
 calcite --json '1 km + 500 m'

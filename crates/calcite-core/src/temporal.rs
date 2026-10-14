@@ -734,7 +734,7 @@ impl fmt::Display for CalendarSpan {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CalendarDurationUnit {
+pub enum CalendarDurationUnit {
     Month,
     Year,
 }
@@ -773,6 +773,10 @@ impl CalendarDuration {
 
     pub const fn total_months(self) -> i64 {
         self.months
+    }
+
+    pub const fn unit(self) -> CalendarDurationUnit {
+        self.unit
     }
 
     pub const fn checked_add(self, other: Self) -> Option<Self> {
