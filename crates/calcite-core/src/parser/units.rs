@@ -222,6 +222,12 @@ impl Parser<'_> {
         expression: Expression,
     ) -> Result<Expression, Diagnostic> {
         let operator = self.current().expect("conversion operator is present");
+        // Allow an article between the operator and the target: `as a date`.
+        let article = usize::from(self.tokens.get(self.position + 1).is_some_and(|token| {
+            token.kind == LexemeKind::Word
+                && self.source[token.span.start..token.span.end].eq_ignore_ascii_case("a")
+        }));
+        self.position += article;
         let Some(target_token) = self.tokens.get(self.position + 1).copied() else {
             return Err(Diagnostic::with_detail(
                 DiagnosticKind::UnexpectedEnd,
@@ -240,6 +246,14 @@ impl Parser<'_> {
             consumed = 1 + offset_tokens;
             target_span = span;
             ConversionTarget::UtcOffset(offset)
+        } else if let Some((unix_tokens, unix_span)) = self.unix_time_target_at(1) {
+            consumed = 1 + unix_tokens;
+            target_span = unix_span;
+            ConversionTarget::UnixTime
+        } else if let Some((date_tokens, date_span)) = self.date_time_target_at(1) {
+            consumed = 1 + date_tokens;
+            target_span = date_span;
+            ConversionTarget::DateTime
         } else if let Some((zone, zone_tokens, zone_span)) = self.zone_specifier_at(1) {
             consumed = 1 + zone_tokens;
             target_span = zone_span;
@@ -338,6 +352,53 @@ impl Parser<'_> {
             target_span,
             span,
         })
+    }
+
+    /// `unix time`, `unix`, `epoch`, `unixtime`, and `timestamp` spellings,
+    /// optionally followed by `time` or `timestamp`.
+    fn unix_time_target_at(&self, offset: usize) -> Option<(usize, Span)> {
+        let first = *self.tokens.get(self.position + offset)?;
+        if first.kind != LexemeKind::Word {
+            return None;
+        }
+        let word = &self.source[first.span.start..first.span.end];
+        let is_unix = word.eq_ignore_ascii_case("unix")
+            || word.eq_ignore_ascii_case("epoch")
+            || word.eq_ignore_ascii_case("unixtime");
+        if !is_unix {
+            return None;
+        }
+        let second = self.tokens.get(self.position + offset + 1).copied();
+        let suffix = second.filter(|token| {
+            token.kind == LexemeKind::Word && {
+                let text = &self.source[token.span.start..token.span.end];
+                text.eq_ignore_ascii_case("time") || text.eq_ignore_ascii_case("timestamp")
+            }
+        });
+        match suffix {
+            Some(second) => Some((2, first.span.join(second.span))),
+            None => Some((1, first.span)),
+        }
+    }
+
+    fn date_time_target_at(&self, offset: usize) -> Option<(usize, Span)> {
+        let first = *self.tokens.get(self.position + offset)?;
+        if first.kind != LexemeKind::Word {
+            return None;
+        }
+        let word = &self.source[first.span.start..first.span.end];
+        if !word.eq_ignore_ascii_case("date") && !word.eq_ignore_ascii_case("datetime") {
+            return None;
+        }
+        let second = self.tokens.get(self.position + offset + 1).copied();
+        let time_suffix = second.filter(|token| {
+            token.kind == LexemeKind::Word
+                && self.source[token.span.start..token.span.end].eq_ignore_ascii_case("time")
+        });
+        match time_suffix {
+            Some(second) => Some((2, first.span.join(second.span))),
+            None => Some((1, first.span)),
+        }
     }
 
     pub(super) fn utc_offset_at(&self, offset: usize) -> Option<(UtcOffset, usize, Span)> {

@@ -355,6 +355,10 @@ pub enum ConversionTarget {
     Fraction,
     Radix(Radix),
     Roman,
+    /// `1750000000 as a date` — interpret a number as unix epoch seconds.
+    DateTime,
+    /// `now as unix time` — express a date or date-time as epoch seconds.
+    UnixTime,
     CustomUnit(CustomUnitDefinition),
     CompoundUnit(CompoundUnit),
     UtcOffset(UtcOffset),

@@ -627,3 +627,46 @@ fn last_holidays_resolve_to_their_previous_occurrence() {
         "2025-12-25"
     );
 }
+
+#[test]
+fn unix_time_converts_in_both_directions() {
+    assert_eq!(output("1750000000 as a date"), "2025-06-15T15:06:40Z");
+    assert_eq!(output("1750000000 as date"), "2025-06-15T15:06:40Z");
+    assert_eq!(output("1750000000 as a datetime"), "2025-06-15T15:06:40Z");
+    assert_eq!(output("1750000000 as unix time"), "1750000000");
+    assert_eq!(output("2025-06-15 as unix time"), "1749945600");
+    assert_eq!(output("2025-06-15 as epoch"), "1749945600");
+    assert_eq!(output("2025-06-15T15:06:40Z as unix time"), "1750000000");
+    assert_eq!(output("2025-06-15T15:06:40Z as epoch time"), "1750000000");
+    assert_eq!(output("2025-06-15T15:06:40Z as a date"), "2025-06-15");
+    assert_eq!(output("2025-06-15T15:06:40+02:00 as a date"), "2025-06-15");
+    assert_eq!(output("5 km as a m"), "5000 m");
+    assert_eq!(output("50% as a fraction"), "1/2");
+
+    let utc = context_at(2025, 6, 15, 15, 6, 0);
+    assert_eq!(
+        calculate_with_context("now as unix time", &utc)
+            .unwrap()
+            .output,
+        "1749999960"
+    );
+    assert_eq!(
+        calculate_with_context("now as a date", &utc)
+            .unwrap()
+            .output,
+        "2025-06-15"
+    );
+
+    assert_eq!(
+        calculate("1750000000.5 as a date").unwrap_err().kind(),
+        DiagnosticKind::InvalidDate
+    );
+    assert_eq!(
+        calculate("999999999999 as a date").unwrap_err().kind(),
+        DiagnosticKind::InvalidDate
+    );
+    assert_eq!(
+        calculate("10:00 as unix time").unwrap_err().kind(),
+        DiagnosticKind::UnsupportedOperation
+    );
+}

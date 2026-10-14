@@ -226,6 +226,10 @@ time from 10:00 to 12:30     → 2 h 30 min
 2025-03-08 at 10:00 CET      → 2025-03-08T10:00+01:00[CET]
 2026-10-14 at 9pm CET to Tokyo time
                               → 2026-10-15T04:00+09:00[Asia/Tokyo]
+1750000000 as a date         → 2025-06-15T15:06:40Z
+now as unix time             → 1791993488
+2025-06-15T15:06:40Z as a date
+                              → 2025-06-15
 ```
 
 Ambiguous slash and dot dates remain arithmetic unless a date order is configured:

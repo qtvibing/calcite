@@ -140,6 +140,27 @@ pub(crate) fn convert(
                 .map(Value::Fraction)
                 .ok_or_else(|| unsupported(span))
         }
+        ConversionTarget::DateTime => match value {
+            Value::Number(number) => number
+                .exact_i64()
+                .and_then(OffsetDateTime::from_epoch_seconds)
+                .map(Value::OffsetDateTime)
+                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+            Value::OffsetDateTime(datetime) => Ok(Value::Date(datetime.date())),
+            Value::ZonedDateTime(datetime) => Ok(Value::Date(datetime.datetime().date())),
+            _ => Err(unsupported(span)),
+        },
+        ConversionTarget::UnixTime => match value {
+            Value::Number(number) => Ok(Value::Number(number)),
+            Value::Date(date) => Ok(Value::Number(Number::from_i64(date.epoch_seconds()))),
+            Value::OffsetDateTime(datetime) => {
+                Ok(Value::Number(Number::from_i64(datetime.epoch_seconds())))
+            }
+            Value::ZonedDateTime(datetime) => Ok(Value::Number(Number::from_i64(
+                datetime.datetime().epoch_seconds(),
+            ))),
+            _ => Err(unsupported(span)),
+        },
         ConversionTarget::CustomUnit(definition) => {
             let Value::Unit(value) = value else {
                 return Err(unsupported(span));

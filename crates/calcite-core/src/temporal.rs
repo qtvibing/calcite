@@ -165,6 +165,10 @@ impl Date {
         days_from_civil(self)
     }
 
+    pub(crate) fn epoch_seconds(self) -> i64 {
+        self.epoch_days() * SECONDS_PER_DAY
+    }
+
     pub(crate) fn from_epoch_days(days: i64) -> Option<Self> {
         civil_from_days(days)
     }
@@ -182,6 +186,7 @@ impl fmt::Display for Date {
 
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 const NANOS_PER_DAY: u64 = 86_400 * NANOS_PER_SECOND;
+const SECONDS_PER_DAY: i64 = 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LeapSecondPolicy {
@@ -473,6 +478,17 @@ impl OffsetDateTime {
 
     pub fn add_seconds(self, seconds: i64) -> Option<Self> {
         self.add_nanoseconds(i128::from(seconds) * i128::from(NANOS_PER_SECOND))
+    }
+
+    pub(crate) fn from_epoch_seconds(seconds: i64) -> Option<Self> {
+        Self::from_local_nanoseconds(
+            i128::from(seconds) * i128::from(NANOS_PER_SECOND),
+            UtcOffset::UTC,
+        )
+    }
+
+    pub(crate) fn epoch_seconds(self) -> i64 {
+        (self.utc_nanoseconds() / i128::from(NANOS_PER_SECOND)) as i64
     }
 
     pub fn add_nanoseconds(self, nanoseconds: i128) -> Option<Self> {
