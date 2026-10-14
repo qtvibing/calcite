@@ -2,11 +2,45 @@ use crate::evaluator::Value;
 use crate::{
     BinaryOperator, CalendarDuration, ClockTime, Date, Diagnostic, DiagnosticKind,
     LocalTimeResolution, Number, OffsetClockTime, OffsetDateTime, Span, TemporalContext, TimeSpan,
-    TimeZoneError, Unit, UnitValue, WorkdayCalendar, WorkdayDuration, ZonedClockTime,
-    ZonedDateTime,
+    TimeZoneError, TimeZoneSnapshot, Unit, UnitValue, WorkdayCalendar, WorkdayDuration,
+    ZoneResolution, ZonedClockTime, ZonedDateTime,
 };
 
 use super::{compare_ordering, unit_diagnostic, unsupported};
+
+/// A resolved zone specifier: either a zone definition or, for literal
+/// abbreviations such as `CET` with `literal_zone_codes`, a fixed offset.
+pub(super) enum ZoneTarget<'a> {
+    Definition(&'a crate::TimeZoneDefinition),
+    FixedOffset(crate::UtcOffset),
+}
+
+pub(super) fn resolve_zone_target<'a>(
+    snapshot: &'a TimeZoneSnapshot,
+    temporal: &TemporalContext,
+    specifier: &str,
+    span: Span,
+) -> Result<ZoneTarget<'a>, Diagnostic> {
+    match snapshot.resolve_specifier(specifier) {
+        Some(ZoneResolution::Zone(definition)) => Ok(ZoneTarget::Definition(definition)),
+        Some(ZoneResolution::Abbreviation(abbreviation)) => {
+            if temporal.literal_zone_codes {
+                Ok(ZoneTarget::FixedOffset(abbreviation.literal_offset()))
+            } else {
+                snapshot
+                    .zone(abbreviation.representative_zone())
+                    .map(ZoneTarget::Definition)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::UnknownTimeZone, span))
+            }
+        }
+        Some(ZoneResolution::Ambiguous(candidates)) => Err(Diagnostic::with_detail(
+            DiagnosticKind::AmbiguousTimeZone,
+            span,
+            format!("'{}' could mean: {}", specifier, candidates.join(", ")),
+        )),
+        None => Err(Diagnostic::new(DiagnosticKind::UnknownTimeZone, span)),
+    }
+}
 
 pub(super) fn date_zoned_clock_pair(
     date: Date,
@@ -18,10 +52,29 @@ pub(super) fn date_zoned_clock_pair(
         .time_zones
         .as_ref()
         .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?;
-    snapshot
-        .resolve_local(time.zone(), date, time.time(), LocalTimeResolution::Reject)
-        .map(Value::ZonedDateTime)
-        .map_err(|error| time_zone_diagnostic(error, span))
+    match resolve_zone_target(snapshot, context, time.zone(), span)? {
+        ZoneTarget::Definition(definition) => definition
+            .zoned_from_local(date, time.time(), LocalTimeResolution::Reject)
+            .map(Value::ZonedDateTime)
+            .map_err(|error| time_zone_diagnostic(error, span)),
+        ZoneTarget::FixedOffset(offset) => Ok(Value::OffsetDateTime(OffsetDateTime::new(
+            date,
+            time.time(),
+            offset,
+        ))),
+    }
+}
+
+/// Anchors a zone-qualified clock time without a date to the current date.
+pub(super) fn anchored_zoned_clock(
+    clock: ZonedClockTime,
+    context: &TemporalContext,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let now = context
+        .current_datetime
+        .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTemporalContext, span))?;
+    date_zoned_clock_pair(now.date(), clock, context, span)
 }
 
 pub(super) fn zoned_datetime_pair(

@@ -79,8 +79,9 @@ pub use temporal::{
     TimeSpan, UtcOffset, Weekday, WorkdayCalendar, WorkdayDuration,
 };
 pub use timezone::{
-    LocalTimeResolution, TimeZoneDefinition, TimeZoneError, TimeZoneSnapshot, TimeZoneTransition,
-    ZonedClockTime, ZonedDateTime,
+    LocalTimeResolution, TimeZoneAbbreviation, TimeZoneCode, TimeZoneDefinition, TimeZoneError,
+    TimeZoneSnapshot, TimeZoneTransition, ZoneResolution, ZoneSpecifier, ZonedClockTime,
+    ZonedDateTime,
 };
 pub use unit::{
     CompoundUnit, CustomUnitDefinition, CustomUnitError, CustomUnitRegistry, CustomUnitValue,

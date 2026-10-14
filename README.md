@@ -219,9 +219,9 @@ Dates use Gregorian calendar arithmetic. Months and years are calendar durations
 days between 2025-01-01 and 2025-01-10
                               → 9 days
 time from 10:00 to 12:30     → 2 h 30 min
-2025-03-08 at 10:00 CET      → 2025-03-08T10:00+01:00
-time between 10:00 CEST and 10:00 CET
-                              → 1 h
+2025-03-08 at 10:00 CET      → 2025-03-08T10:00+01:00[CET]
+2026-10-14 at 9pm CET to Tokyo time
+                              → 2026-10-15T04:00+09:00[Asia/Tokyo]
 ```
 
 Ambiguous slash and dot dates remain arithmetic unless a date order is configured:
@@ -292,6 +292,7 @@ An empty `CALCITE_CONFIG` disables file loading. Command-line options override c
   "approximate": false,
   "default_currency": "USD",
   "timezone": "America/New_York",
+  "literal_zone_codes": false,
   "rate_provider": "fallback",
   "history": true,
   "custom_units": {

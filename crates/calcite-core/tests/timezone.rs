@@ -1,7 +1,7 @@
 use calcite_core::{
     CalculationContext, CalendarDuration, ClockTime, Date, DiagnosticKind, LocalTimeResolution,
-    OffsetDateTime, TimeZoneDefinition, TimeZoneError, TimeZoneSnapshot, TimeZoneTransition,
-    UtcOffset,
+    OffsetDateTime, TimeZoneCode, TimeZoneDefinition, TimeZoneError, TimeZoneSnapshot,
+    TimeZoneTransition, UtcOffset,
 };
 
 fn datetime(source: &str) -> OffsetDateTime {
@@ -22,7 +22,7 @@ fn new_york_2025() -> TimeZoneSnapshot {
         ],
     )
     .unwrap();
-    TimeZoneSnapshot::new("test-2025a", [zone]).unwrap()
+    TimeZoneSnapshot::new("test-2025a", [zone], []).unwrap()
 }
 
 #[test]
@@ -194,5 +194,162 @@ fn validates_snapshot_boundaries_and_transition_order() {
     assert_eq!(
         snapshot.at_instant("Europe/Paris", datetime("2025-01-01T00:00Z")),
         Err(TimeZoneError::UnknownZone)
+    );
+}
+
+fn central_europe_snapshot() -> TimeZoneSnapshot {
+    let standard = UtcOffset::from_hours_minutes(1, 0).unwrap();
+    let daylight = UtcOffset::from_hours_minutes(2, 0).unwrap();
+    let berlin = TimeZoneDefinition::new(
+        "Europe/Berlin",
+        datetime("2025-01-01T00:00Z"),
+        datetime("2027-01-01T00:00Z"),
+        standard,
+        [
+            TimeZoneTransition::new(datetime("2025-03-30T01:00Z"), daylight),
+            TimeZoneTransition::new(datetime("2025-10-26T01:00Z"), standard),
+            TimeZoneTransition::new(datetime("2026-03-29T01:00Z"), daylight),
+            TimeZoneTransition::new(datetime("2026-10-25T01:00Z"), standard),
+        ],
+    )
+    .unwrap();
+    let tokyo = TimeZoneDefinition::new(
+        "Asia/Tokyo",
+        datetime("2025-01-01T00:00Z"),
+        datetime("2027-01-01T00:00Z"),
+        UtcOffset::from_hours_minutes(9, 0).unwrap(),
+        [],
+    )
+    .unwrap();
+    let new_york = TimeZoneDefinition::new(
+        "America/New_York",
+        datetime("2025-01-01T00:00Z"),
+        datetime("2027-01-01T00:00Z"),
+        UtcOffset::from_hours_minutes(-5, 0).unwrap(),
+        [],
+    )
+    .unwrap();
+    TimeZoneSnapshot::new(
+        "test-2025a",
+        [berlin, tokyo, new_york],
+        [
+            (
+                "CET".to_owned(),
+                TimeZoneCode::Resolved {
+                    literal_offset: standard,
+                    representative_zone: "Europe/Berlin".to_owned(),
+                },
+            ),
+            (
+                "CEST".to_owned(),
+                TimeZoneCode::Resolved {
+                    literal_offset: daylight,
+                    representative_zone: "Europe/Berlin".to_owned(),
+                },
+            ),
+            (
+                "CST".to_owned(),
+                TimeZoneCode::Ambiguous {
+                    candidates: vec![
+                        "UTC-06:00 (America/Chicago)".to_owned(),
+                        "UTC+08:00 (Asia/Shanghai)".to_owned(),
+                    ],
+                },
+            ),
+        ],
+    )
+    .unwrap()
+}
+
+fn zoned_context() -> CalculationContext {
+    CalculationContext {
+        temporal: calcite_core::TemporalContext {
+            time_zones: Some(central_europe_snapshot()),
+            current_datetime: Some(datetime("2026-10-15T12:00Z")),
+            ..calcite_core::TemporalContext::default()
+        },
+        ..CalculationContext::default()
+    }
+}
+
+#[test]
+fn resolves_zone_abbreviations_with_dst_by_default() {
+    let context = zoned_context();
+    assert_eq!(
+        calcite_core::calculate_with_context("2026-10-15 at 21:00 CET", &context)
+            .unwrap()
+            .output,
+        "2026-10-15T21:00+02:00[Europe/Berlin]"
+    );
+    assert_eq!(
+        calcite_core::calculate_with_context("2026-01-15 at 21:00 CET", &context)
+            .unwrap()
+            .output,
+        "2026-01-15T21:00+01:00[Europe/Berlin]"
+    );
+}
+
+#[test]
+fn literal_zone_codes_resolve_abbreviations_to_fixed_offsets() {
+    let mut context = zoned_context();
+    context.temporal.literal_zone_codes = true;
+    assert_eq!(
+        calcite_core::calculate_with_context("2026-10-15 at 21:00 CET", &context)
+            .unwrap()
+            .output,
+        "2026-10-15T21:00+01:00"
+    );
+    assert_eq!(
+        calcite_core::calculate_with_context("2026-10-15 at 21:00 CEST", &context)
+            .unwrap()
+            .output,
+        "2026-10-15T21:00+02:00"
+    );
+}
+
+#[test]
+fn city_words_resolve_zone_name_segments() {
+    let context = zoned_context();
+    assert_eq!(
+        calcite_core::calculate_with_context("2026-10-15 at 21:00 Tokyo time", &context)
+            .unwrap()
+            .output,
+        "2026-10-15T21:00+09:00[Asia/Tokyo]"
+    );
+    assert_eq!(
+        calcite_core::calculate_with_context("2026-10-15 at 21:00 new york time", &context)
+            .unwrap()
+            .output,
+        "2026-10-15T21:00-05:00[America/New_York]"
+    );
+    assert!(calcite_core::calculate_with_context("berlin", &context).is_err());
+}
+
+#[test]
+fn ambiguous_codes_report_candidates_instead_of_guessing() {
+    let context = zoned_context();
+    let error =
+        calcite_core::calculate_with_context("2026-10-15 at 21:00 CST", &context).unwrap_err();
+    assert_eq!(error.kind(), DiagnosticKind::AmbiguousTimeZone);
+    assert!(
+        error.to_string().contains("America/Chicago"),
+        "the diagnostic lists candidates: {error}"
+    );
+}
+
+#[test]
+fn bare_hours_and_anchored_conversions_use_zone_data() {
+    let context = zoned_context();
+    assert_eq!(
+        calcite_core::calculate_with_context("9pm CET to Tokyo time", &context)
+            .unwrap()
+            .output,
+        "2026-10-16T04:00+09:00[Asia/Tokyo]"
+    );
+    assert_eq!(
+        calcite_core::calculate_with_context("9pm CET to UTC", &context)
+            .unwrap()
+            .output,
+        "2026-10-15T19:00Z"
     );
 }

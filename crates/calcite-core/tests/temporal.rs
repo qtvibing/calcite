@@ -381,8 +381,8 @@ fn clock_times_accept_24_hour_and_meridiem_forms() {
     assert_eq!(output("18:00 - 09:30"), "30600 s");
     assert_eq!(output("12:00:00.001 - 12:00:00"), "0.001 s");
     assert_eq!(output("12:00:00.001 + 1 us"), "12:00:00.001001");
-    assert_eq!(output("10:00 cet in UTC"), "09:00Z");
-    assert_eq!(output("time between 10:00 CEST and 10:00 CET"), "1 h");
+    assert_eq!(output("10:00 UTC+1 in UTC"), "09:00Z");
+    assert_eq!(output("time between 10:00 UTC+2 and 10:00 UTC+1"), "1 h");
 }
 
 #[test]
@@ -399,7 +399,10 @@ fn offset_date_times_cross_days_and_convert_the_same_instant() {
         output("2025-03-08T14:30:00+02:00 in -05:00"),
         "2025-03-08T07:30-05:00"
     );
-    assert_eq!(output("2025-03-08 at 10:00 CET"), "2025-03-08T10:00+01:00");
+    assert_eq!(
+        output("2025-03-08 at 10:00 UTC+1"),
+        "2025-03-08T10:00+01:00"
+    );
     assert_eq!(
         output("2025-03-08T14:30:00.123456789+02:00 + 1 ns"),
         "2025-03-08T14:30:00.12345679+02:00"
@@ -409,11 +412,11 @@ fn offset_date_times_cross_days_and_convert_the_same_instant() {
         "2025-03-08T12:30Z"
     );
     assert_eq!(
-        output("2025-03-08T14:30:00+02:00 in cet"),
+        output("2025-03-08T14:30:00+02:00 in UTC+1"),
         "2025-03-08T13:30+01:00"
     );
     assert_eq!(
-        output("2025-03-08T14:30:00+02:00 in CEST"),
+        output("2025-03-08T14:30:00+02:00 in UTC+2"),
         "2025-03-08T14:30+02:00"
     );
     assert_eq!(

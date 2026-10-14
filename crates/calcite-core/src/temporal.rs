@@ -1024,6 +1024,11 @@ pub struct TemporalContext {
     pub default_offset: UtcOffset,
     pub date_order: Option<DateOrder>,
     pub time_zones: Option<crate::TimeZoneSnapshot>,
+    /// When true, abbreviations such as `CET` resolve to the fixed offset
+    /// they literally name. When false (the default), they resolve to the
+    /// rules of their representative zone, so `CET` follows DST like the
+    /// region it belongs to.
+    pub literal_zone_codes: bool,
     pub workday_calendar: WorkdayCalendar,
 }
 
@@ -1034,6 +1039,7 @@ impl Default for TemporalContext {
             default_offset: UtcOffset::UTC,
             date_order: None,
             time_zones: None,
+            literal_zone_codes: false,
             workday_calendar: WorkdayCalendar::default(),
         }
     }

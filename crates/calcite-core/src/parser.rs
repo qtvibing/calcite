@@ -38,6 +38,7 @@ pub fn parse_with_context(
         default_currency: context.monetary.default_currency,
         date_order: context.temporal.date_order,
         custom_units: &context.custom_units,
+        time_zones: context.temporal.time_zones.as_ref(),
         depth: 0,
     };
 
@@ -59,6 +60,7 @@ struct Parser<'a> {
     default_currency: Currency,
     date_order: Option<DateOrder>,
     custom_units: &'a crate::CustomUnitRegistry,
+    time_zones: Option<&'a crate::TimeZoneSnapshot>,
     depth: usize,
 }
 

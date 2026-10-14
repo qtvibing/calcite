@@ -210,7 +210,7 @@ impl Parser<'_> {
             consumed = 1 + offset_tokens;
             target_span = span;
             ConversionTarget::UtcOffset(offset)
-        } else if let Some((zone, zone_tokens, zone_span)) = self.iana_zone_at(1) {
+        } else if let Some((zone, zone_tokens, zone_span)) = self.zone_specifier_at(1) {
             consumed = 1 + zone_tokens;
             target_span = zone_span;
             ConversionTarget::TimeZone(zone)
@@ -314,18 +314,12 @@ impl Parser<'_> {
         let token = *self.tokens.get(self.position + offset)?;
         if token.kind == LexemeKind::Word {
             let word = &self.source[token.span.start..token.span.end];
-            let fixed_seconds = if word.eq_ignore_ascii_case("utc")
-                || word.eq_ignore_ascii_case("gmt")
-                || word.eq_ignore_ascii_case("z")
+            if !word.eq_ignore_ascii_case("utc")
+                && !word.eq_ignore_ascii_case("gmt")
+                && !word.eq_ignore_ascii_case("z")
             {
-                0
-            } else if word.eq_ignore_ascii_case("cet") {
-                3600
-            } else if word.eq_ignore_ascii_case("cest") {
-                7200
-            } else {
                 return None;
-            };
+            }
 
             if (word.eq_ignore_ascii_case("utc") || word.eq_ignore_ascii_case("gmt"))
                 && self
@@ -336,7 +330,7 @@ impl Parser<'_> {
                 let (value, consumed, span) = self.signed_utc_offset_at(offset + 1)?;
                 return Some((value, consumed + 1, token.span.join(span)));
             }
-            return Some((UtcOffset::from_seconds(fixed_seconds)?, 1, token.span));
+            return Some((UtcOffset::from_seconds(0)?, 1, token.span));
         }
 
         self.signed_utc_offset_at(offset)

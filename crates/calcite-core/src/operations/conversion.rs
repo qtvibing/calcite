@@ -1,10 +1,13 @@
 use crate::evaluator::Value;
 use crate::{
     CalculationContext, ConversionTarget, CustomUnitValue, Diagnostic, DiagnosticKind, Fraction,
-    Money, Number, Percentage, RadixInteger, RomanInteger, Span, Unit, UnitValue,
+    Money, Number, OffsetDateTime, Percentage, RadixInteger, RomanInteger, Span, Unit, UnitValue,
 };
 
-use super::{classify_compound_value, time_zone_diagnostic, unit_diagnostic, unsupported};
+use super::{
+    ZoneTarget, anchored_zoned_clock, classify_compound_value, resolve_zone_target,
+    time_zone_diagnostic, unit_diagnostic, unsupported,
+};
 
 pub(crate) fn convert(
     value: Value,
@@ -182,30 +185,73 @@ pub(crate) fn convert(
             }
             _ => Err(unsupported(span)),
         },
-        ConversionTarget::UtcOffset(offset) => match value {
-            Value::OffsetClock(value) => Ok(Value::OffsetClock(value.converted_to(offset))),
-            Value::OffsetDateTime(value) => value
-                .converted_to(offset)
-                .map(Value::OffsetDateTime)
-                .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
-            _ => Err(unsupported(span)),
-        },
+        ConversionTarget::UtcOffset(offset) => {
+            // A zone-qualified clock time without a date is anchored to the
+            // current date first, like `9pm CET to UTC`.
+            let value = match value {
+                Value::ZonedClock(clock) => anchored_zoned_clock(clock, &context.temporal, span)?,
+                value => value,
+            };
+            match value {
+                Value::OffsetClock(value) => Ok(Value::OffsetClock(value.converted_to(offset))),
+                Value::OffsetDateTime(value) => value
+                    .converted_to(offset)
+                    .map(Value::OffsetDateTime)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+                Value::ZonedDateTime(value) => value
+                    .datetime()
+                    .converted_to(offset)
+                    .map(Value::OffsetDateTime)
+                    .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span)),
+                _ => Err(unsupported(span)),
+            }
+        }
         ConversionTarget::TimeZone(target) => {
             let snapshot = context
                 .temporal
                 .time_zones
                 .as_ref()
                 .ok_or_else(|| Diagnostic::new(DiagnosticKind::MissingTimeZoneData, span))?;
-            match value {
-                Value::OffsetDateTime(value) => snapshot
-                    .at_instant(&target, value)
-                    .map(Value::ZonedDateTime)
-                    .map_err(|error| time_zone_diagnostic(error, span)),
-                Value::ZonedDateTime(value) => value
-                    .converted_to(snapshot, &target)
-                    .map(Value::ZonedDateTime)
-                    .map_err(|error| time_zone_diagnostic(error, span)),
-                _ => Err(unsupported(span)),
+            let zone_target = resolve_zone_target(snapshot, &context.temporal, &target, span)?;
+            let value = match value {
+                // A clock time without a date is anchored to the current date
+                // before converting, like `9pm CET to Tokyo time`.
+                Value::ZonedClock(clock) => anchored_zoned_clock(clock, &context.temporal, span)?,
+                Value::OffsetClock(clock) => {
+                    let now = context.temporal.current_datetime.ok_or_else(|| {
+                        Diagnostic::new(DiagnosticKind::MissingTemporalContext, span)
+                    })?;
+                    Value::OffsetDateTime(OffsetDateTime::new(
+                        now.date(),
+                        clock.time(),
+                        clock.offset(),
+                    ))
+                }
+                value => value,
+            };
+            match zone_target {
+                ZoneTarget::FixedOffset(offset) => {
+                    let datetime = match value {
+                        Value::OffsetDateTime(value) => value,
+                        Value::ZonedDateTime(value) => value.datetime(),
+                        _ => return Err(unsupported(span)),
+                    };
+                    datetime
+                        .converted_to(offset)
+                        .map(Value::OffsetDateTime)
+                        .ok_or_else(|| Diagnostic::new(DiagnosticKind::InvalidDate, span))
+                }
+                ZoneTarget::Definition(definition) => match value {
+                    Value::OffsetDateTime(value) => definition
+                        .zoned_at_instant(value)
+                        .map(Value::ZonedDateTime)
+                        .map_err(|error| time_zone_diagnostic(error, span)),
+                    Value::ZonedDateTime(value) => definition
+                        .zoned_at_instant(value.datetime())
+                        .map(Value::ZonedDateTime)
+                        .map_err(|error| time_zone_diagnostic(error, span)),
+                    _ => Err(unsupported(span)),
+                },
             }
         }
         ConversionTarget::Currency(target) => match value {

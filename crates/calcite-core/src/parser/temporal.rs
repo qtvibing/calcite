@@ -253,6 +253,10 @@ impl Parser<'_> {
     }
 
     pub(super) fn is_clock_time(&self) -> bool {
+        self.is_hour_minute_time() || self.is_bare_hour_time()
+    }
+
+    fn is_hour_minute_time(&self) -> bool {
         matches!(
             self.tokens.get(self.position..self.position + 3),
             Some([hour, colon, minute])
@@ -264,27 +268,47 @@ impl Parser<'_> {
         )
     }
 
+    /// A bare hour with an am/pm suffix, as in `9pm` or `9 am`.
+    fn is_bare_hour_time(&self) -> bool {
+        matches!(
+            self.tokens.get(self.position..self.position + 2),
+            Some([hour, suffix])
+                if hour.kind == LexemeKind::Number
+                    && suffix.kind == LexemeKind::Word
+                    && ["am", "pm"]
+                        .iter()
+                        .any(|word| self.word_is(1, word))
+        )
+    }
+
     pub(super) fn parse_clock_time(&mut self) -> Result<Expression, Diagnostic> {
         let start = self.tokens[self.position];
-        let hour = self.token_u8(0);
-        let minute = self.token_u8(2);
-        let mut consumed = 3;
+        let bare = self.is_bare_hour_time();
+        let (hour, minute, mut consumed) = if bare {
+            (self.token_u8(0), Some(0), 2)
+        } else {
+            (self.token_u8(0), self.token_u8(2), 3)
+        };
         let mut second = Some((0, 0));
         if self
             .tokens
-            .get(self.position + 3)
+            .get(self.position + consumed)
             .is_some_and(|token| token.kind == LexemeKind::Colon)
         {
-            second = self.clock_second_at(4);
-            consumed = 5;
+            second = self.clock_second_at(consumed + 1);
+            consumed += 2;
         }
 
-        let suffix = self.tokens.get(self.position + consumed).and_then(|token| {
-            (token.kind == LexemeKind::Word)
-                .then(|| &self.source[token.span.start..token.span.end])
-                .filter(|word| word.eq_ignore_ascii_case("am") || word.eq_ignore_ascii_case("pm"))
-        });
-        if suffix.is_some() {
+        let suffix = if bare {
+            self.word_text_at(1)
+        } else {
+            self.tokens.get(self.position + consumed).and_then(|token| {
+                (token.kind == LexemeKind::Word)
+                    .then(|| &self.source[token.span.start..token.span.end])
+            })
+        }
+        .filter(|word| word.eq_ignore_ascii_case("am") || word.eq_ignore_ascii_case("pm"));
+        if !bare && suffix.is_some() {
             consumed += 1;
         }
 
@@ -314,7 +338,7 @@ impl Parser<'_> {
                 value: OffsetClockTime::new(value, offset),
                 span,
             })
-        } else if let Some((zone, zone_tokens, zone_span)) = self.iana_zone_at(consumed) {
+        } else if let Some((zone, zone_tokens, zone_span)) = self.zone_specifier_at(consumed) {
             consumed += zone_tokens;
             let span = start.span.join(zone_span);
             self.position += consumed;
@@ -328,6 +352,46 @@ impl Parser<'_> {
             self.position += consumed;
             Ok(Expression::Clock { value, span })
         }
+    }
+
+    /// A time-zone specifier at the given offset: an IANA path such as
+    /// `Europe/Paris`, a time-zone abbreviation such as `CET`, or the
+    /// trailing segment of a zone name such as `Paris` for `Europe/Paris`.
+    /// An optional trailing `time` filler word is consumed, as in `Tokyo time`.
+    pub(super) fn zone_specifier_at(&self, offset: usize) -> Option<(String, usize, Span)> {
+        let (specifier, mut consumed, mut span) = match self.iana_zone_at(offset) {
+            Some(found) => found,
+            None => {
+                let token = *self.tokens.get(self.position + offset)?;
+                if token.kind != LexemeKind::Word {
+                    return None;
+                }
+                let word = &self.source[token.span.start..token.span.end];
+                let snapshot = self.time_zones?;
+                if snapshot.specifier_kind(word).is_some() {
+                    (word.to_owned(), 1, token.span)
+                } else {
+                    // Multi-word city segments: `new york` for `New_York`.
+                    // Longest candidate first so `la paz` beats `la`.
+                    let (candidate, words, span) = (2..=3).rev().find_map(|words| {
+                        let candidate = (0..words)
+                            .map(|index| self.word_text_at(offset + index))
+                            .collect::<Option<Vec<_>>>()?;
+                        let last = self.tokens.get(self.position + offset + words - 1)?;
+                        snapshot
+                            .specifier_kind(&candidate.join("_"))
+                            .is_some()
+                            .then(|| (candidate, words, token.span.join(last.span)))
+                    })?;
+                    (candidate.join(" "), words, span)
+                }
+            }
+        };
+        if self.word_is(offset + consumed, "time") {
+            span = span.join(self.tokens[self.position + offset + consumed].span);
+            consumed += 1;
+        }
+        Some((specifier, consumed, span))
     }
 
     pub(super) fn iana_zone_at(&self, offset: usize) -> Option<(String, usize, Span)> {

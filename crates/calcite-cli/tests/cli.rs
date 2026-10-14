@@ -3,6 +3,49 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[test]
+fn resolves_zone_abbreviations_from_host_zone_data() {
+    let output = calcite()
+        .args(["2026-10-14 at 9pm CET to Tokyo time"])
+        .output()
+        .expect("calcite should run");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "2026-10-15T04:00+09:00[Asia/Tokyo]"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn literal_zone_codes_use_fixed_offsets() {
+    let output = calcite()
+        .args(["--literal-zone-codes", "2026-10-14 at 21:00 CET"])
+        .output()
+        .expect("calcite should run");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "2026-10-14T21:00+01:00"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn ambiguous_zone_codes_list_candidates() {
+    let output = calcite()
+        .args(["2026-10-14 at 21:00 CST"])
+        .output()
+        .expect("calcite should run");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("could mean"),
+        "the diagnostic lists candidate zones"
+    );
+}
+
 fn calcite() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_calcite"));
     command.env("CALCITE_CONFIG", "");

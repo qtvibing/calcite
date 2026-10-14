@@ -581,15 +581,24 @@ A bounded country holiday calendar rejects dates outside its declared range inst
 
 ### Timezones
 
-Fixed forms include `Z`, numeric offsets, and the built-in abbreviations used by the parser, including UTC/GMT and common CET/CEST, EET/EEST, UK, North American, Australian, New Zealand, and Asian abbreviations.
+Time-zone specifiers appear after a clock time or after a conversion operator:
 
 ```text
-10:00 CET in UTC                     → 09:00Z
-time between 10:00 CEST and 10:00 CET
-                                      → 1 h
+2026-10-14 at 9pm CET to Tokyo time
+                              → 2026-10-15T04:00+09:00[Asia/Tokyo]
+2025-03-08 at 10:00 Paris time
+                              → 2025-03-08T10:00+01:00[Europe/Paris]
 ```
 
-IANA zone names require a caller-provided `TimeZoneSnapshot`. The snapshot has a fixed coverage interval. Unknown zones and times outside that interval are errors. Local times in DST folds or gaps are not guessed: ambiguous and nonexistent local times receive distinct diagnostics.
+Three kinds are accepted, in any case:
+
+- IANA zone names, such as `Europe/Paris` or `asia/tokyo`
+- abbreviations such as `CET`, `CEST`, `JST`, or `AEST`
+- the trailing segment of a zone name, such as `paris` or `tokyo`
+
+By default abbreviations follow the daylight-saving rules of their region, so `CET` in October acts as `CEST` (+02:00) and in January as +01:00. With `--literal-zone-codes` (or the `literal_zone_codes` configuration key) a code means the fixed offset it literally names. Abbreviations that name several offsets, like `CST` or `IST`, never guess: they report the zones that could be meant.
+
+Zone resolution requires a caller-provided `TimeZoneSnapshot` with zone definitions and abbreviation data. The snapshot has a fixed coverage interval. Unknown zones and times outside that interval are errors. Local times in DST folds or gaps are not guessed: ambiguous and nonexistent local times receive distinct diagnostics.
 
 The CLI creates an explicit snapshot from host zone data. If host-zone discovery fails, it warns before falling back to UTC.
 

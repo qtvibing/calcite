@@ -15,6 +15,7 @@ pub enum DiagnosticKind {
     MissingTemporalContext,
     MissingTimeZoneData,
     UnknownTimeZone,
+    AmbiguousTimeZone,
     AmbiguousLocalTime,
     NonexistentLocalTime,
     TimeZoneDataOutOfRange,
@@ -106,6 +107,9 @@ impl Diagnostic {
             DiagnosticKind::MissingTemporalContext => "current date or time was not provided",
             DiagnosticKind::MissingTimeZoneData => "time-zone data was not provided",
             DiagnosticKind::UnknownTimeZone => "time zone is not present in the snapshot",
+            DiagnosticKind::AmbiguousTimeZone => {
+                "time-zone abbreviation names several zones; spell one out"
+            }
             DiagnosticKind::AmbiguousLocalTime => "local time occurs twice in this time zone",
             DiagnosticKind::NonexistentLocalTime => "local time does not exist in this time zone",
             DiagnosticKind::TimeZoneDataOutOfRange => {

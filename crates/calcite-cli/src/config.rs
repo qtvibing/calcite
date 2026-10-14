@@ -17,6 +17,7 @@ pub struct Config {
     pub timezone: Option<String>,
     pub rate_provider: ProviderChoice,
     pub history: bool,
+    pub literal_zone_codes: bool,
     pub custom_units: CustomUnitRegistry,
 }
 
@@ -32,6 +33,7 @@ impl Default for Config {
             timezone: None,
             rate_provider: ProviderChoice::Fallback,
             history: true,
+            literal_zone_codes: false,
             custom_units: CustomUnitRegistry::default(),
         }
     }
@@ -80,6 +82,11 @@ pub fn load(explicit_path: Option<PathBuf>) -> Result<Config, String> {
                     })?;
             }
             "timezone" => config.timezone = Some(string(value, key)?.to_owned()),
+            "literal_zone_codes" => {
+                config.literal_zone_codes = value.as_bool().ok_or_else(|| {
+                    "configuration literal_zone_codes must be true or false".to_owned()
+                })?;
+            }
             "rate_provider" => config.rate_provider = parse_provider(string(value, key)?)?,
             "history" => {
                 config.history = value

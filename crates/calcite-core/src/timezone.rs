@@ -97,6 +97,60 @@ impl TimeZoneDefinition {
         &self.transitions
     }
 
+    /// The wall time in this zone at the given instant.
+    pub fn zoned_at_instant(
+        &self,
+        instant: OffsetDateTime,
+    ) -> Result<ZonedDateTime, TimeZoneError> {
+        let offset = self.offset_at(instant)?;
+        let datetime = instant
+            .converted_to(offset)
+            .ok_or(TimeZoneError::OutOfRange)?;
+        Ok(ZonedDateTime {
+            datetime,
+            zone: self.name.clone(),
+        })
+    }
+
+    /// The instant this zone assigns to a wall time, applying the given
+    /// policy for times that do not exist or occur twice.
+    pub fn zoned_from_local(
+        &self,
+        date: Date,
+        time: ClockTime,
+        resolution: LocalTimeResolution,
+    ) -> Result<ZonedDateTime, TimeZoneError> {
+        let mut had_in_range_candidate = false;
+        let mut candidates = self
+            .possible_offsets()
+            .into_iter()
+            .map(|offset| OffsetDateTime::new(date, time, offset))
+            .filter(|candidate| match self.offset_at(*candidate) {
+                Ok(offset) => {
+                    had_in_range_candidate = true;
+                    offset == candidate.offset()
+                }
+                Err(_) => false,
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| instant_cmp(*left, *right));
+        candidates.dedup_by(|left, right| instant_cmp(*left, *right).is_eq());
+        let datetime = match candidates.as_slice() {
+            [] if !had_in_range_candidate => return Err(TimeZoneError::OutOfRange),
+            [] => return Err(TimeZoneError::NonexistentLocalTime),
+            [datetime] => *datetime,
+            candidates => match resolution {
+                LocalTimeResolution::Reject => return Err(TimeZoneError::AmbiguousLocalTime),
+                LocalTimeResolution::Earlier => candidates[0],
+                LocalTimeResolution::Later => candidates[candidates.len() - 1],
+            },
+        };
+        Ok(ZonedDateTime {
+            datetime,
+            zone: self.name.clone(),
+        })
+    }
+
     fn offset_at(&self, instant: OffsetDateTime) -> Result<UtcOffset, TimeZoneError> {
         if instant_cmp(instant, self.valid_from).is_lt()
             || !instant_cmp(instant, self.valid_until).is_lt()
@@ -128,12 +182,38 @@ impl TimeZoneDefinition {
 pub struct TimeZoneSnapshot {
     version: String,
     zones: BTreeMap<String, TimeZoneDefinition>,
+    codes: BTreeMap<String, TimeZoneCode>,
+}
+
+/// How a time-zone abbreviation such as `CET` or `CST` should be interpreted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TimeZoneCode {
+    /// The abbreviation has a single meaning.
+    Resolved {
+        /// The fixed offset the abbreviation literally names.
+        literal_offset: UtcOffset,
+        /// The IANA zone whose rules apply when abbreviations are resolved
+        /// against their region instead of literally.
+        representative_zone: String,
+    },
+    /// The abbreviation names several offsets or regions; the zones that
+    /// produce it are offered as candidates.
+    Ambiguous { candidates: Vec<String> },
+}
+
+/// The meaning of a time-zone specifier written by the user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZoneSpecifier {
+    Zone,
+    Abbreviation,
+    Ambiguous,
 }
 
 impl TimeZoneSnapshot {
     pub fn new(
         version: impl Into<String>,
         zones: impl IntoIterator<Item = TimeZoneDefinition>,
+        codes: impl IntoIterator<Item = (String, TimeZoneCode)>,
     ) -> Result<Self, TimeZoneError> {
         let version = version.into();
         if version.trim().is_empty() {
@@ -146,9 +226,17 @@ impl TimeZoneSnapshot {
                 return Err(TimeZoneError::DuplicateZone);
             }
         }
+        let mut indexed_codes = BTreeMap::new();
+        for (code, entry) in codes {
+            let key = code.to_ascii_lowercase();
+            if indexed_codes.insert(key, entry).is_some() {
+                return Err(TimeZoneError::DuplicateZone);
+            }
+        }
         Ok(Self {
             version,
             zones: indexed,
+            codes: indexed_codes,
         })
     }
 
@@ -160,6 +248,64 @@ impl TimeZoneSnapshot {
         self.zones.values()
     }
 
+    /// Classifies a specifier without resolving it to a definition, so the
+    /// parser can decide whether a word is a time-zone specifier.
+    pub fn specifier_kind(&self, specifier: &str) -> Option<ZoneSpecifier> {
+        self.resolve_specifier(specifier)
+            .map(|resolution| match resolution {
+                ZoneResolution::Zone(_) => ZoneSpecifier::Zone,
+                ZoneResolution::Abbreviation(_) => ZoneSpecifier::Abbreviation,
+                ZoneResolution::Ambiguous(_) => ZoneSpecifier::Ambiguous,
+            })
+    }
+
+    /// Resolves a user-written specifier: an IANA zone name, a time-zone
+    /// abbreviation such as `CET`, or the trailing segment of a zone name
+    /// such as `paris` for `Europe/Paris`.
+    pub fn resolve_specifier(&self, specifier: &str) -> Option<ZoneResolution<'_>> {
+        let key = specifier.to_ascii_lowercase();
+        // Codes are checked before zone names: several codes (CET, EST, ...)
+        // are also legacy zone names, and their abbreviation entry decides
+        // whether they resolve literally or to their representative zone.
+        if let Some(entry) = self.codes.get(&key) {
+            return Some(match entry {
+                TimeZoneCode::Resolved {
+                    literal_offset,
+                    representative_zone,
+                } => ZoneResolution::Abbreviation(TimeZoneAbbreviation {
+                    literal_offset: *literal_offset,
+                    representative_zone: representative_zone.clone(),
+                }),
+                TimeZoneCode::Ambiguous { candidates } => {
+                    ZoneResolution::Ambiguous(candidates.iter().map(String::as_str).collect())
+                }
+            });
+        }
+        if let Some(definition) = self.zones.get(&key) {
+            return Some(ZoneResolution::Zone(definition));
+        }
+        let hits = self
+            .zones
+            .values()
+            .filter(|definition| {
+                definition
+                    .name
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|segment| same_city(segment, specifier))
+            })
+            .collect::<Vec<_>>();
+        match hits.as_slice() {
+            [] => None,
+            [definition] => Some(ZoneResolution::Zone(definition)),
+            _ => Some(ZoneResolution::Ambiguous(
+                hits.iter()
+                    .map(|definition| definition.name.as_str())
+                    .collect(),
+            )),
+        }
+    }
+
     pub fn zone(&self, name: &str) -> Option<&TimeZoneDefinition> {
         self.zones.get(&name.to_ascii_lowercase())
     }
@@ -169,15 +315,9 @@ impl TimeZoneSnapshot {
         zone: &str,
         instant: OffsetDateTime,
     ) -> Result<ZonedDateTime, TimeZoneError> {
-        let definition = self.zone(zone).ok_or(TimeZoneError::UnknownZone)?;
-        let offset = definition.offset_at(instant)?;
-        let datetime = instant
-            .converted_to(offset)
-            .ok_or(TimeZoneError::OutOfRange)?;
-        Ok(ZonedDateTime {
-            datetime,
-            zone: definition.name.clone(),
-        })
+        self.zone(zone)
+            .ok_or(TimeZoneError::UnknownZone)?
+            .zoned_at_instant(instant)
     }
 
     pub fn resolve_local(
@@ -187,37 +327,42 @@ impl TimeZoneSnapshot {
         time: ClockTime,
         resolution: LocalTimeResolution,
     ) -> Result<ZonedDateTime, TimeZoneError> {
-        let definition = self.zone(zone).ok_or(TimeZoneError::UnknownZone)?;
-        let mut had_in_range_candidate = false;
-        let mut candidates = definition
-            .possible_offsets()
-            .into_iter()
-            .map(|offset| OffsetDateTime::new(date, time, offset))
-            .filter(|candidate| match definition.offset_at(*candidate) {
-                Ok(offset) => {
-                    had_in_range_candidate = true;
-                    offset == candidate.offset()
-                }
-                Err(_) => false,
-            })
-            .collect::<Vec<_>>();
-        candidates.sort_by(|left, right| instant_cmp(*left, *right));
-        candidates.dedup_by(|left, right| instant_cmp(*left, *right).is_eq());
-        let datetime = match candidates.as_slice() {
-            [] if !had_in_range_candidate => return Err(TimeZoneError::OutOfRange),
-            [] => return Err(TimeZoneError::NonexistentLocalTime),
-            [datetime] => *datetime,
-            candidates => match resolution {
-                LocalTimeResolution::Reject => return Err(TimeZoneError::AmbiguousLocalTime),
-                LocalTimeResolution::Earlier => candidates[0],
-                LocalTimeResolution::Later => candidates[candidates.len() - 1],
-            },
-        };
-        Ok(ZonedDateTime {
-            datetime,
-            zone: definition.name.clone(),
-        })
+        self.zone(zone)
+            .ok_or(TimeZoneError::UnknownZone)?
+            .zoned_from_local(date, time, resolution)
     }
+}
+
+/// A time-zone abbreviation resolved from the snapshot's code table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimeZoneAbbreviation {
+    literal_offset: UtcOffset,
+    representative_zone: String,
+}
+
+impl TimeZoneAbbreviation {
+    pub const fn new(literal_offset: UtcOffset, representative_zone: String) -> Self {
+        Self {
+            literal_offset,
+            representative_zone,
+        }
+    }
+
+    pub const fn literal_offset(&self) -> UtcOffset {
+        self.literal_offset
+    }
+
+    pub fn representative_zone(&self) -> &str {
+        &self.representative_zone
+    }
+}
+
+/// A fully resolved meaning of a user-written specifier.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ZoneResolution<'a> {
+    Zone(&'a TimeZoneDefinition),
+    Abbreviation(TimeZoneAbbreviation),
+    Ambiguous(Vec<&'a str>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,14 +407,6 @@ impl ZonedDateTime {
 
     pub fn zone(&self) -> &str {
         &self.zone
-    }
-
-    pub fn converted_to(
-        &self,
-        snapshot: &TimeZoneSnapshot,
-        zone: &str,
-    ) -> Result<Self, TimeZoneError> {
-        snapshot.at_instant(zone, self.datetime)
     }
 
     pub fn add_nanoseconds(
@@ -346,4 +483,16 @@ impl std::error::Error for TimeZoneError {}
 
 fn instant_cmp(left: OffsetDateTime, right: OffsetDateTime) -> std::cmp::Ordering {
     left.nanoseconds_since(right).cmp(&0)
+}
+
+/// Compares a zone-name segment such as `New_York` with a user-written
+/// specifier such as `new york`, ignoring case, spaces, and underscores.
+fn same_city(segment: &str, specifier: &str) -> bool {
+    let normalized = |text: &str| {
+        text.bytes()
+            .filter(|byte| !matches!(byte, b' ' | b'_'))
+            .map(|byte| byte.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+    };
+    normalized(segment) == normalized(specifier)
 }
