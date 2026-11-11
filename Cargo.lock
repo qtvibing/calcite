@@ -94,6 +94,7 @@ version = "0.2.1"
 dependencies = [
  "calcite-core",
  "calcite-rates",
+ "calcite-tzdb",
  "clap",
  "getrandom 0.2.17",
  "jiff",
@@ -123,6 +124,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "calcite-tzdb"
+version = "0.2.1"
+dependencies = [
+ "calcite-core",
+ "jiff",
 ]
 
 [[package]]
@@ -629,10 +638,12 @@ dependencies = [
  "jiff-core",
  "jiff-static",
  "jiff-tzdb-platform",
+ "js-sys",
  "log",
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
+ "wasm-bindgen",
  "windows-link",
 ]
 

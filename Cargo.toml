@@ -2,6 +2,7 @@
 members = [
     "crates/calcite-core",
     "crates/calcite-rates",
+    "crates/calcite-tzdb",
     "crates/calcite-cli",
 ]
 resolver = "3"

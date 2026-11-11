@@ -1,0 +1,9 @@
+[package]
+name = "calcite-tzdb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+calcite-core = { path = "../calcite-core" }
+jiff = { workspace = true, features = ["js"] }

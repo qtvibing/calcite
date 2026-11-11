@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 calcite-core = { path = "../calcite-core", features = ["json"] }
 calcite-rates = { path = "../calcite-rates", features = ["ecb", "frankfurter"] }
+calcite-tzdb = { path = "../calcite-tzdb" }
 clap.workspace = true
 getrandom.workspace = true
 jiff.workspace = true
