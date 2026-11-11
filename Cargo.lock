@@ -110,6 +110,7 @@ dependencies = [
  "dashu-float",
  "dashu-int",
  "dashu-ratio",
+ "serde_json",
 ]
 
 [[package]]

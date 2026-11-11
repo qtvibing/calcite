@@ -9,7 +9,7 @@ name = "calcite"
 path = "src/main.rs"
 
 [dependencies]
-calcite-core = { path = "../calcite-core" }
+calcite-core = { path = "../calcite-core", features = ["json"] }
 calcite-rates = { path = "../calcite-rates", features = ["ecb", "frankfurter"] }
 clap.workspace = true
 getrandom.workspace = true

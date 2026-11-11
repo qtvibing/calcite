@@ -9,7 +9,11 @@ readme = "README.md"
 name = "bounded"
 harness = false
 
+[features]
+json = ["dep:serde_json"]
+
 [dependencies]
 dashu-float.workspace = true
 dashu-int.workspace = true
 dashu-ratio.workspace = true
+serde_json = { workspace = true, optional = true }

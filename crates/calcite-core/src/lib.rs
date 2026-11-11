@@ -13,6 +13,8 @@ mod finance;
 mod formatter;
 mod fraction;
 mod functions;
+#[cfg(feature = "json")]
+mod json;
 mod lexer;
 mod money;
 mod money_rate;
