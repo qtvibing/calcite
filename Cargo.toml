@@ -4,6 +4,7 @@ members = [
     "crates/calcite-rates",
     "crates/calcite-tzdb",
     "crates/calcite-cli",
+    "crates/calcite-wasm",
 ]
 resolver = "3"
 
@@ -12,6 +13,14 @@ version = "0.2.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.89"
+
+[profile.release-wasm]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 
 [workspace.dependencies]
 dashu-float = "0.6.0"

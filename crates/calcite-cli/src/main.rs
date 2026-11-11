@@ -10,10 +10,9 @@ use std::{
 };
 
 use calcite_core::{
-    CalculationContext, CalculationSession, ClockTime, Currency, Date,
-    DateOrder, Diagnostic, DiagnosticKind, DocumentCalculation, EntropySource, Function,
-    NumberFormat, NumberOutputMode, OffsetDateTime, UtcOffset,
-    calculate_document_with_context_and_entropy, surface_variants,
+    CalculationContext, CalculationSession, ClockTime, Currency, Date, DateOrder, Diagnostic,
+    DiagnosticKind, DocumentCalculation, EntropySource, Function, NumberFormat, NumberOutputMode,
+    OffsetDateTime, UtcOffset, calculate_document_with_context_and_entropy, surface_variants,
 };
 use jiff::{Timestamp, tz::TimeZone};
 use rustyline::{

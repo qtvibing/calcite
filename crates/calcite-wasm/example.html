@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>calcite</title>
+</head>
+<body>
+  <input id="expression" value="15% of 240" size="40" autofocus>
+  <pre id="output"></pre>
+  <script type="module">
+    import init, { calculate } from './calcite.js';
+
+    await init();
+
+    const input = document.getElementById('expression');
+    const output = document.getElementById('output');
+
+    function run() {
+      try {
+        const result = calculate(input.value);
+        output.textContent = result.output + '\n\n' + JSON.stringify(result.value, null, 2);
+      } catch (error) {
+        output.textContent = error?.error?.message ?? String(error);
+      }
+    }
+
+    input.addEventListener('input', run);
+    run();
+  </script>
+</body>
+</html>
