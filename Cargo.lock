@@ -139,6 +139,7 @@ name = "calcite-wasm"
 version = "0.2.2"
 dependencies = [
  "calcite-core",
+ "calcite-rates",
  "calcite-tzdb",
  "js-sys",
  "serde_json",

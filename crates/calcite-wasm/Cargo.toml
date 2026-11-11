@@ -13,6 +13,7 @@ tzdb = ["dep:calcite-tzdb"]
 
 [dependencies]
 calcite-core = { path = "../calcite-core", features = ["json"] }
+calcite-rates = { path = "../calcite-rates" }
 calcite-tzdb = { path = "../calcite-tzdb", optional = true }
 js-sys = "0.3"
 serde_json.workspace = true

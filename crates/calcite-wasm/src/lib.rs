@@ -48,6 +48,19 @@ impl Session {
     pub fn clear(&mut self) {
         self.session.clear();
     }
+
+    #[wasm_bindgen(js_name = setRates)]
+    pub fn set_rates(&mut self, json: &str) -> Result<(), JsValue> {
+        let snapshot = calcite_rates::load_json_snapshot(json).map_err(|error| {
+            parse_json(&serde_json::json!({
+                "ok": false,
+                "error": { "kind": "InvalidRates", "message": error.to_string() },
+            }))
+            .unwrap_or(JsValue::NULL)
+        })?;
+        self.context.monetary.exchange_rates.reload(snapshot);
+        Ok(())
+    }
 }
 
 impl Default for Session {
