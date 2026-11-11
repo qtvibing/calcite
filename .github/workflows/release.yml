@@ -41,3 +41,43 @@ jobs:
           artifacts: dist/*
           allowUpdates: true
           makeLatest: true
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: install wasm-bindgen-cli
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/{getline; print}' Cargo.lock | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          cargo install wasm-bindgen-cli --locked --version "$version"
+      - name: install wasm-opt
+        run: |
+          curl -sSfLO https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+          curl -sSfL https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz.sha256 | sha256sum -c -
+          tar xzf binaryen-version_133-x86_64-linux.tar.gz
+          echo "$PWD/binaryen-version_133/bin" >> "$GITHUB_PATH"
+      - name: package slim variant
+        run: |
+          cargo build -p calcite-wasm --target wasm32-unknown-unknown --profile release-wasm
+          wasm-bindgen --target web --out-name calcite --out-dir dist/wasm target/wasm32-unknown-unknown/release-wasm/calcite_wasm.wasm
+          wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals -o dist/wasm/calcite_bg.wasm dist/wasm/calcite_bg.wasm
+          cp crates/calcite-wasm/example.html crates/calcite-wasm/README.md dist/wasm/
+          tar -czf dist/calcite-wasm.tar.gz -C dist/wasm .
+      - name: package tzdb variant
+        run: |
+          cargo build -p calcite-wasm --features tzdb --target wasm32-unknown-unknown --profile release-wasm
+          wasm-bindgen --target web --out-name calcite --out-dir dist/wasm-tzdb target/wasm32-unknown-unknown/release-wasm/calcite_wasm.wasm
+          wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals -o dist/wasm-tzdb/calcite_bg.wasm dist/wasm-tzdb/calcite_bg.wasm
+          cp crates/calcite-wasm/example.html crates/calcite-wasm/README.md dist/wasm-tzdb/
+          tar -czf dist/calcite-wasm-tzdb.tar.gz -C dist/wasm-tzdb .
+      - uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
+        with:
+          artifacts: dist/*.tar.gz
+          allowUpdates: true
+          makeLatest: true
